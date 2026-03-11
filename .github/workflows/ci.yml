@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    container: ghcr.io/angzarr-io/angzarr-python:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Build
+        run: just build
+
+      - name: Test (unit)
+        run: just test-unit
+
+      - name: Lint
+        run: just lint
+
+      - name: Format check
+        run: |
+          uv run black --check .
+          uv run ruff check .
