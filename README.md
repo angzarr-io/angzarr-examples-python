@@ -41,4 +41,4 @@ skaffold run
 
 ## License
 
-MIT - See LICENSE file
+BSD-3-Clause
