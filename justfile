@@ -1,4 +1,4 @@
-# Python poker examples
+# Angzarr Python Examples - Poker Domain
 #
 # Container Overlay Pattern:
 # --------------------------
@@ -9,8 +9,7 @@
 #
 # When running outside a devcontainer:
 #   - Builds/uses local devcontainer image with `just` pre-installed
-#   - Podman mounts justfile.container as /workspace/examples/python/justfile
-#   - `just test` on host → podman runs → `just test` in container → pytest
+#   - Podman mounts justfile.container as /workspace/justfile
 #
 # When running inside a devcontainer (DEVCONTAINER=true):
 #   - Commands execute directly via `just <target>`
@@ -18,13 +17,13 @@
 
 set shell := ["bash", "-c"]
 
-TOP := `git rev-parse --show-toplevel`
-IMAGE := "angzarr-python-dev"
+ROOT := `git rev-parse --show-toplevel`
+IMAGE := "angzarr-examples-python-dev"
 
 # Build the devcontainer image
 [private]
 _build-image:
-    podman build --network=host -t {{IMAGE}} -f "{{TOP}}/examples/python/.devcontainer/Containerfile" "{{TOP}}/examples/python/.devcontainer"
+    podman build --network=host -t {{IMAGE}} -f "{{ROOT}}/.devcontainer/Containerfile" "{{ROOT}}/.devcontainer"
 
 # Run just target in container (or directly if already in devcontainer)
 [private]
@@ -34,9 +33,9 @@ _container +ARGS: _build-image
         just {{ARGS}}
     else
         podman run --rm --network=host \
-            -v "{{TOP}}:/workspace:Z" \
-            -v "{{TOP}}/examples/python/justfile.container:/workspace/examples/python/justfile:ro" \
-            -w /workspace/examples/python \
+            -v "{{ROOT}}:/workspace:Z" \
+            -v "{{ROOT}}/justfile.container:/workspace/justfile:ro" \
+            -w /workspace \
             {{IMAGE}} just {{ARGS}}
     fi
 

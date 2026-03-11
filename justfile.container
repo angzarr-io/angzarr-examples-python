@@ -1,47 +1,56 @@
-# Python poker examples - container version
+# Angzarr Python Examples - container version
 # This file is mounted as 'justfile' inside the container
 # Also used directly in CI container jobs
 
 set shell := ["bash", "-c"]
 
-TOP := `git rev-parse --show-toplevel`
-
 default:
     @just --list
 
-# Generate protos for client library (required before build)
-client-proto:
-    cd {{TOP}}/proto && buf generate --template buf.gen.python.yaml && \
-    find {{TOP}}/client/python/angzarr_client/proto -name "*.py" -exec sed -i 's/from angzarr import/from angzarr_client.proto.angzarr import/g' {} \; && \
-    find {{TOP}}/client/python/angzarr_client/proto/examples -name "*.py" -exec sed -i 's/from examples import/from angzarr_client.proto.examples import/g' {} \;
+# Generate poker domain protos from buf registry
+proto:
+    buf generate
+    find poker/proto -name "*.py" -exec sed -i 's/from poker import/from poker.proto.poker import/g' {} \;
 
-build: client-proto
+# Sync feature files from angzarr core (for BDD tests)
+sync-features:
+    bash scripts/sync-features.sh
+
+# Install dependencies
+install:
     uv sync
 
-install: build
+# Run unit tests
+test-unit: install sync-features
+    uv run pytest tests/ -v
 
-test-unit: build
-    uv run pytest -v
-
-test-acceptance: build
+# Run acceptance tests (Gherkin/behave)
+test-acceptance: install sync-features
     uv run behave features/ --tags="~@wip"
 
+# Run all tests
 test: test-unit test-acceptance
 
+# Format code
 fmt:
     uv run black .
 
+# Lint code
 lint:
     uv run ruff check .
 
+# Type check
 typecheck:
     uv run mypy . --ignore-missing-imports
 
-run-player: build
+# Run player aggregate
+run-player: install
     cd player/agg && uv run python main.py
 
-run-table: build
+# Run table aggregate
+run-table: install
     cd table/agg && uv run python main.py
 
-run-hand: build
+# Run hand aggregate
+run-hand: install
     cd hand/agg && uv run python main.py
