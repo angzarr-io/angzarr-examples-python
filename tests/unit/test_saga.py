@@ -4,17 +4,7 @@ Note: These tests require the sagas package which is not yet implemented.
 Tests are skipped if the module is not available.
 """
 
-import sys
-from pathlib import Path
-
 import pytest
-from google.protobuf.any_pb2 import Any as ProtoAny
-from pytest_bdd import given, parsers, scenarios, then, when
-
-# Add paths
-root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(root))
-sys.path.insert(0, str(root / "sagas"))
 
 from angzarr_client.helpers import type_matches
 from angzarr_client.proto.angzarr import types_pb2 as types

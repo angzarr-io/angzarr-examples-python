@@ -35,3 +35,8 @@ packages = ["angzarr", "agg-player", "agg-table", "agg-hand"]
 [tool.pytest.ini_options]
 pythonpath = ["player/agg", "table/agg", "hand/agg"]
 testpaths = ["player/agg", "table/agg/handlers", "hand/agg/handlers"]
+
+[tool.ruff.lint.per-file-ignores]
+# These files require sys.path manipulation before imports
+"run_game.py" = ["E402"]
+"tests/conftest.py" = ["E402"]

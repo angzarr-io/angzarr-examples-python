@@ -8,7 +8,6 @@ until one player remains.
 import argparse
 import os
 import random
-import signal
 import subprocess
 import sys
 import time
@@ -172,14 +171,14 @@ class PokerGame:
             action_timeout_seconds=30,
         )
 
-        self.log(f"\n┌─ COMMAND: CreateTable")
+        self.log("\n┌─ COMMAND: CreateTable")
         self.log(f"│  table: {name}, variant: {self.variant.value}")
         self.log(f"│  blinds: {chips(self.small_blind)}/{chips(self.big_blind)}")
 
         resp = self.client.execute("table", self.table_root, cmd, sequence=0)
         self.table_sequence = resp.events.next_sequence
 
-        self.log(f"└─ EVENT: TableCreated")
+        self.log("└─ EVENT: TableCreated")
 
     def register_player(self, name: str) -> Player:
         """Register a new player."""
@@ -191,13 +190,13 @@ class PokerGame:
             player_type=types_pb2.AI,
         )
 
-        self.log(f"\n┌─ COMMAND: RegisterPlayer")
+        self.log("\n┌─ COMMAND: RegisterPlayer")
         self.log(f"│  name: {name}")
 
         resp = self.client.execute("player", root, cmd, sequence=0)
         sequence = resp.events.next_sequence
 
-        self.log(f"└─ EVENT: PlayerRegistered")
+        self.log("└─ EVENT: PlayerRegistered")
 
         return Player(name=name, root=root, stack=0, seat=-1, sequence=sequence)
 
@@ -207,14 +206,14 @@ class PokerGame:
             amount=types_pb2.Currency(amount=amount),
         )
 
-        self.log(f"\n┌─ COMMAND: DepositFunds")
+        self.log("\n┌─ COMMAND: DepositFunds")
         self.log(f"│  player: {player.name}, amount: {chips(amount)}")
 
         resp = self.client.execute("player", player.root, cmd, sequence=player.sequence)
         player.sequence = resp.events.next_sequence
         player.stack = amount
 
-        self.log(f"└─ EVENT: FundsDeposited")
+        self.log("└─ EVENT: FundsDeposited")
 
     def join_table(self, player: Player, seat: int, buy_in: int):
         """Have a player join the table."""
@@ -224,13 +223,13 @@ class PokerGame:
             table_root=self.table_root,
         )
 
-        self.log(f"\n┌─ COMMAND: ReserveFunds")
+        self.log("\n┌─ COMMAND: ReserveFunds")
         self.log(f"│  player: {player.name}, amount: {chips(buy_in)}")
 
         resp = self.client.execute("player", player.root, cmd, sequence=player.sequence)
         player.sequence = resp.events.next_sequence
 
-        self.log(f"└─ EVENT: FundsReserved")
+        self.log("└─ EVENT: FundsReserved")
 
         # Then join table
         cmd = table_pb2.JoinTable(
@@ -239,7 +238,7 @@ class PokerGame:
             buy_in_amount=buy_in,
         )
 
-        self.log(f"\n┌─ COMMAND: JoinTable")
+        self.log("\n┌─ COMMAND: JoinTable")
         self.log(f"│  player: {player.name}, seat: {seat}")
 
         resp = self.client.execute(
@@ -247,7 +246,7 @@ class PokerGame:
         )
         self.table_sequence = resp.events.next_sequence
 
-        self.log(f"└─ EVENT: PlayerJoined")
+        self.log("└─ EVENT: PlayerJoined")
 
         player.seat = seat
         player.stack = buy_in
@@ -327,7 +326,7 @@ class PokerGame:
             deck_seed=random.randbytes(32),
         )
 
-        self.log(f"\n┌─ COMMAND: DealCards")
+        self.log("\n┌─ COMMAND: DealCards")
         self.log(f"│  hand: #{self.hand_num}, dealer: seat {self.dealer_seat}")
 
         resp = self.client.execute("hand", self.hand_root, cmd, sequence=0)
@@ -344,7 +343,7 @@ class PokerGame:
                             p.hole_cards = list(pc.cards)
                             break
 
-        self.log(f"└─ EVENT: CardsDealt")
+        self.log("└─ EVENT: CardsDealt")
 
         # Show hands to console
         for p in sorted(self.players.values(), key=lambda x: x.seat):
@@ -374,7 +373,7 @@ class PokerGame:
             amount=sb_amount,
         )
 
-        self.log(f"\n┌─ COMMAND: PostBlind (small)")
+        self.log("\n┌─ COMMAND: PostBlind (small)")
         self.log(f"│  {sb_player.name}: {chips(sb_amount)}")
 
         resp = self.client.execute(
@@ -386,7 +385,7 @@ class PokerGame:
         sb_player.bet = sb_amount
         self.pot += sb_amount
 
-        self.log(f"└─ EVENT: BlindPosted")
+        self.log("└─ EVENT: BlindPosted")
 
         # Post big blind
         bb_player = self.players[bb_seat]
@@ -398,7 +397,7 @@ class PokerGame:
             amount=bb_amount,
         )
 
-        self.log(f"\n┌─ COMMAND: PostBlind (big)")
+        self.log("\n┌─ COMMAND: PostBlind (big)")
         self.log(f"│  {bb_player.name}: {chips(bb_amount)}")
 
         resp = self.client.execute(
@@ -411,7 +410,7 @@ class PokerGame:
         self.pot += bb_amount
         self.current_bet = bb_amount
 
-        self.log(f"└─ EVENT: BlindPosted")
+        self.log("└─ EVENT: BlindPosted")
 
     def get_action(self, player: Player) -> tuple[types_pb2.ActionType, int]:
         """Get AI decision for a player. Simplified to mostly call/check/fold."""
@@ -490,7 +489,7 @@ class PokerGame:
             )
 
             action_name = types_pb2.ActionType.Name(action)
-            self.log(f"\n┌─ COMMAND: PlayerAction")
+            self.log("\n┌─ COMMAND: PlayerAction")
             self.log(
                 f"│  {player.name}: {action_name}"
                 + (f" {chips(amount)}" if amount else "")
@@ -501,7 +500,7 @@ class PokerGame:
             )
             self.hand_sequence = resp.events.next_sequence
 
-            self.log(f"└─ EVENT: ActionTaken")
+            self.log("└─ EVENT: ActionTaken")
 
             # Update local state
             if action == types_pb2.FOLD:
@@ -553,7 +552,7 @@ class PokerGame:
                 page.event.Unpack(dealt)
                 self.community = list(dealt.all_community_cards)
 
-        self.log(f"└─ EVENT: CommunityCardsDealt")
+        self.log("└─ EVENT: CommunityCardsDealt")
         self.log(f"   Board: {cards_str(self.community)}")
 
     def showdown(self):
@@ -582,7 +581,7 @@ class PokerGame:
             ]
         )
 
-        self.log(f"\n┌─ COMMAND: AwardPot")
+        self.log("\n┌─ COMMAND: AwardPot")
         self.log(f"│  {winner.name}: {chips(self.pot)}")
 
         resp = self.client.execute(
@@ -590,7 +589,7 @@ class PokerGame:
         )
         self.hand_sequence = resp.events.next_sequence
 
-        self.log(f"└─ EVENT: PotAwarded")
+        self.log("└─ EVENT: PotAwarded")
 
     def play_hand(self):
         """Play a complete hand."""
@@ -609,7 +608,7 @@ class PokerGame:
             first_preflop = seats[(dealer_idx + 3) % len(seats)]  # UTG
 
         # Preflop betting
-        self.log(f"\n--- PREFLOP ---")
+        self.log("\n--- PREFLOP ---")
         self.betting_round(first_preflop, preflop=True)
 
         # Check if hand is over (all but one folded)
@@ -621,7 +620,7 @@ class PokerGame:
         if self.variant == GameVariant.TEXAS_HOLDEM:
             # Flop
             self.deal_community(3, "FLOP")
-            self.log(f"\n--- FLOP ---")
+            self.log("\n--- FLOP ---")
             first_postflop = seats[(dealer_idx + 1) % len(seats)]
             self.betting_round(first_postflop)
 
@@ -632,7 +631,7 @@ class PokerGame:
 
             # Turn
             self.deal_community(1, "TURN")
-            self.log(f"\n--- TURN ---")
+            self.log("\n--- TURN ---")
             self.betting_round(first_postflop)
 
             active = [p for p in self.players.values() if not p.folded]
@@ -642,7 +641,7 @@ class PokerGame:
 
             # River
             self.deal_community(1, "RIVER")
-            self.log(f"\n--- RIVER ---")
+            self.log("\n--- RIVER ---")
             self.betting_round(first_postflop)
 
         self.showdown()
@@ -650,7 +649,7 @@ class PokerGame:
 
     def show_standings(self):
         """Show current chip counts."""
-        self.log(f"\n--- STANDINGS ---")
+        self.log("\n--- STANDINGS ---")
         for p in sorted(self.players.values(), key=lambda x: -x.stack):
             self.log(f"   {p.name}: {chips(p.stack)}")
 

@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from behave import given, then, use_step_matcher, when
-from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from angzarr_client.proto.angzarr import types_pb2 as types
@@ -717,7 +716,7 @@ def step_then_award_pot_sent(context):
 def step_then_award_to_remaining(context):
     """Verify AwardPot sent to remaining player."""
     commands = context.command_sender.get_all_commands_of_type("AwardPot")
-    assert len(commands) >= 1, f"Expected AwardPot command"
+    assert len(commands) >= 1, "Expected AwardPot command"
 
 
 @then("the player is marked as is_all_in")
@@ -737,7 +736,7 @@ def step_then_player_excluded(context):
 def step_then_pm_sends_action(context, action):
     """Verify process manager sends specified action."""
     commands = context.command_sender.get_all_commands_of_type("PlayerAction")
-    assert len(commands) >= 1, f"Expected PlayerAction command"
+    assert len(commands) >= 1, "Expected PlayerAction command"
 
     cmd_any = commands[0].pages[0].command
     cmd = hand.PlayerAction()

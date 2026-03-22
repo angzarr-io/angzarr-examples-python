@@ -8,14 +8,12 @@ mechanics. The feature file describes conceptual behavior; step definitions
 map to actual proto types.
 """
 
-import uuid
 from datetime import datetime, timezone
 
 from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 
-from angzarr_client import next_sequence
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import player_pb2 as player
@@ -862,7 +860,7 @@ def step_then_saga_fails(context, text):
         for event_book in context.saga_response.events:
             if event_book.cover and event_book.cover.domain == "nonexistent":
                 # This would fail at injection time
-                context.expected_error = f"Domain 'nonexistent' not found"
+                context.expected_error = "Domain 'nonexistent' not found"
                 return
 
     # If saga raised an error, check it

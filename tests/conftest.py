@@ -11,6 +11,9 @@ sys.path.insert(0, str(root))
 sys.path.insert(0, str(root / "player" / "agg"))
 sys.path.insert(0, str(root / "table" / "agg"))
 sys.path.insert(0, str(root / "hand" / "agg"))
+sys.path.insert(0, str(root / "sagas"))
+sys.path.insert(0, str(root / "prj-output"))
+sys.path.insert(0, str(root / "hand-flow"))
 
 # Import testing utilities from angzarr_client.testing
 # Import proto modules for fixtures

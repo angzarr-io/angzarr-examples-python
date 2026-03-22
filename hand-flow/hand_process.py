@@ -8,7 +8,6 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Callable, Optional
 
 from google.protobuf.any_pb2 import Any
-from google.protobuf.timestamp_pb2 import Timestamp
 
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand

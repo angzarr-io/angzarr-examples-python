@@ -1,12 +1,6 @@
 """Step definitions for table aggregate tests."""
 
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
-
-# Add project root for proto imports
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
 
 from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
@@ -252,7 +246,7 @@ def _execute_handler(context, method_name: str, cmd):
 
     try:
         method = getattr(agg, method_name)
-        result = method(cmd)
+        method(cmd)
         # Get the event book with new events
         result_book = agg.event_book()
         context.result = result_book

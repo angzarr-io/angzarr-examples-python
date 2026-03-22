@@ -5,7 +5,7 @@ Tests both:
 - Handle side: Aggregates/PMs handle Notification via @rejected handlers
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from behave import given, then, use_step_matcher, when
@@ -15,9 +15,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from angzarr_client import (
     CommandHandler,
     CommandHandlerRouter,
-    CommandRejectedError,
     ProcessManager,
-    handles,
     rejected,
 )
 from angzarr_client.helpers import type_name_from_url
@@ -2642,22 +2640,6 @@ def step_rejection_arrives_target_fluent(context):
         step_router_dispatches(context)
 
 
-@when("router extracts dispatch key")
-def step_router_extracts_key(context):
-    """Router extracts dispatch key."""
-    # Key extraction happens implicitly when notification exists
-    assert context.notification is not None, "No notification for key extraction"
-
-
-@when("router builds dispatch key")
-def step_router_builds_key(context):
-    """Router builds dispatch key."""
-    # Key is built from notification's rejected_command
-    assert context.notification is not None, "No notification for key building"
-    rejection = get_rejection_from_notification(context.notification)
-    assert rejection.rejected_command is not None, "No rejected_command for key"
-
-
 # --- Then Steps: Handle Scenarios ---
 
 
@@ -2755,26 +2737,11 @@ def step_workflow_step_failed_recorded(context):
         assert context.pm._rejection_handled, "PM did not record workflow step failure"
 
 
-@then("PM events are persisted")
-def step_pm_events_persisted(context):
-    """PM events are persisted."""
-    # PM exists and has handled the rejection
-    assert hasattr(context, "pm"), "No PM in context for persistence"
-
-
 @then("framework routes Notification to source aggregate next")
 def step_framework_routes_to_aggregate(context):
     """Framework routes to source aggregate."""
     # Notification exists for routing to aggregate
     assert context.notification is not None, "No notification to route"
-
-
-@then("PM returns no process events")
-def step_pm_returns_no_events(context):
-    """PM returns no events."""
-    # pm_events is None when no handler matched
-    if hasattr(context, "pm_events"):
-        assert context.pm_events is None, "PM unexpectedly returned events"
 
 
 @then("emit_system_revocation = true")

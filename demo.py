@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent / "agg-hand"))
 
 from handlers.ai import PokerAI
 from handlers.betting import BettingRound, DrawRound, PlayerState
-from handlers.game_rules import FiveCardDrawRules, get_game_rules
+from handlers.game_rules import get_game_rules
 
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
@@ -137,7 +137,7 @@ class EventSourcedPokerGame:
         self.log(msg)
 
     def _command(self, source: Domain, target: Domain, cmd: str, params: str = ""):
-        self._log(f"")
+        self._log("")
         self._log(f"┌─ COMMAND: {cmd}")
         self._log(f"│  {source.value} → {target.value}")
         if params:
@@ -145,7 +145,7 @@ class EventSourcedPokerGame:
                 self._log(f"│  {line}")
 
     def _event(self, source: Domain, event: str, data: str = "", targets: list = None):
-        self._log(f"│")
+        self._log("│")
         self._log(f"└─ EVENT: {event}")
         self._log(f"   ← {source.value}")
         if data:
@@ -155,12 +155,12 @@ class EventSourcedPokerGame:
             self._log(f"   ──► received by: {', '.join(t.value for t in targets)}")
 
     def _saga_reaction(self, saga: Domain, received: str, action: str):
-        self._log(f"")
+        self._log("")
         self._log(f"   ┌─ {saga.value} reacts to {received}")
         self._log(f"   └─► {action}")
 
     def _pm_reaction(self, received: str, action: str):
-        self._log(f"")
+        self._log("")
         self._log(f"   ┌─ ProcessManager reacts to {received}")
         self._log(f"   └─► {action}")
 
@@ -366,7 +366,7 @@ class EventSourcedPokerGame:
         self._event(
             Domain.HAND,
             "CardsDealt",
-            f"player_cards:\n" + "\n".join(cards_info),
+            "player_cards:\n" + "\n".join(cards_info),
             [Domain.OUTPUT_SAGA, Domain.PROCESS_MANAGER],
         )
 
@@ -480,7 +480,7 @@ class EventSourcedPokerGame:
             )
 
             self._log(f"   │  Strength: {decision.reasoning}")
-            self._log(f"   └─►")
+            self._log("   └─►")
 
             # Process action through BettingRound
             result = betting.process_action(seat, decision.action, decision.amount)
@@ -539,7 +539,7 @@ class EventSourcedPokerGame:
             [Domain.OUTPUT_SAGA],
         )
 
-        self._log(f"")
+        self._log("")
         self._log(f"   ┌─ AI Decision for {p.name}")
         self._log(
             f"   │  Hand: {cards_str(p.hole_cards)}"
@@ -702,7 +702,7 @@ class EventSourcedPokerGame:
                 [Domain.OUTPUT_SAGA],
             )
 
-            self._log(f"")
+            self._log("")
             self._log(f"   ┌─ AI Draw Decision for {p.name}")
             self._log(f"   │  Current hand: {cards_str(p.hole_cards)}")
 
@@ -711,7 +711,7 @@ class EventSourcedPokerGame:
 
             self._log(f"   │  Found: {decision.reasoning}")
             self._log(f"   │  Discard: {len(decision.discard_indices)} card(s)")
-            self._log(f"   └─►")
+            self._log("   └─►")
 
             # Execute draw using FiveCardDrawRules
             discarded = [p.hole_cards[i] for i in decision.discard_indices]
@@ -764,8 +764,8 @@ class EventSourcedPokerGame:
 
         if len(active) == 1:
             winner = active[0]
-            self._log(f"")
-            self._log(f"   [All others folded]")
+            self._log("")
+            self._log("   [All others folded]")
             self._award_pot([winner], [self.pot])
             return
 
@@ -833,7 +833,7 @@ class EventSourcedPokerGame:
         self._event(
             Domain.HAND,
             "PotAwarded",
-            f"winners:\n" + "\n".join(winner_info),
+            "winners:\n" + "\n".join(winner_info),
             [Domain.OUTPUT_SAGA, Domain.HAND_RESULTS_SAGA, Domain.PROCESS_MANAGER],
         )
 
@@ -1074,7 +1074,7 @@ def main():
     log("\n  ♠ ♥ ♣ ♦  GAME OVER  ♦ ♣ ♥ ♠\n")
 
     log_file.close()
-    print(f"\nLog written to: hand_log.txt")
+    print("\nLog written to: hand_log.txt")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,5 @@
 """Table aggregate unit tests."""
 
-import sys
-from pathlib import Path
-
 import pytest
 from google.protobuf.any_pb2 import Any as ProtoAny
 from pytest_bdd import given, parsers, scenarios, then, when
@@ -13,18 +10,11 @@ from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import table_pb2 as table
 
-# Add root to path for importing Table and conftest
-root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(root))
-
 from table.agg.handlers import Table
 
 from tests.conftest import (
     ScenarioContext,
-    make_command_book,
-    make_cover,
     make_timestamp,
-    pack_event,
 )
 
 # Load scenarios from feature file

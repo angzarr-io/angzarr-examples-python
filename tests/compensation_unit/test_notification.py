@@ -1,6 +1,5 @@
 """Unit tests for Notification-based compensation flow."""
 
-import pytest
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client import CommandHandler, rejected
@@ -91,7 +90,7 @@ class TestNotificationCompensation:
             rejected_command="ProcessPayment",
         )
 
-        response = agg.handle_revocation(notif)
+        agg.handle_revocation(notif)
 
         assert hasattr(agg, "_rejection_handled")
         assert agg._rejection_handled is True

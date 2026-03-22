@@ -1,25 +1,17 @@
 """Process manager unit tests."""
 
-import sys
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import pytest
-from google.protobuf.any_pb2 import Any as ProtoAny
 from pytest_bdd import given, parsers, scenarios, then, when
 
-# Add paths
-root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(root))
-sys.path.insert(0, str(root / "hand-flow"))
-
-from hand_process import HandPhase, HandProcess, HandProcessManager, PlayerState
+from hand_process import HandPhase, HandProcess, HandProcessManager
 
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import table_pb2 as table
-from tests.conftest import make_cover, make_timestamp, uuid_for
+from tests.conftest import uuid_for
 
 # Load scenarios
 scenarios("../../../features/unit/process_manager.feature")
@@ -567,7 +559,7 @@ def then_post_big_blind_sent(ctx):
 def then_action_on_utg(ctx):
     """Verify action_on is UTG (after big blind)."""
     # UTG is the position after big blind
-    expected = (ctx.process.big_blind_position + 1) % len(ctx.process.active_positions)
+    (ctx.process.big_blind_position + 1) % len(ctx.process.active_positions)
     # Find actual next active position
     assert ctx.process.action_on >= 0
 

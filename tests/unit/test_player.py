@@ -5,20 +5,9 @@ DOC: This file is referenced in docs/docs/examples/aggregates.mdx
 """
 
 # docs:start:bdd_imports
-import sys
-from pathlib import Path
-
 import pytest
 from google.protobuf.any_pb2 import Any as ProtoAny
 from pytest_bdd import given, parsers, scenarios, then, when
-
-# docs:end:bdd_imports
-
-# Add paths
-root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(root))
-sys.path.insert(0, str(root / "player" / "agg"))
-sys.path.insert(0, str(root / "player" / "agg" / "handlers"))
 
 from handlers.commands import (
     handle_deposit_funds,
@@ -34,6 +23,12 @@ from angzarr_client.helpers import try_unpack, type_matches
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from tests.conftest import (
+    ScenarioContext,
+    make_timestamp,
+)
+
+# docs:end:bdd_imports
 
 
 def state_from_event_book(event_book):
@@ -43,15 +38,6 @@ def state_from_event_book(event_book):
         return state
     events = [page.event for page in event_book.pages if page.event]
     return build_state(state, events)
-
-
-from tests.conftest import (
-    ScenarioContext,
-    make_command_book,
-    make_cover,
-    make_timestamp,
-    pack_event,
-)
 
 # docs:start:scenarios_loader
 # Load scenarios from feature file

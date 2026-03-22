@@ -5,7 +5,7 @@ Tests both:
 - Handle side: Aggregates/PMs handle Notification via @rejected handlers
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from behave import given, then, use_step_matcher, when
@@ -14,15 +14,11 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 from angzarr_client import (
     CommandHandler,
-    CommandRejectedError,
     CommandRouter,
     ProcessManager,
-    handles,
-    reacts_to,
     rejected,
 )
 from angzarr_client.helpers import type_name_from_url
-from angzarr_client.proto.angzarr import aggregate_pb2 as aggregate
 from angzarr_client.proto.angzarr import types_pb2 as types
 
 # Use regex matchers for flexibility
@@ -336,7 +332,7 @@ def step_pm_with_order_id(context, order_id):
 @given("an OrderWorkflowPM with no @rejected handlers")
 def step_pm_without_handlers(context):
     """Create PM without rejection handlers."""
-    pm_events = make_event_book("pmg-order-workflow")
+    make_event_book("pmg-order-workflow")
     context.pm = ProcessManager.__new__(ProcessManager)
     context.pm._rejection_table = {}
 

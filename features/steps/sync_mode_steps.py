@@ -426,8 +426,8 @@ def step_then_full_cascade_chain(context):
     assert context.response is not None
     # Parse table to verify cascade chain
     for row in context.table:
-        domain = row["domain"]
-        event_type = row["event_type"]
+        row["domain"]
+        row["event_type"]
         # Verify each event in cascade
 
 
@@ -492,8 +492,8 @@ def step_then_dlq_published(context):
 def step_then_dead_letter_includes(context):
     """Assert dead letter contains expected fields."""
     for row in context.table:
-        field = row["field"]
-        value = row["value"]
+        row["field"]
+        row["value"]
         # Verify DLQ message fields
 
 

@@ -1,23 +1,16 @@
 """Step definitions for hand aggregate tests."""
 
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
-
-# Add project root for proto imports
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
 
 from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
-from hand.agg.handlers import Hand, get_game_rules
+from hand.agg.handlers import Hand
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import try_unpack
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
 # Use regex matchers for flexibility
@@ -710,7 +703,7 @@ def step_then_player_has_seeded_cards(context, player_id, seed):
 def step_then_command_fails(context, status):
     """Verify command failed with expected status."""
     assert context.error is not None, (
-        f"ASSERT FAILED: Expected command to fail but it succeeded"
+        "ASSERT FAILED: Expected command to fail but it succeeded"
     )
 
 

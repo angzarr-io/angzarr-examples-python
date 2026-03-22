@@ -1,16 +1,11 @@
 """Tests for game_rules.py - poker variant rules."""
 
-import pytest
 
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
 from .game_rules import (
-    DealResult,
-    DrawResult,
     FiveCardDrawRules,
-    GameRules,
     OmahaRules,
-    PhaseTransition,
     TexasHoldemRules,
     get_game_rules,
 )

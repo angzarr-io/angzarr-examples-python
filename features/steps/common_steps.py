@@ -2,14 +2,12 @@
 
 from datetime import datetime, timezone
 
-from behave import given, then, use_step_matcher
+from behave import then, use_step_matcher
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from angzarr_client.helpers import type_name_from_url
 from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
 
 # Use regex matchers for flexibility
 use_step_matcher("re")
