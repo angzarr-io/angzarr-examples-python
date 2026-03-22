@@ -32,7 +32,7 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install dependencies (from PyPI, not local sources)
-        run: just install --no-sources
+        run: just install -- --no-sources
 
       - name: Test (unit)
         run: just test-unit
@@ -41,4 +41,4 @@ jobs:
         run: just lint
 
       - name: Format check
-        run: just fmt --check
+        run: just fmt -- --check
