@@ -50,9 +50,9 @@ def step_then_result_is_examples_event(context, event_type):
     - Then the result is a examples.CardsDealt event
     - Then the result is an examples.ActionTaken event
     """
-    assert context.result is not None, (
-        f"Expected {event_type} event but got error: {getattr(context, 'error_message', context.error)}"
-    )
+    assert (
+        context.result is not None
+    ), f"Expected {event_type} event but got error: {getattr(context, 'error_message', context.error)}"
     assert context.result.pages, "No event pages in result"
     event_any = context.result.pages[0].event
     actual_type = type_name_from_url(event_any.type_url)

@@ -303,9 +303,9 @@ def step_when_execute_triggering_command(context, error_mode):
 @then(r"the command succeeds immediately")
 def step_then_command_succeeds_immediately(context):
     """Assert command succeeded quickly (ASYNC mode)."""
-    assert context.command_succeeded, (
-        f"Command failed: {getattr(context, 'error', 'unknown')}"
-    )
+    assert (
+        context.command_succeeded
+    ), f"Command failed: {getattr(context, 'error', 'unknown')}"
     elapsed = context.command_end_time - context.command_start_time
     assert elapsed < 0.5, f"Command took {elapsed:.2f}s, expected < 0.5s for ASYNC"
 
@@ -313,9 +313,9 @@ def step_then_command_succeeds_immediately(context):
 @then(r"the command succeeds with (?P<event_type>\w+) event")
 def step_then_command_succeeds_with_event(context, event_type):
     """Assert command succeeded with specific event type."""
-    assert context.command_succeeded, (
-        f"Command failed: {getattr(context, 'error', 'unknown')}"
-    )
+    assert (
+        context.command_succeeded
+    ), f"Command failed: {getattr(context, 'error', 'unknown')}"
     assert context.response.events is not None
     assert len(context.response.events.pages) > 0
     actual_type = type_name_from_url(context.response.events.pages[0].event.type_url)
@@ -326,18 +326,18 @@ def step_then_command_succeeds_with_event(context, event_type):
 def step_then_command_fails_with_saga_error(context):
     """Assert command failed due to saga error."""
     assert not context.command_succeeded, "Expected command to fail"
-    assert "saga" in str(context.error).lower(), (
-        f"Expected saga error, got: {context.error}"
-    )
+    assert (
+        "saga" in str(context.error).lower()
+    ), f"Expected saga error, got: {context.error}"
 
 
 @then(r"the response does not include projection updates")
 def step_then_no_projection_updates(context):
     """Assert response has no projection updates (ASYNC mode)."""
     assert context.response is not None
-    assert len(context.response.projections) == 0, (
-        "Expected no projections in ASYNC mode"
-    )
+    assert (
+        len(context.response.projections) == 0
+    ), "Expected no projections in ASYNC mode"
 
 
 @then(r"the response does not include cascade results")
@@ -526,9 +526,9 @@ def step_then_commands_within_time(context, ms):
     """Assert all commands completed within time limit."""
     max_time = int(ms)
     for elapsed in context.deposit_times:
-        assert elapsed < max_time, (
-            f"Command took {elapsed:.1f}ms, expected < {max_time}ms"
-        )
+        assert (
+            elapsed < max_time
+        ), f"Command took {elapsed:.1f}ms, expected < {max_time}ms"
 
 
 @then(r"total execution time is less than with SIMPLE mode")

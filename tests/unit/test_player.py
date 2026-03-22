@@ -39,6 +39,7 @@ def state_from_event_book(event_book):
     events = [page.event for page in event_book.pages if page.event]
     return build_state(state, events)
 
+
 # docs:start:scenarios_loader
 # Load scenarios from feature file
 scenarios("../../../features/unit/player.feature")

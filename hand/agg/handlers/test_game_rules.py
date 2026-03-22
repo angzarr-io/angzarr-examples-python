@@ -1,6 +1,5 @@
 """Tests for game_rules.py - poker variant rules."""
 
-
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
 from .game_rules import (
