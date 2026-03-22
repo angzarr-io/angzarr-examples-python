@@ -4,7 +4,7 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "angzarr-client"
-version = "0.2.0"
+version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "googleapis-common-protos" },
@@ -13,9 +13,9 @@ dependencies = [
     { name = "protobuf" },
     { name = "structlog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7a/0f/d3137a1dc004e05d88522015e1be0ea00e499d5a054936f6ea9e64cb47b1/angzarr_client-0.2.0.tar.gz", hash = "sha256:8515cc63f8161cf751327425b13d51758a783322f4e5b37d42f5cd683a0f4b01", size = 144975, upload-time = "2026-03-22T18:50:11.837Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/54/7aed6fe232bb73f1fca9fe7b212bc54bad906b3225ae6a7f303907cfee22/angzarr_client-0.2.2.tar.gz", hash = "sha256:c323314297b5944457e47ad7ce242a55997bb3feafb8960f72fbf40f28a25c22", size = 171550, upload-time = "2026-03-22T18:59:52.178Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d9/a1/ed57ac3a3bf91fe2e366a1ca060d37e70f8da75b4ea584c9a7fb087a63f4/angzarr_client-0.2.0-py3-none-any.whl", hash = "sha256:6cfde2d9ea0febc5dee9005737f6f1b53e7747452f0fd90ec80d2174fa30a79c", size = 80184, upload-time = "2026-03-22T18:50:10.752Z" },
+    { url = "https://files.pythonhosted.org/packages/09/e0/a6d9f9f68e32d136838cb62aa5332e715c0ba48dfc5b67a38e15108692ef/angzarr_client-0.2.2-py3-none-any.whl", hash = "sha256:188a4e7d2fbcb036757823392224b7572b29867fb7fecbe0069b7c02d27aa000", size = 139823, upload-time = "2026-03-22T18:59:51.115Z" },
 ]
 
 [[package]]
