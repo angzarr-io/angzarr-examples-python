@@ -310,14 +310,6 @@ def step_then_command_succeeds_immediately(context):
     assert elapsed < 0.5, f"Command took {elapsed:.2f}s, expected < 0.5s for ASYNC"
 
 
-@then(r"the command succeeds")
-def step_then_command_succeeds(context):
-    """Assert command succeeded."""
-    assert context.command_succeeded, (
-        f"Command failed: {getattr(context, 'error', 'unknown')}"
-    )
-
-
 @then(r"the command succeeds with (?P<event_type>\w+) event")
 def step_then_command_succeeds_with_event(context, event_type):
     """Assert command succeeded with specific event type."""

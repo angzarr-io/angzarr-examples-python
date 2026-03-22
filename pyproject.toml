@@ -33,8 +33,8 @@ build-backend = "hatchling.build"
 packages = ["angzarr", "agg-player", "agg-table", "agg-hand"]
 
 [tool.uv.sources]
-angzarr-client = { path = "../../client/python", editable = true }
+angzarr-client = { path = "../../client-python/main", editable = true }
 
 [tool.pytest.ini_options]
 pythonpath = ["player/agg", "table/agg", "hand/agg"]
-testpaths = ["player/agg/handlers", "table/agg/handlers", "hand/agg/handlers"]
+testpaths = ["player/agg", "table/agg/handlers", "hand/agg/handlers"]

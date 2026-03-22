@@ -16,7 +16,7 @@ from handlers import deposit_compute, deposit_guard, deposit_validate
 def test_deposit_increases_bankroll():
     """Test that deposit correctly calculates new balance."""
     state = PlayerState()
-    state.exists = True
+    state.player_id = "player_test@example.com"  # Makes exists return True
     state.bankroll = 1000
 
     cmd = player.DepositFunds(
@@ -31,7 +31,7 @@ def test_deposit_increases_bankroll():
 def test_deposit_rejects_non_existent_player():
     """Test that deposit guard rejects non-existent player."""
     state = PlayerState()
-    state.exists = False
+    # player_id is empty by default, so exists returns False
 
     with pytest.raises(CommandRejectedError) as exc_info:
         deposit_guard(state)

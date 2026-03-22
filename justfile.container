@@ -12,21 +12,17 @@ proto:
     buf generate
     find poker/proto -name "*.py" -exec sed -i 's/from poker import/from poker.proto.poker import/g' {} \;
 
-# Sync feature files from angzarr core (for BDD tests)
-sync-features:
-    bash scripts/sync-features.sh
-
 # Install dependencies
 install:
     uv sync
 
-# Run unit tests
-test-unit: install sync-features
-    uv run pytest tests/ -v
+# Run unit tests (uses testpaths from pyproject.toml)
+test-unit: install
+    uv run pytest -v
 
-# Run acceptance tests (Gherkin/behave)
-test-acceptance: install sync-features
-    uv run behave features/ --tags="~@wip"
+# Run acceptance tests (Gherkin/behave) - features from submodule at features/specs
+test-acceptance: install
+    uv run behave features/specs/ --tags="~@wip"
 
 # Run all tests
 test: test-unit test-acceptance

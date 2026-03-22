@@ -9,7 +9,8 @@
 #
 # When running outside a devcontainer:
 #   - Builds/uses local devcontainer image with `just` pre-installed
-#   - Podman mounts justfile.container as /workspace/justfile
+#   - Docker mounts justfile.container as /workspace/justfile
+#   - Runs with host UID/GID to avoid permission issues
 #
 # When running inside a devcontainer (DEVCONTAINER=true):
 #   - Commands execute directly via `just <target>`
@@ -18,12 +19,15 @@
 set shell := ["bash", "-c"]
 
 ROOT := `git rev-parse --show-toplevel`
+ANGZARR_ROOT := `realpath "$(git rev-parse --show-toplevel)/../.."`
 IMAGE := "angzarr-examples-python-dev"
+UID := `id -u`
+GID := `id -g`
 
 # Build the devcontainer image
 [private]
 _build-image:
-    podman build --network=host -t {{IMAGE}} -f "{{ROOT}}/.devcontainer/Containerfile" "{{ROOT}}/.devcontainer"
+    docker build -t {{IMAGE}} -f "{{ROOT}}/.devcontainer/Containerfile" "{{ROOT}}/.devcontainer"
 
 # Run just target in container (or directly if already in devcontainer)
 [private]
@@ -32,12 +36,27 @@ _container +ARGS: _build-image
     if [ "${DEVCONTAINER:-}" = "true" ]; then
         just {{ARGS}}
     else
-        podman run --rm --network=host \
-            -v "{{ROOT}}:/workspace:Z" \
-            -v "{{ROOT}}/justfile.container:/workspace/justfile:ro" \
-            -w /workspace \
+        docker run --rm --network=host \
+            -u {{UID}}:{{GID}} \
+            -e UV_CACHE_DIR=/angzarr/examples-python/main/.uv-cache \
+            -v "{{ANGZARR_ROOT}}:/angzarr" \
+            -v "{{ROOT}}/justfile.container:/angzarr/examples-python/main/justfile:ro" \
+            -w /angzarr/examples-python/main \
             {{IMAGE}} just {{ARGS}}
     fi
+
+# Run command in container as root (for cleanup tasks)
+[private]
+_container-root +ARGS: _build-image
+    #!/usr/bin/env bash
+    docker run --rm -u 0 \
+        -v "{{ANGZARR_ROOT}}:/angzarr" \
+        -w /angzarr/examples-python/main \
+        {{IMAGE}} {{ARGS}}
+
+# Clean up files created with wrong permissions
+clean-venv:
+    just _container-root rm -rf .venv .pytest_cache .uv-cache
 
 default:
     @just --list
