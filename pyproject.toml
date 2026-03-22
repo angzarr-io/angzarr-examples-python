@@ -32,9 +32,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["angzarr", "agg-player", "agg-table", "agg-hand"]
 
-[tool.uv.sources]
-angzarr-client = { path = "../../client-python/main", editable = true }
-
 [tool.pytest.ini_options]
 pythonpath = ["player/agg", "table/agg", "hand/agg"]
 testpaths = ["player/agg", "table/agg/handlers", "hand/agg/handlers"]

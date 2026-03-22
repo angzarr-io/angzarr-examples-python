@@ -8,7 +8,6 @@ on:
 
 env:
   UV_VERSION: "0.10.3"
-  UV_NO_SOURCES: "1"  # Use PyPI instead of local client-python path
 
 jobs:
   build:
