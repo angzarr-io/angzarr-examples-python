@@ -26,13 +26,16 @@ jobs:
       - name: Configure git safe directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Use container justfile
+        run: cp justfile.container justfile
+
       - name: Update uv
         run: |
           curl -LsSf https://astral.sh/uv/${{ env.UV_VERSION }}/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install dependencies (from PyPI, not local sources)
-        run: just install -- --no-sources
+        run: just install --no-sources
 
       - name: Test (unit)
         run: just test-unit
@@ -41,4 +44,4 @@ jobs:
         run: just lint
 
       - name: Format check
-        run: just fmt -- --check
+        run: just fmt --check
