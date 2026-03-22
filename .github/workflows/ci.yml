@@ -10,9 +10,15 @@ jobs:
   build:
     name: Build & Test
     runs-on: ubuntu-latest
-    container: ghcr.io/angzarr-io/angzarr-python:latest
+    container:
+      image: ghcr.io/angzarr-io/angzarr-python:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Configure git safe directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
