@@ -8,6 +8,7 @@ on:
 
 env:
   UV_VERSION: "0.10.3"
+  UV_NO_SOURCES: "1"  # Use PyPI instead of local client-python path
 
 jobs:
   build:
@@ -34,8 +35,8 @@ jobs:
           curl -LsSf https://astral.sh/uv/${{ env.UV_VERSION }}/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Install dependencies (from PyPI, not local sources)
-        run: just install --no-sources
+      - name: Install dependencies
+        run: just install
 
       - name: Test (unit)
         run: just test-unit
