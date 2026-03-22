@@ -12,24 +12,24 @@ proto:
     buf generate
     find poker/proto -name "*.py" -exec sed -i 's/from poker import/from poker.proto.poker import/g' {} \;
 
-# Install dependencies
-install:
-    uv sync
+# Install dependencies (use --no-sources in CI to skip local paths)
+install *FLAGS:
+    uv sync {{FLAGS}}
 
 # Run unit tests (uses testpaths from pyproject.toml)
-test-unit: install
+test-unit:
     uv run pytest -v
 
 # Run acceptance tests (Gherkin/behave) - features from submodule at features/specs
-test-acceptance: install
+test-acceptance:
     uv run behave features/specs/ --tags="~@wip"
 
 # Run all tests
 test: test-unit test-acceptance
 
-# Format code
-fmt:
-    uv run black .
+# Format code (use --check for CI)
+fmt *FLAGS:
+    uv run black {{FLAGS}} .
 
 # Lint code
 lint:
@@ -40,13 +40,13 @@ typecheck:
     uv run mypy . --ignore-missing-imports
 
 # Run player aggregate
-run-player: install
+run-player:
     cd player/agg && uv run python main.py
 
 # Run table aggregate
-run-table: install
+run-table:
     cd table/agg && uv run python main.py
 
 # Run hand aggregate
-run-hand: install
+run-hand:
     cd hand/agg && uv run python main.py
