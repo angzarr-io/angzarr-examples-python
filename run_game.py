@@ -11,6 +11,7 @@ import random
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -23,8 +24,18 @@ sys.path.insert(0, str(root / "agg-player"))  # Contains proto/poker stubs
 
 import grpc
 
-from angzarr_client.proto.examples import hand_pb2, player_pb2, table_pb2, types_pb2
-from client import GatewayClient, derive_root
+from angzarr_client.proto.examples import hand_pb2, player_pb2, table_pb2
+from angzarr_client.proto.examples import poker_types_pb2 as types_pb2
+from client import GatewayClient, derive_root, SYNC_MODE_SIMPLE, SYNC_MODE_CASCADE
+
+# Optional AI Player integration
+try:
+    from ai_player_client import AiPlayerClient, AiPlayerConfig
+    AI_PLAYER_AVAILABLE = True
+except ImportError:
+    AI_PLAYER_AVAILABLE = False
+    AiPlayerClient = None
+    AiPlayerConfig = None
 
 # Card display
 SUIT_SYMBOLS = {
@@ -113,6 +124,7 @@ class PokerGame:
         small_blind: int = 5,
         big_blind: int = 10,
         log_file: str = None,
+        ai_player_address: str = None,
     ):
         self.client = client
         self.variant = variant
@@ -127,8 +139,13 @@ class PokerGame:
         self.dealer_seat: int = None
         self.pot: int = 0
         self.current_bet: int = 0
+        self.last_raise_increment: int = 0  # Tracks min raise size for the hand
         self.community: list = []
         self._log_file = None
+        self._ai_player_address = ai_player_address
+        self._ai_clients: dict[bytes, AiPlayerClient] = {}  # per-player AI clients
+        # Session ID to make aggregates unique across runs
+        self._session_id = uuid.uuid4().hex[:8]
         if log_file:
             self._log_file = open(log_file, "w", encoding="utf-8")
             self._log_file.write(f"{'=' * 60}\n")
@@ -152,7 +169,9 @@ class PokerGame:
 
     def create_table(self, name: str = "Main Table"):
         """Create the poker table."""
-        self.table_root = derive_root("table", name.lower().replace(" ", "-"))
+        # Use session ID to make table unique across runs
+        table_name = f"{name.lower().replace(' ', '-')}-{self._session_id}"
+        self.table_root = derive_root("table", table_name)
 
         variant_proto = (
             types_pb2.TEXAS_HOLDEM
@@ -175,14 +194,19 @@ class PokerGame:
         self.log(f"│  table: {name}, variant: {self.variant.value}")
         self.log(f"│  blinds: {chips(self.small_blind)}/{chips(self.big_blind)}")
 
-        resp = self.client.execute("table", self.table_root, cmd, sequence=0)
-        self.table_sequence = resp.events.next_sequence
+        # Use SIMPLE for read-after-write consistency (need table ID)
+        resp = self.client.execute(
+            "table", self.table_root, cmd, sequence=0, sync_mode=SYNC_MODE_SIMPLE
+        )
+        self.table_sequence = resp.events_book().next_sequence()
 
         self.log("└─ EVENT: TableCreated")
 
     def register_player(self, name: str) -> Player:
         """Register a new player."""
-        root = derive_root("player", name.lower())
+        # Use session ID to make player unique across runs
+        player_name = f"{name.lower()}-{self._session_id}"
+        root = derive_root("player", player_name)
 
         cmd = player_pb2.RegisterPlayer(
             display_name=name,
@@ -193,8 +217,11 @@ class PokerGame:
         self.log("\n┌─ COMMAND: RegisterPlayer")
         self.log(f"│  name: {name}")
 
-        resp = self.client.execute("player", root, cmd, sequence=0)
-        sequence = resp.events.next_sequence
+        # SIMPLE: need sequence before DepositFunds
+        resp = self.client.execute(
+            "player", root, cmd, sequence=0, sync_mode=SYNC_MODE_SIMPLE
+        )
+        sequence = resp.events_book().next_sequence()
 
         self.log("└─ EVENT: PlayerRegistered")
 
@@ -209,8 +236,12 @@ class PokerGame:
         self.log("\n┌─ COMMAND: DepositFunds")
         self.log(f"│  player: {player.name}, amount: {chips(amount)}")
 
-        resp = self.client.execute("player", player.root, cmd, sequence=player.sequence)
-        player.sequence = resp.events.next_sequence
+        # Financial operation - use CASCADE for atomicity
+        resp = self.client.execute(
+            "player", player.root, cmd, sequence=player.sequence,
+            sync_mode=SYNC_MODE_CASCADE
+        )
+        player.sequence = resp.events_book().next_sequence()
         player.stack = amount
 
         self.log("└─ EVENT: FundsDeposited")
@@ -226,8 +257,12 @@ class PokerGame:
         self.log("\n┌─ COMMAND: ReserveFunds")
         self.log(f"│  player: {player.name}, amount: {chips(buy_in)}")
 
-        resp = self.client.execute("player", player.root, cmd, sequence=player.sequence)
-        player.sequence = resp.events.next_sequence
+        # Financial operation - use CASCADE for atomicity
+        resp = self.client.execute(
+            "player", player.root, cmd, sequence=player.sequence,
+            sync_mode=SYNC_MODE_CASCADE
+        )
+        player.sequence = resp.events_book().next_sequence()
 
         self.log("└─ EVENT: FundsReserved")
 
@@ -241,10 +276,12 @@ class PokerGame:
         self.log("\n┌─ COMMAND: JoinTable")
         self.log(f"│  player: {player.name}, seat: {seat}")
 
+        # SIMPLE: need sequence for subsequent table operations
         resp = self.client.execute(
-            "table", self.table_root, cmd, sequence=self.table_sequence
+            "table", self.table_root, cmd, sequence=self.table_sequence,
+            sync_mode=SYNC_MODE_SIMPLE
         )
-        self.table_sequence = resp.events.next_sequence
+        self.table_sequence = resp.events_book().next_sequence()
 
         self.log("└─ EVENT: PlayerJoined")
 
@@ -272,6 +309,7 @@ class PokerGame:
         self.hand_num += 1
         self.pot = 0
         self.current_bet = 0
+        self.last_raise_increment = self.big_blind  # Reset to big blind each hand
         self.community = []
 
         # Reset player state
@@ -295,8 +333,8 @@ class PokerGame:
         )
         self.log(f"{'=' * 60}")
 
-        # Create hand root
-        self.hand_root = derive_root("hand", f"table-main-{self.hand_num}")
+        # Create hand root - use session ID to make hand unique across runs
+        self.hand_root = derive_root("hand", f"table-main-{self._session_id}-{self.hand_num}")
         self.hand_sequence = 0
 
         # Build player list for deal
@@ -329,14 +367,18 @@ class PokerGame:
         self.log("\n┌─ COMMAND: DealCards")
         self.log(f"│  hand: #{self.hand_num}, dealer: seat {self.dealer_seat}")
 
-        resp = self.client.execute("hand", self.hand_root, cmd, sequence=0)
-        self.hand_sequence = resp.events.next_sequence
+        # ASYNC: events are included in aggregate response
+        resp = self.client.execute(
+            "hand", self.hand_root, cmd, sequence=0
+        )
+        self.hand_sequence = resp.events_book().next_sequence()
 
         # Parse dealt cards from events
-        for page in resp.events.pages:
-            if page.event.Is(hand_pb2.CardsDealt.DESCRIPTOR):
+        for page in resp.events():
+            event = page.proto.event
+            if event.Is(hand_pb2.CardsDealt.DESCRIPTOR):
                 dealt = hand_pb2.CardsDealt()
-                page.event.Unpack(dealt)
+                event.Unpack(dealt)
                 for pc in dealt.player_cards:
                     for p in self.players.values():
                         if p.root == pc.player_root:
@@ -376,10 +418,12 @@ class PokerGame:
         self.log("\n┌─ COMMAND: PostBlind (small)")
         self.log(f"│  {sb_player.name}: {chips(sb_amount)}")
 
+        # Financial operation - use CASCADE for atomicity
         resp = self.client.execute(
-            "hand", self.hand_root, cmd, sequence=self.hand_sequence
+            "hand", self.hand_root, cmd, sequence=self.hand_sequence,
+            sync_mode=SYNC_MODE_CASCADE
         )
-        self.hand_sequence = resp.events.next_sequence
+        self.hand_sequence = resp.events_book().next_sequence()
 
         sb_player.stack -= sb_amount
         sb_player.bet = sb_amount
@@ -400,10 +444,12 @@ class PokerGame:
         self.log("\n┌─ COMMAND: PostBlind (big)")
         self.log(f"│  {bb_player.name}: {chips(bb_amount)}")
 
+        # Financial operation - use CASCADE for atomicity
         resp = self.client.execute(
-            "hand", self.hand_root, cmd, sequence=self.hand_sequence
+            "hand", self.hand_root, cmd, sequence=self.hand_sequence,
+            sync_mode=SYNC_MODE_CASCADE
         )
-        self.hand_sequence = resp.events.next_sequence
+        self.hand_sequence = resp.events_book().next_sequence()
 
         bb_player.stack -= bb_amount
         bb_player.bet = bb_amount
@@ -412,8 +458,85 @@ class PokerGame:
 
         self.log("└─ EVENT: BlindPosted")
 
+    def _get_or_create_ai_client(self, player: Player) -> AiPlayerClient | None:
+        """Get or create AI Player client for a player."""
+        if not self._ai_player_address or not AI_PLAYER_AVAILABLE:
+            return None
+
+        if player.root not in self._ai_clients:
+            config = AiPlayerConfig(
+                address=self._ai_player_address,
+                session_id=f"game-{uuid.uuid4().hex[:8]}",
+                player_root=player.root,
+            )
+            self._ai_clients[player.root] = AiPlayerClient(config)
+
+        return self._ai_clients[player.root]
+
+    def _build_snapshot(self, player: Player) -> dict:
+        """Build game state snapshot for AI Player."""
+        to_call = max(0, self.current_bet - player.bet)
+
+        # Determine betting phase
+        phase = 1  # PREFLOP
+        if len(self.community) >= 3:
+            phase = 2  # FLOP
+        if len(self.community) >= 4:
+            phase = 3  # TURN
+        if len(self.community) >= 5:
+            phase = 4  # RIVER
+
+        # Build opponent info
+        opponents = []
+        for seat, p in self.players.items():
+            if p.root != player.root:
+                opponents.append({
+                    "player_root": p.root,
+                    "position": seat,
+                    "stack": p.stack,
+                    "bet_this_round": p.bet,
+                    "folded": p.folded,
+                    "all_in": p.all_in,
+                })
+
+        return {
+            "game_variant": 1,  # TEXAS_HOLDEM
+            "phase": phase,
+            "hole_cards": [
+                {"suit": c.suit, "rank": c.rank}
+                for c in (player.hole_cards or [])
+            ],
+            "community_cards": [
+                {"suit": c.suit, "rank": c.rank}
+                for c in self.community
+            ],
+            "pot_size": self.pot,
+            "stack_size": player.stack,
+            "amount_to_call": to_call,
+            "min_raise": self.big_blind,
+            "max_raise": player.stack,
+            "position": player.seat,
+            "players_remaining": len([p for p in self.players.values() if not p.folded]),
+            "players_to_act": len([
+                p for p in self.players.values()
+                if not p.folded and not p.all_in and p.bet < self.current_bet
+            ]),
+            "opponents": opponents,
+        }
+
     def get_action(self, player: Player) -> tuple[types_pb2.ActionType, int]:
-        """Get AI decision for a player. Simplified to mostly call/check/fold."""
+        """Get AI decision for a player."""
+        # Try AI Player service first
+        ai_client = self._get_or_create_ai_client(player)
+        if ai_client and ai_client.is_connected():
+            snapshot = self._build_snapshot(player)
+            action, amount = ai_client.get_action(
+                snapshot=snapshot,
+                hand_id=self.hand_root or b"",
+            )
+            return action, amount
+
+        # Fallback to simple random logic
         to_call = max(0, self.current_bet - player.bet)
 
         if to_call == 0:
@@ -438,8 +561,32 @@ class PokerGame:
             return types_pb2.FOLD, 0
 
     def betting_round(self, first_to_act_seat: int, preflop: bool = False):
-        """Run a betting round."""
-        active = [s for s, p in self.players.items() if not p.folded and not p.all_in]
+        """Run a betting round.
+
+        Uses seat-based iteration (not list index) to properly handle
+        players folding mid-round without skipping active players.
+        """
+        # All seats at the table (static reference for clockwise ordering)
+        all_seats = sorted(self.players.keys())
+
+        def get_active_seats():
+            """Get currently active seats (not folded, not all-in)."""
+            return [s for s in all_seats
+                    if not self.players[s].folded and not self.players[s].all_in]
+
+        def next_active_seat(current: int) -> int | None:
+            """Find the next active seat clockwise from current."""
+            active = get_active_seats()
+            if not active:
+                return None
+            current_idx = all_seats.index(current)
+            for i in range(1, len(all_seats) + 1):
+                next_s = all_seats[(current_idx + i) % len(all_seats)]
+                if next_s in active:
+                    return next_s
+            return None
+
+        active = get_active_seats()
         if len(active) < 2:
             return
 
@@ -449,40 +596,150 @@ class PokerGame:
                 p.bet = 0
             self.current_bet = 0
 
-        seats = sorted(active)
-        if first_to_act_seat not in seats:
-            first_to_act_seat = seats[0]
+        # Find starting seat
+        if first_to_act_seat not in active:
+            first_to_act_seat = active[0]
 
-        idx = seats.index(first_to_act_seat)
+        current_seat = first_to_act_seat
         acted = set()
-        last_raiser = None
+        last_aggressor = None  # Track who made the last bet/raise
 
         while True:
-            seat = seats[idx % len(seats)]
-            player = self.players[seat]
+            player = self.players[current_seat]
 
+            # Skip folded/all-in players (shouldn't happen, but be safe)
             if player.folded or player.all_in:
-                idx += 1
+                current_seat = next_active_seat(current_seat)
+                if current_seat is None:
+                    break
                 continue
 
-            # Check if round is complete
-            active_not_allin = [
-                s
-                for s in seats
-                if not self.players[s].folded and not self.players[s].all_in
-            ]
-            if len(active_not_allin) <= 1:
-                break
-            if seat in acted and (last_raiser is None or seat == last_raiser):
+            active = get_active_seats()
+            if len(active) <= 1:
                 break
 
+            # Check termination: all active players have matched the current bet
+            all_bets_matched = all(
+                self.players[s].bet == self.current_bet
+                for s in active
+            )
+
+            # Check if last aggressor is still in active seats
+            # If they went all-in, they're no longer in active - treat as no aggressor
+            effective_last_aggressor = (
+                last_aggressor if last_aggressor in active else None
+            )
+
+            # Round ends when:
+            # 1. Current player has already acted, AND
+            # 2. All bets are matched, AND
+            # 3. Either no one raised (or aggressor is all-in), or we've come back to the last aggressor
+            if current_seat in acted and all_bets_matched:
+                if effective_last_aggressor is None or current_seat == effective_last_aggressor:
+                    break
+
             action, amount = self.get_action(player)
+            to_call = max(0, self.current_bet - player.bet)
+
+            # If nothing to call, CHECK instead of CALL
+            if action == types_pb2.CALL and to_call == 0:
+                action = types_pb2.CHECK
+                amount = 0
+
+            # Convert CHECK to CALL if there's a bet to call
+            if action == types_pb2.CHECK and to_call > 0:
+                action = types_pb2.CALL
+                amount = to_call
+
+            # Convert BET to RAISE if there's already a bet
+            if action == types_pb2.BET and self.current_bet > 0:
+                action = types_pb2.RAISE
+
+            # Ensure BET amount is at least big blind and within stack
+            if action == types_pb2.BET:
+                # If can't afford min bet, convert to check
+                if player.stack < self.big_blind:
+                    if to_call == 0:
+                        action = types_pb2.CHECK
+                        amount = 0
+                    else:
+                        # Can't bet, can't check - go all-in call
+                        action = types_pb2.CALL
+                        amount = min(to_call, player.stack)
+                else:
+                    if amount < self.big_blind:
+                        amount = self.big_blind
+                    # Cap to stack (all-in) - use strict inequality for safety
+                    if amount >= player.stack:
+                        amount = player.stack
+
+            # Ensure raise amount is valid
+            if action == types_pb2.RAISE:
+                # Min raise = current_bet + last_raise_increment
+                min_raise_to = self.current_bet + self.last_raise_increment
+                if amount < min_raise_to:
+                    # If we can't make a valid raise, just call instead
+                    if to_call > 0 and player.stack >= to_call:
+                        action = types_pb2.CALL
+                        amount = to_call
+                    elif to_call == 0:
+                        action = types_pb2.CHECK
+                        amount = 0
+                    else:
+                        action = types_pb2.FOLD
+                        amount = 0
+
+            # Ensure bet/raise doesn't exceed stack (go all-in if needed)
+            if action in (types_pb2.BET, types_pb2.RAISE):
+                max_bet = player.stack + player.bet  # Total amount player can bet to
+                if amount > max_bet:
+                    amount = max_bet  # All-in
+                # If all-in amount is less than min raise, convert to call/check
+                min_raise_to = self.current_bet + self.last_raise_increment
+                if action == types_pb2.RAISE and amount < min_raise_to:
+                    if to_call > 0 and player.stack >= to_call:
+                        action = types_pb2.CALL
+                        amount = to_call
+                    elif player.stack > 0:
+                        # All-in call (short stack)
+                        action = types_pb2.CALL
+                        amount = player.stack
+                    else:
+                        action = types_pb2.FOLD
+                        amount = 0
+
+            # Ensure call doesn't exceed stack (all-in if short)
+            if action == types_pb2.CALL:
+                if to_call > player.stack:
+                    amount = player.stack  # All-in call
+
+            # Final safety: if RAISE but amount not significantly above current bet, convert to CALL
+            # This catches edge cases where our min_raise calculation differs from server
+            if action == types_pb2.RAISE:
+                min_raise_to = self.current_bet + self.last_raise_increment
+                # If we're not raising enough, just call
+                if amount < min_raise_to:
+                    if to_call > 0:
+                        action = types_pb2.CALL
+                        amount = min(to_call, player.stack)
+                    else:
+                        action = types_pb2.CHECK
+                        amount = 0
+
+            # Final sanity check - ensure we never exceed stack
+            final_amount = amount
+            if action == types_pb2.BET and final_amount > player.stack:
+                final_amount = player.stack
+            if action == types_pb2.RAISE and final_amount > player.stack + player.bet:
+                final_amount = player.stack + player.bet
+            if action == types_pb2.CALL and final_amount > player.stack:
+                final_amount = player.stack
 
             cmd = hand_pb2.PlayerAction(
                 player_root=player.root,
                 action=action,
                 amount=(
-                    amount
+                    final_amount
                     if action in (types_pb2.CALL, types_pb2.RAISE, types_pb2.BET)
                     else 0
                 ),
@@ -492,13 +749,13 @@ class PokerGame:
             self.log("\n┌─ COMMAND: PlayerAction")
             self.log(
                 f"│  {player.name}: {action_name}"
-                + (f" {chips(amount)}" if amount else "")
+                + (f" {chips(final_amount)}" if final_amount else "")
             )
 
             resp = self.client.execute(
                 "hand", self.hand_root, cmd, sequence=self.hand_sequence
             )
-            self.hand_sequence = resp.events.next_sequence
+            self.hand_sequence = resp.events_book().next_sequence()
 
             self.log("└─ EVENT: ActionTaken")
 
@@ -510,28 +767,29 @@ class PokerGame:
                 player.stack -= call_amount
                 player.bet += call_amount
                 self.pot += call_amount
-                if player.stack == 0:
+                # Mark as all-in if can't afford minimum action (big blind)
+                if player.stack < self.big_blind:
                     player.all_in = True
             elif action in (types_pb2.BET, types_pb2.RAISE):
                 bet_amount = amount - player.bet
+                # Update last_raise_increment: the raise size above current bet
+                raise_increment = amount - self.current_bet
+                if raise_increment > self.last_raise_increment:
+                    self.last_raise_increment = raise_increment
                 player.stack -= bet_amount
                 player.bet = amount
                 self.pot += bet_amount
                 self.current_bet = amount
-                last_raiser = seat
-                if player.stack == 0:
+                last_aggressor = current_seat
+                # Mark as all-in if can't afford minimum action (big blind)
+                if player.stack < self.big_blind:
                     player.all_in = True
 
-            acted.add(seat)
-            idx += 1
+            acted.add(current_seat)
 
-            # Remove folded from active
-            seats = [
-                s
-                for s in sorted(self.players.keys())
-                if not self.players[s].folded and not self.players[s].all_in
-            ]
-            if len(seats) < 2:
+            # Move to next active seat clockwise
+            current_seat = next_active_seat(current_seat)
+            if current_seat is None or len(get_active_seats()) < 2:
                 break
 
     def deal_community(self, count: int, phase_name: str):
@@ -540,16 +798,18 @@ class PokerGame:
 
         self.log(f"\n┌─ COMMAND: DealCommunityCards ({phase_name})")
 
+        # ASYNC: events are included in aggregate response
         resp = self.client.execute(
             "hand", self.hand_root, cmd, sequence=self.hand_sequence
         )
-        self.hand_sequence = resp.events.next_sequence
+        self.hand_sequence = resp.events_book().next_sequence()
 
         # Parse dealt cards
-        for page in resp.events.pages:
-            if page.event.Is(hand_pb2.CommunityCardsDealt.DESCRIPTOR):
+        for page in resp.events():
+            event = page.proto.event
+            if event.Is(hand_pb2.CommunityCardsDealt.DESCRIPTOR):
                 dealt = hand_pb2.CommunityCardsDealt()
-                page.event.Unpack(dealt)
+                event.Unpack(dealt)
                 self.community = list(dealt.all_community_cards)
 
         self.log("└─ EVENT: CommunityCardsDealt")
@@ -584,10 +844,12 @@ class PokerGame:
         self.log("\n┌─ COMMAND: AwardPot")
         self.log(f"│  {winner.name}: {chips(self.pot)}")
 
+        # Financial operation - use CASCADE for atomicity
         resp = self.client.execute(
-            "hand", self.hand_root, cmd, sequence=self.hand_sequence
+            "hand", self.hand_root, cmd, sequence=self.hand_sequence,
+            sync_mode=SYNC_MODE_CASCADE
         )
-        self.hand_sequence = resp.events.next_sequence
+        self.hand_sequence = resp.events_book().next_sequence()
 
         self.log("└─ EVENT: PotAwarded")
 
@@ -738,6 +1000,12 @@ def main():
         action="store_true",
         help="Don't start standalone (assume it's already running)",
     )
+    parser.add_argument(
+        "--ai-player",
+        type=str,
+        default=None,
+        help="AI Player gRPC service address (e.g., localhost:50500)",
+    )
     args = parser.parse_args()
 
     proc = None
@@ -752,7 +1020,11 @@ def main():
         )
 
         with GatewayClient("localhost:9084") as client:
-            game = PokerGame(client, variant=variant)
+            game = PokerGame(
+                client,
+                variant=variant,
+                ai_player_address=args.ai_player,
+            )
 
             # Setup
             game.create_table("Main Table")
