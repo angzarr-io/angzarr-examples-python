@@ -1,0 +1,17 @@
+{{- if .Values.aiPlayer.models.pvc.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ai-player.fullname" . }}-models
+  labels:
+    {{- include "ai-player.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.aiPlayer.models.pvc.size }}
+  {{- if .Values.aiPlayer.models.pvc.storageClass }}
+  storageClassName: {{ .Values.aiPlayer.models.pvc.storageClass }}
+  {{- end }}
+{{- end }}

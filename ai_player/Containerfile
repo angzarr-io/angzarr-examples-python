@@ -1,0 +1,99 @@
+# AI Player Service Containerfile
+# Multi-stage build with UV for fast dependency management
+
+# =============================================================================
+# Base stage - Python with UV and buf
+# =============================================================================
+FROM python:3.11-slim AS base
+
+# Install UV
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    netcat-openbsd \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install buf CLI
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in \
+        amd64) BUF_ARCH="x86_64" ;; \
+        arm64) BUF_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac && \
+    curl -fLo /usr/local/bin/buf \
+        "https://github.com/bufbuild/buf/releases/download/v1.47.2/buf-Linux-${BUF_ARCH}" && \
+    chmod +x /usr/local/bin/buf
+
+WORKDIR /app
+
+# =============================================================================
+# Dependencies stage - Install Python packages
+# =============================================================================
+FROM base AS dependencies
+
+# Copy dependency files
+COPY ai_player/pyproject.toml ai_player/uv.lock* ./
+
+# Install dependencies (using CPU-only PyTorch via pyproject.toml index)
+RUN uv sync --no-dev --no-install-project
+
+# =============================================================================
+# Proto stage - Generate proto stubs
+# =============================================================================
+FROM dependencies AS proto
+
+# Copy buf config
+COPY ai_player/buf.gen.yaml ./
+
+# Generate protos from buf registry
+RUN uv run buf generate
+
+# =============================================================================
+# Production stage
+# =============================================================================
+FROM dependencies AS production
+
+# Copy application source as ai_player package
+COPY ai_player/ ./ai_player/
+
+# Copy generated protos into the ai_player package
+COPY --from=proto /app/proto ./ai_player/proto/
+
+# Create models directory
+RUN mkdir -p /models/current /models/versions
+
+ENV PORT=50500
+ENV DEVICE=cpu
+ENV LOG_LEVEL=INFO
+# Add proto directory to PYTHONPATH so generated imports work
+ENV PYTHONPATH=/app/ai_player/proto
+
+EXPOSE 50500
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import grpc; ch = grpc.insecure_channel('localhost:50500'); grpc.channel_ready_future(ch).result(timeout=5)" || exit 1
+
+CMD ["uv", "run", "python", "-m", "ai_player.main"]
+
+# =============================================================================
+# Training stage - With additional training dependencies
+# =============================================================================
+FROM dependencies AS training
+
+# Install training dependencies
+RUN uv sync --group training --no-install-project
+
+# Copy application source as ai_player package
+COPY ai_player/ ./ai_player/
+
+# Copy generated protos into the ai_player package
+COPY --from=proto /app/proto ./ai_player/proto/
+
+ENV DEVICE=cpu
+# Add proto directory to PYTHONPATH so generated imports work
+ENV PYTHONPATH=/app/ai_player/proto
+
+CMD ["uv", "run", "python", "-m", "ai_player.training.train_rl"]

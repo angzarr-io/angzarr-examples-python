@@ -1,0 +1,6 @@
+apiVersion: v2
+name: poker-ai-player
+description: PyTorch AI poker player service with gRPC interface
+type: application
+version: 0.1.0
+appVersion: "1.0"

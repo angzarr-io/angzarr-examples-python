@@ -1,0 +1,1 @@
+"""Buy-in bounded context."""

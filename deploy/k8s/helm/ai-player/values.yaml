@@ -1,0 +1,58 @@
+aiPlayer:
+  name: poker-ai-player
+  replicas: 1
+
+  image:
+    repository: ghcr.io/angzarr-io/poker-python-ai-player
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  port: 50500
+
+  service:
+    type: NodePort
+    nodePort: 30500
+
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "2000m"
+
+  # Model storage
+  models:
+    pvc:
+      enabled: true
+      size: 10Gi
+      storageClass: ""
+    initialModel: ""  # URL or empty for random initialization
+
+  # Database for state persistence
+  database:
+    # Use external DB (angzarr's postgres) or deploy dedicated
+    external: true
+    host: angzarr-db
+    port: 5432
+    name: ai_player
+    username: angzarr
+    password: angzarr
+
+  env:
+    LOG_LEVEL: INFO
+    DEVICE: cpu  # or cuda if GPU available
+    MAX_WORKERS: "10"
+
+  # Probes
+  livenessProbe:
+    grpc:
+      port: 50500
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  readinessProbe:
+    grpc:
+      port: 50500
+    initialDelaySeconds: 10
+    periodSeconds: 5

@@ -1,0 +1,8 @@
+version: v2
+inputs:
+  - module: buf.build/angzarr/examples
+plugins:
+  - remote: buf.build/protocolbuffers/python:v28.3
+    out: proto
+  - remote: buf.build/grpc/python:v1.68.1
+    out: proto
