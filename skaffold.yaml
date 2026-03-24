@@ -35,6 +35,12 @@ build:
         dockerfile: examples/python/Containerfile
         target: agg-hand
 
+    - image: ghcr.io/angzarr-io/poker-python-prj-training
+      context: ../..
+      docker:
+        dockerfile: examples/python/Containerfile
+        target: prj-training
+
 deploy:
   helm:
     releases:

@@ -14,7 +14,7 @@ from angzarr_client.proto.examples import table_pb2 as table
 from tests.conftest import uuid_for
 
 # Load scenarios
-scenarios("../../../features/unit/process_manager.feature")
+scenarios("../../features/specs/unit/process_manager.feature")
 
 
 # --- Test context ---

@@ -11,7 +11,7 @@ import structlog
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "angzarr"))
 
 from angzarr_client import run_command_handler_server
-from handlers import Hand
+from .handlers import Hand
 
 structlog.configure(
     processors=[

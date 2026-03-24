@@ -27,7 +27,7 @@ except ImportError:
     TableSyncSaga = None
     HandResultsSaga = None
 
-from tests.conftest import make_cover, make_timestamp, pack_event, uuid_for
+from tests.helpers import make_event_book, uuid_for
 
 # Skip all tests in this module if sagas not available
 pytestmark = pytest.mark.skipif(
@@ -59,22 +59,7 @@ def ctx():
 # --- Helper functions ---
 
 
-def make_event_book(domain: str, root: bytes, events: list) -> types.EventBook:
-    """Create an EventBook with events."""
-    pages = []
-    for i, event_any in enumerate(events):
-        pages.append(
-            types.EventPage(
-                sequence=i,
-                event=event_any,
-                created_at=make_timestamp(),
-            )
-        )
-    return types.EventBook(
-        cover=make_cover(domain, root),
-        pages=pages,
-        next_sequence=len(pages),
-    )
+# Use make_event_book from tests.conftest (imported via angzarr_client.testing)
 
 
 def _extract_event_type(type_url: str) -> str:
@@ -110,8 +95,7 @@ class TestTableSyncSaga:
             table.SeatSnapshot(player_root=uuid_for("player-2"), position=1, stack=500)
         )
 
-        event_any = pack_event(event)
-        event_book = make_event_book("table", uuid_for("table-1"), [event_any])
+        event_book = make_event_book("table", uuid_for("table-1"), [event])
 
         context = SagaContext(
             event_book=event_book,
@@ -146,8 +130,7 @@ class TestTableSyncSaga:
             hand.PotWinner(player_root=uuid_for("player-1"), amount=100)
         )
 
-        event_any = pack_event(event)
-        event_book = make_event_book("hand", uuid_for("hand-1"), [event_any])
+        event_book = make_event_book("hand", uuid_for("hand-1"), [event])
 
         context = SagaContext(
             event_book=event_book,
@@ -185,8 +168,7 @@ class TestHandResultsSaga:
         event.stack_changes[uuid_for("player-1").hex()] = 50
         event.stack_changes[uuid_for("player-2").hex()] = -50
 
-        event_any = pack_event(event)
-        event_book = make_event_book("table", uuid_for("table-1"), [event_any])
+        event_book = make_event_book("table", uuid_for("table-1"), [event])
 
         context = SagaContext(
             event_book=event_book,
@@ -215,8 +197,7 @@ class TestHandResultsSaga:
             hand.PotWinner(player_root=uuid_for("player-2"), amount=40)
         )
 
-        event_any = pack_event(event)
-        event_book = make_event_book("hand", uuid_for("hand-1"), [event_any])
+        event_book = make_event_book("hand", uuid_for("hand-1"), [event])
 
         context = SagaContext(
             event_book=event_book,
@@ -264,8 +245,7 @@ class TestSagaRouter:
             table.SeatSnapshot(player_root=uuid_for("player-1"), position=0, stack=500)
         )
 
-        event_any = pack_event(event)
-        event_book = make_event_book("table", uuid_for("table-1"), [event_any])
+        event_book = make_event_book("table", uuid_for("table-1"), [event])
 
         commands = router.route(event_book, "table")
 
@@ -291,7 +271,7 @@ class TestSagaRouter:
                     player_root=uuid_for("player-1"), position=0, stack=500
                 )
             )
-            events.append(pack_event(event))
+            events.append(event)
 
         event_book = make_event_book("table", uuid_for("table-1"), events)
 
@@ -329,8 +309,7 @@ class TestSagaRouter:
             table.SeatSnapshot(player_root=uuid_for("player-1"), position=0, stack=500)
         )
 
-        event_any = pack_event(event)
-        event_book = make_event_book("table", uuid_for("table-1"), [event_any])
+        event_book = make_event_book("table", uuid_for("table-1"), [event])
 
         # Should not raise exception
         commands = router.route(event_book, "table")
@@ -357,8 +336,7 @@ class TestHandResultsSagaEdgeCases:
         )
         # No stack_changes added
 
-        event_any = pack_event(event)
-        event_book = make_event_book("table", uuid_for("table-1"), [event_any])
+        event_book = make_event_book("table", uuid_for("table-1"), [event])
 
         context = SagaContext(
             event_book=event_book,
@@ -382,8 +360,7 @@ class TestHandResultsSagaEdgeCases:
         event.stack_changes[uuid_for("player-1").hex()] = 100
         event.stack_changes[uuid_for("player-2").hex()] = 0
 
-        event_any = pack_event(event)
-        event_book = make_event_book("table", uuid_for("table-1"), [event_any])
+        event_book = make_event_book("table", uuid_for("table-1"), [event])
 
         context = SagaContext(
             event_book=event_book,

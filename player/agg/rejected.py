@@ -3,7 +3,7 @@
 Handles command rejections that require compensating actions.
 """
 
-from state import PlayerState
+from .state import PlayerState
 
 from angzarr_client import now
 from angzarr_client.proto.angzarr import types_pb2 as types

@@ -10,7 +10,7 @@ Handler signature (decorated):
 The decorator auto-unpacks the command and packs the returned event.
 """
 
-from state import PlayerState
+from .state import PlayerState
 
 from angzarr_client import command_handler, now
 from angzarr_client.errors import CommandRejectedError

@@ -42,7 +42,7 @@ def state_from_event_book(event_book):
 
 # docs:start:scenarios_loader
 # Load scenarios from feature file
-scenarios("../../../features/unit/player.feature")
+scenarios("../../features/specs/unit/player.feature")
 # docs:end:scenarios_loader
 
 

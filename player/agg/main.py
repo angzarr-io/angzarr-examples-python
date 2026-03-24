@@ -11,7 +11,7 @@ Contrasts with the OO pattern in player/agg/ which uses:
 """
 
 import structlog
-from state import (
+from .state import (
     PlayerState,
     apply_deposited,
     apply_registered,
@@ -23,7 +23,7 @@ from state import (
 
 from angzarr_client import CommandRouter, StateRouter, run_command_handler_server
 from angzarr_client.proto.examples import player_pb2 as player
-from handlers import (
+from .handlers import (
     handle_deposit,
     handle_register,
     handle_release,

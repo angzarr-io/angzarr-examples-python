@@ -50,3 +50,7 @@ run-table:
 # Run hand aggregate
 run-hand:
     cd hand/agg && uv run python main.py
+
+# Run game with AI Player service
+run-game-ai *ARGS:
+    uv run python run_game.py --ai-player localhost:50500 --no-standalone {{ARGS}}

@@ -13,6 +13,7 @@ storage:
     database: "angzarr"
     username: "angzarr"
     password: "angzarr"
+    uri: "postgres://angzarr:angzarr@angzarr-db-rw:5432/angzarr"
 
 messaging:
   type: amqp
@@ -52,8 +53,24 @@ applications:
   # Sagas to be added later
   sagas: []
 
-  # Projectors to be added later
-  projectors: []
+  # Projectors
+  projectors:
+    - name: prj-training
+      domain: hand
+      port: 50491
+      topics:
+        - "hand"  # Subscribe to hand domain events
+      image:
+        repository: ghcr.io/angzarr-io/poker-python-prj-training
+        tag: latest
+        pullPolicy: IfNotPresent
+
+# Infrastructure settings
+infrastructure:
+  gateway:
+    enabled: true
+    grpcTarget: "table-aggregate:1310"  # Points to table aggregate service
+    descriptorConfigMap: "gateway-descriptor"
 
 # Resource limits for development
 resources:

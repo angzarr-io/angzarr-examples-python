@@ -19,7 +19,7 @@ from angzarr_client.proto.examples import table_pb2 as table
 from tests.conftest import make_cover, make_timestamp
 
 # Load scenarios
-scenarios("../../../features/unit/projector.feature")
+scenarios("../../features/specs/unit/projector.feature")
 
 
 # --- Test context ---

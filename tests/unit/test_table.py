@@ -18,7 +18,7 @@ from tests.conftest import (
 )
 
 # Load scenarios from feature file
-scenarios("../../../features/unit/table.feature")
+scenarios("../../features/specs/unit/table.feature")
 
 
 @pytest.fixture
