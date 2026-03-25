@@ -442,7 +442,7 @@ class Hand(CommandHandler[_HandState]):
             if to_put_in > player.stack:
                 raise CommandRejectedError("Raise exceeds stack")
             chips_put_in = to_put_in
-            event_amount = amount  # Event stores total bet level
+            event_amount = chips_put_in  # Store chips put in, not total (consistent with CALL/BET)
             if player.stack - chips_put_in == 0:
                 action = poker_types.ALL_IN
         elif action == poker_types.ALL_IN:

@@ -21,7 +21,7 @@ messaging:
     enabled: true
     host: "angzarr-mq"
     port: 5672
-    url: "amqp://angzarr:angzarr@angzarr-mq:5672"
+    url: "amqp://angzarr:zqbWyxab55QQ55bhXNxVwKTTiOWQqiRg@angzarr-mq:5672/%2F"
 
 # Poker domain aggregates
 applications:
@@ -33,6 +33,9 @@ applications:
         repository: ghcr.io/angzarr-io/poker-python-player
         tag: latest
         pullPolicy: IfNotPresent
+      debug:
+        enabled: true
+        nodePort: 31320  # localhost:1320 via Kind port mapping
 
     - name: poker-table
       domain: table
@@ -41,6 +44,9 @@ applications:
         repository: ghcr.io/angzarr-io/poker-python-table
         tag: latest
         pullPolicy: IfNotPresent
+      debug:
+        enabled: true
+        nodePort: 31321  # localhost:1321 via Kind port mapping
 
     - name: poker-hand
       domain: hand
@@ -49,6 +55,9 @@ applications:
         repository: ghcr.io/angzarr-io/poker-python-hand
         tag: latest
         pullPolicy: IfNotPresent
+      debug:
+        enabled: true
+        nodePort: 31322  # localhost:1322 via Kind port mapping
 
   # Sagas to be added later
   sagas: []

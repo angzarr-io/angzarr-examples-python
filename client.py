@@ -19,6 +19,7 @@ from angzarr_client.proto.angzarr.types_pb2 import (
     CommandBook,
     CommandPage,
     Cover,
+    Edition,
     PageHeader,
     UUID,
     SYNC_MODE_ASYNC,
@@ -114,6 +115,7 @@ class GatewayClient:
         command: Message,
         sequence: int = 0,
         sync_mode: int | None = None,
+        edition: Edition | None = None,
     ) -> CommandResponseW:
         """Execute a command against a domain aggregate.
 
@@ -124,6 +126,7 @@ class GatewayClient:
             sequence: Expected sequence number (for optimistic concurrency).
             sync_mode: Sync mode (SYNC_MODE_SIMPLE or SYNC_MODE_CASCADE).
                       Defaults to SIMPLE for single-aggregate commands.
+            edition: Optional edition for what-if scenario branching.
 
         Returns:
             CommandResponseW with execution result and events.
@@ -137,12 +140,14 @@ class GatewayClient:
         # Build UUID from root bytes
         root_uuid = UUID(value=root)
 
+        # Build Cover with optional edition
+        cover = Cover(domain=domain, root=root_uuid)
+        if edition is not None:
+            cover.edition.CopyFrom(edition)
+
         # Build CommandBook
         cmd_book = CommandBook(
-            cover=Cover(
-                domain=domain,
-                root=root_uuid,
-            ),
+            cover=cover,
             pages=[
                 CommandPage(
                     header=PageHeader(sequence=sequence),

@@ -49,6 +49,7 @@ class HandState:
     """In-memory state for a hand being projected."""
 
     hand_root: str
+    edition: str = "angzarr"  # Edition name (main timeline = "angzarr")
     players: dict[bytes, PlayerState] = field(default_factory=dict)
     community_cards: list[int] = field(default_factory=list)
     pot_size: int = 0
@@ -105,6 +106,11 @@ class TrainingProjector:
         if event_book.cover and event_book.cover.root and event_book.cover.root.value:
             hand_root = event_book.cover.root.value.hex()
 
+        # Get edition from cover (defaults to "angzarr" for main timeline)
+        edition = "angzarr"
+        if event_book.cover and event_book.cover.HasField("edition") and event_book.cover.edition.name:
+            edition = event_book.cover.edition.name
+
         try:
             for page in event_book.pages:
                 # Check if this page has an event payload
@@ -128,25 +134,25 @@ class TrainingProjector:
                 # Dispatch by event type
                 try:
                     if type_url.endswith("CardsDealt"):
-                        self._handle_cards_dealt(hand_root, event_any)
+                        self._handle_cards_dealt(hand_root, edition, event_any)
 
                     elif type_url.endswith("BlindPosted"):
-                        self._handle_blind_posted(hand_root, event_any)
+                        self._handle_blind_posted(hand_root, edition, event_any)
 
                     elif type_url.endswith("ActionTaken"):
-                        self._handle_action_taken(hand_root, event_any, last_seq)
+                        self._handle_action_taken(hand_root, edition, event_any, last_seq)
 
                     elif type_url.endswith("CommunityCardsDealt"):
-                        self._handle_community_dealt(hand_root, event_any)
+                        self._handle_community_dealt(hand_root, edition, event_any)
 
                     elif type_url.endswith("BettingRoundComplete"):
-                        self._handle_betting_complete(hand_root, event_any)
+                        self._handle_betting_complete(hand_root, edition, event_any)
 
                     elif type_url.endswith("PotAwarded"):
-                        self._handle_pot_awarded(hand_root, event_any)
+                        self._handle_pot_awarded(hand_root, edition, event_any)
 
                     elif type_url.endswith("HandComplete"):
-                        self._handle_hand_complete(hand_root, event_any)
+                        self._handle_hand_complete(hand_root, edition, event_any)
                 except Exception as e:
                     logger.error(
                         "event_handler_error",
@@ -166,18 +172,23 @@ class TrainingProjector:
             sequence=last_seq,
         )
 
-    def _get_hand(self, hand_root: str) -> HandState:
-        """Get or create hand state."""
-        if hand_root not in self._hands:
-            self._hands[hand_root] = HandState(hand_root=hand_root)
-        return self._hands[hand_root]
+    def _get_hand(self, hand_root: str, edition: str = "angzarr") -> HandState:
+        """Get or create hand state.
 
-    def _handle_cards_dealt(self, hand_root: str, event_any: types.Any) -> None:
+        Note: For edition branches, we use a composite key of edition:hand_root
+        so that main timeline and edition branches are tracked separately.
+        """
+        key = f"{edition}:{hand_root}"
+        if key not in self._hands:
+            self._hands[key] = HandState(hand_root=hand_root, edition=edition)
+        return self._hands[key]
+
+    def _handle_cards_dealt(self, hand_root: str, edition: str, event_any: types.Any) -> None:
         """Handle CardsDealt event - initialize hand state."""
         event = hand.CardsDealt()
         event_any.Unpack(event)
 
-        state = self._get_hand(hand_root)
+        state = self._get_hand(hand_root, edition)
         state.dealer_position = event.dealer_position
         state.game_variant = poker_types.GameVariant.Name(event.game_variant)
 
@@ -197,12 +208,12 @@ class TrainingProjector:
                 ps.stack = p.stack
                 ps.position = p.position
 
-    def _handle_blind_posted(self, hand_root: str, event_any: types.Any) -> None:
+    def _handle_blind_posted(self, hand_root: str, edition: str, event_any: types.Any) -> None:
         """Handle BlindPosted event - track blinds."""
         event = hand.BlindPosted()
         event_any.Unpack(event)
 
-        state = self._get_hand(hand_root)
+        state = self._get_hand(hand_root, edition)
         state.pot_size = event.pot_total
 
         if event.player_root in state.players:
@@ -218,6 +229,7 @@ class TrainingProjector:
     def _handle_action_taken(
         self,
         hand_root: str,
+        edition: str,
         event_any: types.Any,
         sequence: int,
     ) -> None:
@@ -225,7 +237,7 @@ class TrainingProjector:
         event = hand.ActionTaken()
         event_any.Unpack(event)
 
-        state = self._get_hand(hand_root)
+        state = self._get_hand(hand_root, edition)
         player_root = event.player_root
 
         if player_root not in state.players:
@@ -242,6 +254,7 @@ class TrainingProjector:
             hand_root=hand_root,
             sequence=sequence,
             player_root=player_root,
+            edition=state.edition,
             # Hole cards
             hole_card_1=ps.hole_cards[0] if len(ps.hole_cards) > 0 else None,
             hole_card_2=ps.hole_cards[1] if len(ps.hole_cards) > 1 else None,
@@ -288,12 +301,12 @@ class TrainingProjector:
             ps.total_invested += invested
             ps.bet_this_round = state.current_bet
 
-    def _handle_community_dealt(self, hand_root: str, event_any: types.Any) -> None:
+    def _handle_community_dealt(self, hand_root: str, edition: str, event_any: types.Any) -> None:
         """Handle CommunityCardsDealt event."""
         event = hand.CommunityCardsDealt()
         event_any.Unpack(event)
 
-        state = self._get_hand(hand_root)
+        state = self._get_hand(hand_root, edition)
 
         # Phase from enum
         state.phase = event.phase  # Already an int from proto enum
@@ -301,12 +314,12 @@ class TrainingProjector:
         # Update community cards from all_community_cards
         state.community_cards = [self._encode_card(c) for c in event.all_community_cards]
 
-    def _handle_betting_complete(self, hand_root: str, event_any: types.Any) -> None:
+    def _handle_betting_complete(self, hand_root: str, edition: str, event_any: types.Any) -> None:
         """Handle BettingRoundComplete event - reset round state."""
         event = hand.BettingRoundComplete()
         event_any.Unpack(event)
 
-        state = self._get_hand(hand_root)
+        state = self._get_hand(hand_root, edition)
 
         # Reset for new betting round
         for ps in state.players.values():
@@ -314,23 +327,23 @@ class TrainingProjector:
             ps.acted_this_round = False
         state.current_bet = 0
 
-    def _handle_pot_awarded(self, hand_root: str, event_any: types.Any) -> None:
+    def _handle_pot_awarded(self, hand_root: str, edition: str, event_any: types.Any) -> None:
         """Handle PotAwarded event - record winnings."""
         event = hand.PotAwarded()
         event_any.Unpack(event)
 
-        state = self._get_hand(hand_root)
+        state = self._get_hand(hand_root, edition)
 
         for winner in event.winners:
             pr = winner.player_root
             state.outcomes[pr] = state.outcomes.get(pr, 0) + winner.amount
 
-    def _handle_hand_complete(self, hand_root: str, event_any: types.Any) -> None:
+    def _handle_hand_complete(self, hand_root: str, edition: str, event_any: types.Any) -> None:
         """Handle HandComplete event - finalize and persist training states."""
         event = hand.HandComplete()
         event_any.Unpack(event)
 
-        state = self._get_hand(hand_root)
+        state = self._get_hand(hand_root, edition)
 
         # Compute net outcome for each player (winnings - invested)
         for player_root, ps in state.players.items():
@@ -352,12 +365,15 @@ class TrainingProjector:
         # Persist to database
         self._persist_training_states(hand_root, state.pending_states)
 
-        # Clean up hand state
-        del self._hands[hand_root]
+        # Clean up hand state (using composite key)
+        key = f"{edition}:{hand_root}"
+        if key in self._hands:
+            del self._hands[key]
 
         logger.debug(
             "hand_projected",
             hand_root=hand_root[:8],
+            edition=edition,
             states=len(state.pending_states),
         )
 

@@ -35,10 +35,11 @@ class TrainingState(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    # Identity - hand_root + sequence uniquely identifies this decision
+    # Identity - hand_root + sequence + edition uniquely identifies this decision
     hand_root = Column(String(64), nullable=False)
     sequence = Column(Integer, nullable=False)  # Event sequence within hand
     player_root = Column(LargeBinary(32), nullable=False)
+    edition = Column(String(128), default="angzarr")  # Edition name (main timeline = "angzarr")
 
     # Hole cards (encoded as integers: rank * 4 + suit, 0-51)
     hole_card_1 = Column(Integer)
@@ -78,11 +79,13 @@ class TrainingState(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
-        # Ensure we don't duplicate projections
-        UniqueConstraint("hand_root", "sequence", name="uq_training_state_hand_seq"),
+        # Ensure we don't duplicate projections (edition + hand + sequence)
+        UniqueConstraint("edition", "hand_root", "sequence", name="uq_training_state_edition_hand_seq"),
         # Index for loading training batches
         Index("ix_training_states_reward", "reward"),
         Index("ix_training_states_created", "created_at"),
+        # Index for filtering by edition
+        Index("ix_training_states_edition", "edition"),
     )
 
 
@@ -102,3 +105,47 @@ class ProjectorCheckpoint(Base):
     hands_projected = Column(Integer, default=0)
     states_created = Column(Integer, default=0)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TournamentResult(Base):
+    """Records tournament outcomes for fitness evaluation.
+
+    Each row represents one player's result in a tournament.
+    Used to calculate BB/100 and ROI metrics for model evaluation.
+    """
+
+    __tablename__ = "tournament_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Tournament identity
+    tournament_id = Column(String(64), nullable=False)
+    model_version = Column(String(128), nullable=False)
+
+    # Player identity
+    player_root = Column(LargeBinary(32), nullable=False)
+    player_name = Column(String(64), nullable=False)
+
+    # Tournament parameters
+    players_count = Column(Integer, nullable=False)
+    starting_stack = Column(Integer, nullable=False)
+    big_blind = Column(Integer, nullable=False)
+
+    # Results
+    final_position = Column(Integer, nullable=False)  # 1 = winner
+    final_stack = Column(Integer, nullable=False)
+    hands_played = Column(Integer, nullable=False)
+    chip_delta = Column(Integer, nullable=False)  # final - starting
+
+    # Calculated metrics
+    bb_won = Column(Float, nullable=False)  # chip_delta / big_blind
+    roi = Column(Float, nullable=False)  # chip_delta / starting_stack
+
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_tournament_results_model", "model_version"),
+        Index("ix_tournament_results_tournament", "tournament_id"),
+        Index("ix_tournament_results_created", "created_at"),
+    )

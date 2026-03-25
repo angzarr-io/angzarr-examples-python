@@ -752,10 +752,78 @@ class PokerGame:
                 + (f" {chips(final_amount)}" if final_amount else "")
             )
 
-            resp = self.client.execute(
-                "hand", self.hand_root, cmd, sequence=self.hand_sequence
-            )
-            self.hand_sequence = resp.events_book().next_sequence()
+            # Try to execute, with retry on raise rejection
+            max_retries = 5
+            original_action = action
+            for attempt in range(max_retries):
+                try:
+                    resp = self.client.execute(
+                        "hand", self.hand_root, cmd, sequence=self.hand_sequence
+                    )
+                    self.hand_sequence = resp.events_book().next_sequence()
+                    break  # Success
+                except Exception as e:
+                    error_str = str(e)
+                    # Any raise-related error - fall back to call/check
+                    if ("Raise must be at least" in error_str or "Raise exceeds stack" in error_str) and action == types_pb2.RAISE:
+                        if attempt < max_retries - 1:
+                            # Can't afford raise, just call
+                            action = types_pb2.CALL
+                            final_amount = min(to_call, player.stack)
+                            if final_amount <= 0:
+                                action = types_pb2.CHECK
+                                final_amount = 0
+                            cmd = hand_pb2.PlayerAction(
+                                player_root=player.root,
+                                action=action,
+                                amount=final_amount,
+                            )
+                            self.log(f"│  [Retry {attempt+1}] Raise exceeds stack, falling back to {types_pb2.ActionType.Name(action)}")
+                            continue
+                    # Player is all-in - they can't act, skip
+                    elif "Player is all-in" in error_str:
+                        self.log(f"│  [Skip] {player.name} is all-in")
+                        player.all_in = True
+                        break  # Exit retry loop, skip this player
+                    # Bet exceeds stack - fall back to all-in call
+                    elif "Bet exceeds stack" in error_str:
+                        if attempt < max_retries - 1:
+                            action = types_pb2.CALL
+                            final_amount = player.stack
+                            cmd = hand_pb2.PlayerAction(
+                                player_root=player.root,
+                                action=action,
+                                amount=final_amount,
+                            )
+                            self.log(f"│  [Retry {attempt+1}] Bet exceeds stack, all-in call {chips(final_amount)}")
+                            continue
+                    # Nothing to call - should check instead
+                    elif "Nothing to call" in error_str:
+                        if attempt < max_retries - 1:
+                            action = types_pb2.CHECK
+                            final_amount = 0
+                            cmd = hand_pb2.PlayerAction(
+                                player_root=player.root,
+                                action=action,
+                                amount=0,
+                            )
+                            self.log(f"│  [Retry {attempt+1}] Nothing to call, checking")
+                            continue
+                    # Last resort: if we've exhausted retries and still failing on raise/bet,
+                    # try a simple check or fold
+                    elif attempt >= max_retries - 1 and action in (types_pb2.RAISE, types_pb2.BET):
+                        # Last attempt failed, try fold as absolute fallback
+                        action = types_pb2.FOLD
+                        final_amount = 0
+                        cmd = hand_pb2.PlayerAction(
+                            player_root=player.root,
+                            action=action,
+                            amount=0,
+                        )
+                        self.log(f"│  [Fallback] Folding after repeated failures")
+                        continue
+                    # Re-raise if not handled
+                    raise
 
             self.log("└─ EVENT: ActionTaken")
 

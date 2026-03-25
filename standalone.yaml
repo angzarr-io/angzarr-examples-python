@@ -1,12 +1,5 @@
 # Standalone mode configuration for Python Poker example
-# Run with: ANGZARR_CONFIG=examples/python/standalone.yaml ./target/debug/angzarr-standalone
-#
-# NOTE: Coordinators that need Python client access must expose TCP ports.
-# grpc-python 1.57+ has a cross-language interop issue with tonic (Rust)
-# over Unix Domain Sockets, causing "RST_STREAM with error code 1".
-# See: https://github.com/hyperium/tonic/issues/826
-#      https://github.com/grpc/grpc/issues/34760
-# UDS works fine for Rust-to-Rust and Python-to-Python communication.
+# Compatible with test-coverage/angzarr-standalone binary
 
 storage:
   type: sqlite
@@ -24,10 +17,12 @@ messaging:
 standalone:
   aggregates:
     - domain: player
-      port: 50401
-      command: ["uv", "run", "python", "player/agg/main.py"]
+      socket: ./tmp/ch-player.sock
+      command: ["uv", "run", "python", "-m", "player.agg.main"]
       env:
+        PYTHONPATH: "."
         UDS_BASE_PATH: ./tmp
+        TRANSPORT_TYPE: uds
         SERVICE_NAME: business
         DOMAIN: player
       storage:
@@ -36,10 +31,12 @@ standalone:
           path: ./data/player.db
 
     - domain: table
-      port: 50402
-      command: ["uv", "run", "python", "table/agg/main.py"]
+      socket: ./tmp/ch-table.sock
+      command: ["uv", "run", "python", "-m", "table.agg.main"]
       env:
+        PYTHONPATH: "."
         UDS_BASE_PATH: ./tmp
+        TRANSPORT_TYPE: uds
         SERVICE_NAME: business
         DOMAIN: table
       storage:
@@ -48,10 +45,12 @@ standalone:
           path: ./data/table.db
 
     - domain: hand
-      port: 50403
-      command: ["uv", "run", "python", "hand/agg/main.py"]
+      socket: ./tmp/ch-hand.sock
+      command: ["uv", "run", "python", "-m", "hand.agg.main"]
       env:
+        PYTHONPATH: "."
         UDS_BASE_PATH: ./tmp
+        TRANSPORT_TYPE: uds
         SERVICE_NAME: business
         DOMAIN: hand
       storage:
@@ -60,54 +59,55 @@ standalone:
           path: ./data/hand.db
 
   sagas:
-    - name: saga-table-hand
-      port: 50411
-      source_domain: table
-      target_domain: hand
+    - domain: saga-table-hand
+      listen_domain: table
       command: ["uv", "run", "python", "table/saga-hand/main.py"]
       env:
+        PYTHONPATH: "."
         UDS_BASE_PATH: ./tmp
+        TRANSPORT_TYPE: uds
 
-    - name: saga-hand-table
-      port: 50412
-      source_domain: hand
-      target_domain: table
+    - domain: saga-hand-table
+      listen_domain: hand
       command: ["uv", "run", "python", "hand/saga-table/main.py"]
       env:
+        PYTHONPATH: "."
         UDS_BASE_PATH: ./tmp
+        TRANSPORT_TYPE: uds
 
-    - name: saga-table-player
-      port: 50413
-      source_domain: table
-      target_domain: player
+    - domain: saga-table-player
+      listen_domain: table
       command: ["uv", "run", "python", "table/saga-player/main.py"]
       env:
+        PYTHONPATH: "."
         UDS_BASE_PATH: ./tmp
+        TRANSPORT_TYPE: uds
 
-    - name: saga-hand-player
-      port: 50414
-      source_domain: hand
-      target_domain: player
+    - domain: saga-hand-player
+      listen_domain: hand
       command: ["uv", "run", "python", "hand/saga-player/main.py"]
       env:
+        PYTHONPATH: "."
         UDS_BASE_PATH: ./tmp
+        TRANSPORT_TYPE: uds
 
   process_managers:
-    - name: hand-flow
-      port: 50491
-      pm_domain: hand-flow
-      input_domains: [table, hand]
+    - domain: hand-flow
+      subscriptions: "table;hand"
       command: ["uv", "run", "python", "hand-flow/main.py"]
       env:
+        PYTHONPATH: "."
         UDS_BASE_PATH: ./tmp
+        TRANSPORT_TYPE: uds
 
   projectors:
-    - name: prj-output
-      port: 50490
-      listen_domains: [player, table, hand]
+    - domain: prj-output
+      listen_domain: player
       command: ["uv", "run", "python", "prj-output/main.py"]
       env:
+        PYTHONPATH: "."
         UDS_BASE_PATH: ./tmp
+        TRANSPORT_TYPE: uds
         SERVICE_NAME: projector
         PROJECTOR_NAME: output
         HAND_LOG_FILE: ./hand_log.txt
