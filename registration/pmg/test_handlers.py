@@ -14,17 +14,17 @@ from angzarr_client.proto.examples import poker_types_pb2 as poker
 from angzarr_client.proto.examples import registration_pb2 as registration
 from angzarr_client.proto.examples import tournament_pb2 as tourn
 from google.protobuf.any_pb2 import Any as AnyProto
-from handlers import (
-    RegistrationPM,
-    TournamentStateHelper,
-    rebuild_tournament_state,
-)
+from handlers import RegistrationPM
+from tournament_state import TournamentStateHelper, tournament_state_router
 
 
 def _pack_event(event, type_name: str) -> AnyProto:
-    """Pack an event into Any."""
+    """Pack an event into Any.
+
+    Note: type_url_prefix should end with / for proper URL construction.
+    """
     any_pb = AnyProto()
-    any_pb.Pack(event, type_url_prefix="type.googleapis.com/examples")
+    any_pb.Pack(event, type_url_prefix="type.googleapis.com/")
     return any_pb
 
 
@@ -37,8 +37,8 @@ def _make_event_book(events: list[AnyProto], domain: str = "test") -> types.Even
     )
 
 
-class TestTournamentStateHelper:
-    """Tests for TournamentStateHelper."""
+class TestTournamentStateRouter:
+    """Tests for tournament_state_router (StateRouter pattern)."""
 
     def test_rebuild_from_created(self) -> None:
         """Rebuild state from TournamentCreated event."""
@@ -52,7 +52,7 @@ class TestTournamentStateHelper:
             [_pack_event(created, "TournamentCreated")], domain="tournament"
         )
 
-        state = rebuild_tournament_state(event_book)
+        state = tournament_state_router.with_event_book(event_book)
 
         assert state.registration_open is True
         assert state.max_players == 100
@@ -75,7 +75,7 @@ class TestTournamentStateHelper:
             domain="tournament",
         )
 
-        state = rebuild_tournament_state(event_book)
+        state = tournament_state_router.with_event_book(event_book)
 
         player_hex = b"player_123".hex()
         assert player_hex in state.registered_players
@@ -93,7 +93,7 @@ class TestTournamentStateHelper:
             domain="tournament",
         )
 
-        state = rebuild_tournament_state(event_book)
+        state = tournament_state_router.with_event_book(event_book)
 
         assert state.registration_open is False
         assert state.status == tourn.TournamentStatus.TOURNAMENT_RUNNING
@@ -188,6 +188,10 @@ class TestRegistrationPMHandlers:
 
         return _make_event_book(events, domain="tournament")
 
+    def _rebuild_tournament_state(self, eb: types.EventBook) -> TournamentStateHelper:
+        """Helper to rebuild tournament state from EventBook."""
+        return tournament_state_router.with_event_book(eb)
+
     def test_handle_registration_requested_valid(self) -> None:
         """Handle valid registration request."""
         pm = RegistrationPM()
@@ -198,9 +202,10 @@ class TestRegistrationPMHandlers:
             fee=poker.Currency(amount=50),
         )
         tournament_eb = self._make_tournament_event_book()
+        tournament_state = self._rebuild_tournament_state(tournament_eb)
 
         result = pm.handle_registration_requested(
-            event, destinations=[tournament_eb], root=player_root
+            event, destinations={"tournament": tournament_state}, root=player_root
         )
 
         assert result is not None
@@ -217,9 +222,10 @@ class TestRegistrationPMHandlers:
             reservation_id=b"res_001",
         )
         tournament_eb = self._make_tournament_event_book(registration_open=False)
+        tournament_state = self._rebuild_tournament_state(tournament_eb)
 
         result = pm.handle_registration_requested(
-            event, destinations=[tournament_eb], root=player_root
+            event, destinations={"tournament": tournament_state}, root=player_root
         )
 
         assert result is None
@@ -237,9 +243,10 @@ class TestRegistrationPMHandlers:
             max_players=2,
             enrolled_players=[b"player_a", b"player_b"],
         )
+        tournament_state = self._rebuild_tournament_state(tournament_eb)
 
         result = pm.handle_registration_requested(
-            event, destinations=[tournament_eb], root=player_root
+            event, destinations={"tournament": tournament_state}, root=player_root
         )
 
         assert result is None
@@ -255,9 +262,10 @@ class TestRegistrationPMHandlers:
         tournament_eb = self._make_tournament_event_book(
             enrolled_players=[player_root],  # Same player already enrolled
         )
+        tournament_state = self._rebuild_tournament_state(tournament_eb)
 
         result = pm.handle_registration_requested(
-            event, destinations=[tournament_eb], root=player_root
+            event, destinations={"tournament": tournament_state}, root=player_root
         )
 
         assert result is None
@@ -272,7 +280,7 @@ class TestRegistrationPMHandlers:
         )
 
         result = pm.handle_registration_requested(
-            event, destinations=[], root=player_root
+            event, destinations={}, root=player_root
         )
 
         assert result is None

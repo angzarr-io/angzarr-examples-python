@@ -4,6 +4,12 @@ Sagas are stateless event-to-command translators that enable loose coupling
 between domains. They subscribe to events from one domain and emit commands
 to another domain.
 
+Design Philosophy:
+    Sagas are translators, NOT decision makers. They should NOT rebuild
+    destination state to make business decisions. The framework provides
+    destination sequences for command stamping. Business logic belongs in
+    aggregates.
+
 Example: TableSyncSaga subscribes to HandStarted from table domain and
 emits DealCards to hand domain.
 """
@@ -17,6 +23,7 @@ import structlog
 from google.protobuf.any_pb2 import Any as AnyProto
 from google.protobuf.message import Message
 
+from angzarr_client.destinations import Destinations
 from angzarr_client.proto.angzarr import types_pb2 as types
 
 log = structlog.get_logger()
@@ -26,13 +33,15 @@ log = structlog.get_logger()
 class SagaContext:
     """Context passed to saga handlers.
 
-    Contains the event book, extracted event type, and aggregate metadata.
+    Contains the event book, extracted event type, aggregate metadata,
+    and destinations for command stamping.
     """
 
     event_book: types.EventBook
     event_type: str
     aggregate_type: str
     aggregate_root: bytes
+    destinations: Destinations
 
 
 class Saga(ABC):
@@ -41,6 +50,10 @@ class Saga(ABC):
     A saga subscribes to specific event types and handles them by emitting
     commands to other domains. Sagas are stateless - they translate events
     to commands without maintaining state.
+
+    Design Philosophy:
+        Sagas are translators, NOT decision makers. Use destinations.stamp_command()
+        to set sequence numbers on commands. Don't rebuild destination state.
     """
 
     @property
@@ -64,7 +77,8 @@ class Saga(ABC):
         """Handle an event and return commands to dispatch.
 
         Args:
-            context: Saga context with event book and metadata.
+            context: Saga context with event book, metadata, and destinations.
+                     Use context.destinations.stamp_command() for sequence stamping.
 
         Returns:
             List of CommandBooks to dispatch to target domains.
@@ -100,18 +114,23 @@ class SagaRouter:
         return self
 
     def route(
-        self, event_book: types.EventBook, aggregate_type: str
+        self,
+        event_book: types.EventBook,
+        aggregate_type: str,
+        destination_sequences: dict[str, int] | None = None,
     ) -> list[types.CommandBook]:
         """Route events from an EventBook to matching sagas.
 
         Args:
             event_book: EventBook containing events to route.
             aggregate_type: Type of the source aggregate.
+            destination_sequences: Map of domain to next sequence number for stamping.
 
         Returns:
             Combined list of CommandBooks from all matching sagas.
         """
         commands = []
+        destinations = Destinations(destination_sequences or {})
 
         # Extract aggregate root from event book cover
         aggregate_root = b""
@@ -131,6 +150,7 @@ class SagaRouter:
                 event_type=event_type,
                 aggregate_type=aggregate_type,
                 aggregate_root=aggregate_root,
+                destinations=destinations,
             )
 
             # Find and invoke matching sagas

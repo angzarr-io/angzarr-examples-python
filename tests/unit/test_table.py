@@ -330,7 +330,7 @@ def rebuild_table_state(ctx):
 # --- Then steps ---
 
 
-@then("the result is a TableCreated event")
+@then("the result is a examples.TableCreated event")
 def result_is_table_created(ctx):
     """Verify result is TableCreated event."""
     assert ctx.result is not None, f"Expected result, got error: {ctx.error}"
@@ -339,7 +339,7 @@ def result_is_table_created(ctx):
     assert type_matches(event_any, table.TableCreated)
 
 
-@then("the result is a PlayerJoined event")
+@then("the result is a examples.PlayerJoined event")
 def result_is_player_joined(ctx):
     """Verify result is PlayerJoined event."""
     assert ctx.result is not None, f"Expected result, got error: {ctx.error}"
@@ -347,7 +347,7 @@ def result_is_player_joined(ctx):
     assert type_matches(event_any, table.PlayerJoined)
 
 
-@then("the result is a PlayerLeft event")
+@then("the result is a examples.PlayerLeft event")
 def result_is_player_left(ctx):
     """Verify result is PlayerLeft event."""
     assert ctx.result is not None, f"Expected result, got error: {ctx.error}"
@@ -355,7 +355,7 @@ def result_is_player_left(ctx):
     assert type_matches(event_any, table.PlayerLeft)
 
 
-@then("the result is a HandStarted event")
+@then("the result is a examples.HandStarted event")
 def result_is_hand_started(ctx):
     """Verify result is HandStarted event."""
     assert ctx.result is not None, f"Expected result, got error: {ctx.error}"
@@ -363,7 +363,7 @@ def result_is_hand_started(ctx):
     assert type_matches(event_any, table.HandStarted)
 
 
-@then("the result is a HandEnded event")
+@then("the result is a examples.HandEnded event")
 def result_is_hand_ended(ctx):
     """Verify result is HandEnded event."""
     assert ctx.result is not None, f"Expected result, got error: {ctx.error}"

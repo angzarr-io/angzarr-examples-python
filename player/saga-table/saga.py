@@ -10,7 +10,7 @@ Same pattern for SitIn/PlayerReturningToPlay → PlayerSatIn.
 
 from google.protobuf.any_pb2 import Any as ProtoAny
 
-from angzarr_client import now
+from angzarr_client import Destinations, now
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import table_pb2 as table
@@ -38,16 +38,17 @@ class PlayerTableSaga(Saga):
         event_any,
         root: bytes = None,
         correlation_id: str = "",
+        destination_sequences: dict[str, int] = None,
     ) -> list[types.CommandBook]:
         """Override to store source root for handler access."""
         self._current_root = root or b""
-        return super().dispatch(event_any, root, correlation_id)
+        return super().dispatch(event_any, root, correlation_id, destination_sequences)
 
     @handles(player.PlayerSittingOut)
     def handle_sitting_out(
         self,
         event: player.PlayerSittingOut,
-        destinations: list[types.EventBook] = None,
+        destinations: Destinations = None,
     ) -> None:
         """Propagate PlayerSittingOut as PlayerSatOut fact to table."""
         fact = table.PlayerSatOut(
@@ -63,7 +64,7 @@ class PlayerTableSaga(Saga):
     def handle_returning_to_play(
         self,
         event: player.PlayerReturningToPlay,
-        destinations: list[types.EventBook] = None,
+        destinations: Destinations = None,
     ) -> None:
         """Propagate PlayerReturningToPlay as PlayerSatIn fact to table."""
         fact = table.PlayerSatIn(

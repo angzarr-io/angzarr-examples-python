@@ -3,11 +3,17 @@
 Handles:
 - HandStarted (from table) → DealCards (to hand)
 - HandComplete (from hand) → EndHand (to table)
+
+Design Philosophy:
+    Sagas translate events to commands without making business decisions.
+    Use destinations.stamp_command() for sequence stamping. Let aggregates
+    validate and decide.
 """
 
 from google.protobuf.any_pb2 import Any as AnyProto
 from google.protobuf.message import Message
 
+from angzarr_client.destinations import Destinations
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import table_pb2 as table
@@ -24,9 +30,24 @@ def _pack_command(cmd: Message, type_prefix: str = "examples") -> AnyProto:
     )
 
 
-def _make_command_book(domain: str, root: bytes, command: Message) -> types.CommandBook:
-    """Create a CommandBook with a single command."""
-    return types.CommandBook(
+def _make_command_book(
+    domain: str,
+    root: bytes,
+    command: Message,
+    destinations: Destinations | None = None,
+) -> types.CommandBook:
+    """Create a CommandBook with a single command.
+
+    Args:
+        domain: Target domain for the command.
+        root: Target aggregate root ID.
+        command: Command message to pack.
+        destinations: Optional Destinations for sequence stamping.
+
+    Returns:
+        CommandBook ready for dispatch.
+    """
+    book = types.CommandBook(
         cover=types.Cover(
             domain=domain,
             root=types.UUID(value=root),
@@ -38,6 +59,12 @@ def _make_command_book(domain: str, root: bytes, command: Message) -> types.Comm
         ],
     )
 
+    # Stamp with sequence if destinations provided
+    if destinations is not None:
+        destinations.stamp_command(book, domain)
+
+    return book
+
 
 class TableSyncSaga(Saga):
     """Saga that synchronizes Table and Hand domains.
@@ -45,6 +72,11 @@ class TableSyncSaga(Saga):
     Handles bidirectional communication:
     - Table → Hand: When a table starts a hand, emit DealCards
     - Hand → Table: When a hand completes, emit EndHand
+
+    Design Philosophy:
+        This saga just translates events to commands. It doesn't make
+        business decisions - the Hand and Table aggregates validate
+        and decide whether to accept commands.
     """
 
     @property
@@ -87,7 +119,7 @@ class TableSyncSaga(Saga):
                 )
             )
 
-        # Create DealCards command
+        # Create DealCards command - Hand aggregate validates game rules
         deal_cards = hand.DealCards(
             table_root=context.aggregate_root,
             hand_number=event.hand_number,
@@ -99,7 +131,7 @@ class TableSyncSaga(Saga):
             deck_seed=b"",  # Let aggregate generate random seed
         )
 
-        return [_make_command_book("hand", event.hand_root, deal_cards)]
+        return [_make_command_book("hand", event.hand_root, deal_cards, context.destinations)]
 
     def _handle_hand_complete(self, context: SagaContext) -> list[types.CommandBook]:
         """Translate HandComplete → EndHand.
@@ -124,10 +156,10 @@ class TableSyncSaga(Saga):
                 )
             )
 
-        # Create EndHand command
+        # Create EndHand command - Table aggregate validates results
         end_hand = table.EndHand(
             hand_root=context.aggregate_root,
             results=results,
         )
 
-        return [_make_command_book("table", event.table_root, end_hand)]
+        return [_make_command_book("table", event.table_root, end_hand, context.destinations)]

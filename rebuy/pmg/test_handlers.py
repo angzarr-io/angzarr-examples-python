@@ -1,4 +1,15 @@
-"""Unit tests for rebuy PM handlers."""
+"""Unit tests for rebuy PM handlers.
+
+Design Philosophy:
+    PMs are coordinators, NOT decision makers. Business validation (rebuy
+    eligibility, level cutoffs, stack thresholds) belongs in aggregates.
+    PM tests verify:
+    1. Commands are emitted correctly
+    2. PM events are recorded for state tracking
+    3. Destinations are used for sequence stamping
+
+    Validation tests belong in Tournament and Table aggregate tests, not here.
+"""
 
 import sys
 from pathlib import Path
@@ -8,20 +19,14 @@ import pytest
 # Add rebuy/pmg to path for local imports
 sys.path.insert(0, str(Path(__file__).parent))
 
+from angzarr_client.destinations import Destinations
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import orchestration_pb2 as orch
 from angzarr_client.proto.examples import poker_types_pb2 as poker
 from angzarr_client.proto.examples import rebuy_pb2 as rebuy
-from angzarr_client.proto.examples import table_pb2 as table
 from angzarr_client.proto.examples import tournament_pb2 as tourn
 from google.protobuf.any_pb2 import Any as AnyProto
-from handlers import (
-    RebuyPM,
-    TableStateHelper,
-    TournamentStateHelper,
-    rebuild_table_state,
-    rebuild_tournament_state,
-)
+from handlers import RebuyPM
 
 
 def _pack_event(event, type_name: str) -> AnyProto:
@@ -40,73 +45,9 @@ def _make_event_book(events: list[AnyProto], domain: str = "test") -> types.Even
     )
 
 
-class TestTournamentStateHelper:
-    """Tests for TournamentStateHelper."""
-
-    def test_rebuild_from_created(self) -> None:
-        """Rebuild state from TournamentCreated event."""
-        created = tourn.TournamentCreated(
-            name="Test Tournament",
-            rebuy_config=tourn.RebuyConfig(
-                enabled=True,
-                max_rebuys=2,
-                rebuy_level_cutoff=4,
-                stack_threshold=1000,
-                rebuy_chips=1500,
-                rebuy_cost=50,
-            ),
-        )
-        event_book = _make_event_book(
-            [_pack_event(created, "TournamentCreated")], domain="tournament"
-        )
-
-        state = rebuild_tournament_state(event_book)
-
-        assert state.rebuy_enabled is True
-        assert state.max_rebuys == 2
-        assert state.rebuy_level_cutoff == 4
-        assert state.rebuy_chips == 1500
-
-    def test_rebuild_tracks_enrollments(self) -> None:
-        """Rebuild state tracks player enrollments."""
-        created = tourn.TournamentCreated(name="Test")
-        enrolled = tourn.TournamentPlayerEnrolled(
-            player_root=b"player_123",
-            registration_number=1,
-        )
-        event_book = _make_event_book(
-            [
-                _pack_event(created, "TournamentCreated"),
-                _pack_event(enrolled, "TournamentPlayerEnrolled"),
-            ],
-            domain="tournament",
-        )
-
-        state = rebuild_tournament_state(event_book)
-
-        player_hex = b"player_123".hex()
-        assert player_hex in state.registered_players
-        assert state.registered_players[player_hex] == 0
-
-
-class TestTableStateHelper:
-    """Tests for TableStateHelper."""
-
-    def test_find_seat_by_player(self) -> None:
-        """Find seat by player root."""
-        state = TableStateHelper(
-            seats={0: (b"player_a", 1000), 2: (b"player_b", 2000)},
-        )
-        assert state.find_seat_by_player(b"player_b") == 2
-        assert state.find_seat_by_player(b"unknown") is None
-
-    def test_get_stack(self) -> None:
-        """Get player's stack."""
-        state = TableStateHelper(
-            seats={0: (b"player_a", 1000), 2: (b"player_b", 2000)},
-        )
-        assert state.get_stack(b"player_b") == 2000
-        assert state.get_stack(b"unknown") is None
+def _make_destinations(sequences: dict[str, int] | None = None) -> Destinations:
+    """Create a Destinations context for testing."""
+    return Destinations(sequences or {})
 
 
 class TestRebuyPMPrepare:
@@ -144,93 +85,17 @@ class TestRebuyPMPrepare:
 
 
 class TestRebuyPMHandlers:
-    """Tests for RebuyPM event handlers."""
+    """Tests for RebuyPM event handlers.
 
-    def _make_tournament_event_book(
-        self,
-        status: int = tourn.TournamentStatus.TOURNAMENT_RUNNING,
-        rebuy_enabled: bool = True,
-        max_rebuys: int = 3,
-        rebuy_level_cutoff: int = 4,
-        stack_threshold: int = 1000,
-        rebuy_chips: int = 1500,
-        current_level: int = 1,
-        enrolled_players: dict = None,
-    ) -> types.EventBook:
-        """Create a tournament EventBook for testing."""
-        events = []
+    Design Philosophy:
+        PM always emits commands - aggregates validate.
+        These tests verify commands are emitted correctly, not validation logic.
+        Validation tests (rebuy eligibility, level cutoffs) belong in
+        Tournament and Table aggregate tests.
+    """
 
-        # Tournament created
-        created = tourn.TournamentCreated(
-            name="Test Tournament",
-            rebuy_config=tourn.RebuyConfig(
-                enabled=rebuy_enabled,
-                max_rebuys=max_rebuys,
-                rebuy_level_cutoff=rebuy_level_cutoff,
-                stack_threshold=stack_threshold,
-                rebuy_chips=rebuy_chips,
-            ),
-        )
-        events.append(_pack_event(created, "TournamentCreated"))
-
-        # Started if running
-        if status == tourn.TournamentStatus.TOURNAMENT_RUNNING:
-            started = tourn.TournamentStarted()
-            events.append(_pack_event(started, "TournamentStarted"))
-
-        # Enrolled players
-        if enrolled_players:
-            for player_root, rebuys_used in enrolled_players.items():
-                enrolled = tourn.TournamentPlayerEnrolled(
-                    player_root=player_root,
-                    registration_number=len(events),
-                )
-                events.append(_pack_event(enrolled, "TournamentPlayerEnrolled"))
-
-                # Add rebuy events if rebuys used
-                for _ in range(rebuys_used):
-                    processed = tourn.RebuyProcessed(
-                        player_root=player_root,
-                        rebuy_count=rebuys_used,
-                    )
-                    events.append(_pack_event(processed, "RebuyProcessed"))
-
-        # Advance level if needed
-        if current_level > 1:
-            for level in range(2, current_level + 1):
-                advanced = tourn.BlindLevelAdvanced(level=level)
-                events.append(_pack_event(advanced, "BlindLevelAdvanced"))
-
-        return _make_event_book(events, domain="tournament")
-
-    def _make_table_event_book(
-        self,
-        seated_players: dict = None,  # seat -> (player_root, stack)
-    ) -> types.EventBook:
-        """Create a table EventBook for testing."""
-        events = []
-
-        # Table created
-        created = table.TableCreated(
-            table_name="Test Table",
-            max_players=9,
-        )
-        events.append(_pack_event(created, "TableCreated"))
-
-        # Seated players
-        if seated_players:
-            for seat, (player_root, stack) in seated_players.items():
-                joined = table.PlayerJoined(
-                    player_root=player_root,
-                    seat_position=seat,
-                    stack=stack,
-                )
-                events.append(_pack_event(joined, "PlayerJoined"))
-
-        return _make_event_book(events, domain="table")
-
-    def test_handle_rebuy_requested_valid(self) -> None:
-        """Handle valid rebuy request."""
+    def test_handle_rebuy_requested_emits_process_rebuy(self) -> None:
+        """PM emits ProcessRebuy command - Tournament aggregate validates."""
         pm = RebuyPM()
         player_root = b"player_123"
         event = rebuy.RebuyRequested(
@@ -240,23 +105,19 @@ class TestRebuyPMHandlers:
             seat=2,
             fee=poker.Currency(amount=50),
         )
-        tournament_eb = self._make_tournament_event_book(
-            enrolled_players={player_root: 0},
-        )
-        table_eb = self._make_table_event_book(
-            seated_players={2: (player_root, 500)},  # Stack below threshold
-        )
+        destinations = _make_destinations({"tournament": 5, "table": 3})
 
         result = pm.handle_rebuy_requested(
-            event, destinations=[tournament_eb, table_eb], root=player_root
+            event, destinations=destinations, root=player_root
         )
 
         assert result is not None
         assert isinstance(result, tourn.ProcessRebuy)
         assert result.player_root == player_root
+        assert result.reservation_id == b"res_001"
 
-    def test_handle_rebuy_requested_tournament_not_running(self) -> None:
-        """Handle rebuy when tournament not running."""
+    def test_handle_rebuy_requested_records_initiated_event(self) -> None:
+        """PM records RebuyInitiated event for state tracking."""
         pm = RebuyPM()
         player_root = b"player_123"
         event = rebuy.RebuyRequested(
@@ -264,136 +125,89 @@ class TestRebuyPMHandlers:
             table_root=b"table_789",
             reservation_id=b"res_001",
             seat=2,
+            fee=poker.Currency(amount=50),
         )
-        tournament_eb = self._make_tournament_event_book(
-            status=tourn.TournamentStatus.TOURNAMENT_CREATED,
-            enrolled_players={player_root: 0},
-        )
-        table_eb = self._make_table_event_book(
-            seated_players={2: (player_root, 500)},
-        )
+        destinations = _make_destinations({"tournament": 5})
 
-        result = pm.handle_rebuy_requested(
-            event, destinations=[tournament_eb, table_eb], root=player_root
-        )
+        pm.handle_rebuy_requested(event, destinations=destinations, root=player_root)
 
-        assert result is None
+        # Check that RebuyInitiated was recorded
+        process_events = pm.process_events()
+        assert len(process_events.pages) == 1
+        initiated = rebuy.RebuyInitiated()
+        process_events.pages[0].event.Unpack(initiated)
+        assert initiated.player_root == player_root
+        assert initiated.tournament_root == b"tournament_456"
+        assert initiated.phase == orch.RebuyPhase.REBUY_APPROVING
 
-    def test_handle_rebuy_requested_rebuy_disabled(self) -> None:
-        """Handle rebuy when rebuys not enabled."""
+    def test_handle_rebuy_processed_emits_add_chips(self) -> None:
+        """PM emits AddRebuyChips when Tournament approves rebuy."""
         pm = RebuyPM()
-        player_root = b"player_123"
-        event = rebuy.RebuyRequested(
-            tournament_root=b"tournament_456",
-            table_root=b"table_789",
+        # Initialize PM state (simulates prior RebuyInitiated)
+        pm._state = pm._create_empty_state()
+        pm._state.table_root = b"table_789"
+        pm._state.seat = 2
+
+        event = tourn.RebuyProcessed(
+            player_root=b"player_123",
             reservation_id=b"res_001",
-            seat=2,
+            chips_added=1500,
+            rebuy_count=1,
         )
-        tournament_eb = self._make_tournament_event_book(
-            rebuy_enabled=False,
-            enrolled_players={player_root: 0},
-        )
-        table_eb = self._make_table_event_book(
-            seated_players={2: (player_root, 500)},
-        )
+        destinations = _make_destinations({"table": 3})
 
-        result = pm.handle_rebuy_requested(
-            event, destinations=[tournament_eb, table_eb], root=player_root
-        )
+        result = pm.handle_rebuy_processed(event, destinations=destinations)
 
-        assert result is None
-
-    def test_handle_rebuy_requested_window_closed(self) -> None:
-        """Handle rebuy when rebuy window has closed."""
-        pm = RebuyPM()
-        player_root = b"player_123"
-        event = rebuy.RebuyRequested(
-            tournament_root=b"tournament_456",
-            table_root=b"table_789",
-            reservation_id=b"res_001",
-            seat=2,
-        )
-        tournament_eb = self._make_tournament_event_book(
-            rebuy_level_cutoff=4,
-            current_level=5,  # Past cutoff
-            enrolled_players={player_root: 0},
-        )
-        table_eb = self._make_table_event_book(
-            seated_players={2: (player_root, 500)},
-        )
-
-        result = pm.handle_rebuy_requested(
-            event, destinations=[tournament_eb, table_eb], root=player_root
-        )
-
-        assert result is None
-
-    def test_handle_rebuy_requested_max_rebuys_reached(self) -> None:
-        """Handle rebuy when max rebuys already used."""
-        pm = RebuyPM()
-        player_root = b"player_123"
-        event = rebuy.RebuyRequested(
-            tournament_root=b"tournament_456",
-            table_root=b"table_789",
-            reservation_id=b"res_001",
-            seat=2,
-        )
-        tournament_eb = self._make_tournament_event_book(
-            max_rebuys=2,
-            enrolled_players={player_root: 2},  # Already used max
-        )
-        table_eb = self._make_table_event_book(
-            seated_players={2: (player_root, 500)},
-        )
-
-        result = pm.handle_rebuy_requested(
-            event, destinations=[tournament_eb, table_eb], root=player_root
-        )
-
-        assert result is None
-
-    def test_handle_rebuy_requested_stack_too_high(self) -> None:
-        """Handle rebuy when stack exceeds threshold."""
-        pm = RebuyPM()
-        player_root = b"player_123"
-        event = rebuy.RebuyRequested(
-            tournament_root=b"tournament_456",
-            table_root=b"table_789",
-            reservation_id=b"res_001",
-            seat=2,
-        )
-        tournament_eb = self._make_tournament_event_book(
-            stack_threshold=1000,
-            enrolled_players={player_root: 0},
-        )
-        table_eb = self._make_table_event_book(
-            seated_players={2: (player_root, 1500)},  # Above threshold
-        )
-
-        result = pm.handle_rebuy_requested(
-            event, destinations=[tournament_eb, table_eb], root=player_root
-        )
-
-        assert result is None
+        assert isinstance(result, rebuy.AddRebuyChips)
+        assert result.player_root == b"player_123"
+        assert result.reservation_id == b"res_001"
+        assert result.seat == 2
+        assert result.amount == 1500
 
     def test_handle_rebuy_denied_returns_release(self) -> None:
-        """Handle RebuyDenied returns ReleaseRebuyFee."""
+        """PM emits ReleaseRebuyFee when Tournament denies rebuy."""
         pm = RebuyPM()
+        # Initialize PM state
+        pm._state = pm._create_empty_state()
+        pm._state.tournament_root = b"tournament_456"
+
         event = tourn.RebuyDenied(
             player_root=b"player_123",
             reservation_id=b"res_001",
             reason="Rebuy limit reached",
         )
+        destinations = _make_destinations({"player": 5})
 
-        result = pm.handle_rebuy_denied(event, destinations=[])
+        result = pm.handle_rebuy_denied(event, destinations=destinations)
 
         assert isinstance(result, rebuy.ReleaseRebuyFee)
         assert result.reservation_id == b"res_001"
         assert result.reason == "Rebuy limit reached"
 
+    def test_handle_rebuy_denied_records_failed_event(self) -> None:
+        """PM records RebuyFailed event for state tracking."""
+        pm = RebuyPM()
+        pm._state = pm._create_empty_state()
+        pm._state.tournament_root = b"tournament_456"
+
+        event = tourn.RebuyDenied(
+            player_root=b"player_123",
+            reservation_id=b"res_001",
+            reason="Rebuy limit reached",
+        )
+        destinations = _make_destinations({"player": 5})
+
+        pm.handle_rebuy_denied(event, destinations=destinations)
+
+        process_events = pm.process_events()
+        assert len(process_events.pages) == 1
+        failed = rebuy.RebuyFailed()
+        process_events.pages[0].event.Unpack(failed)
+        assert failed.player_root == b"player_123"
+        assert failed.failure.code == "REBUY_DENIED"
+
     def test_handle_chips_added_returns_confirm(self) -> None:
-        """Handle RebuyChipsAdded returns ConfirmRebuyFee."""
-        # Initialize PM state first
+        """PM emits ConfirmRebuyFee when Table adds chips."""
         pm = RebuyPM()
         pm._state = pm._create_empty_state()
         pm._state.tournament_root = b"tournament_456"
@@ -407,8 +221,35 @@ class TestRebuyPMHandlers:
             amount=1500,
             new_stack=2000,
         )
+        destinations = _make_destinations({"player": 5})
 
-        result = pm.handle_chips_added(event, destinations=[])
+        result = pm.handle_chips_added(event, destinations=destinations)
 
         assert isinstance(result, rebuy.ConfirmRebuyFee)
         assert result.reservation_id == b"res_001"
+
+    def test_handle_chips_added_records_completed_event(self) -> None:
+        """PM records RebuyCompleted event for state tracking."""
+        pm = RebuyPM()
+        pm._state = pm._create_empty_state()
+        pm._state.tournament_root = b"tournament_456"
+        pm._state.table_root = b"table_789"
+        pm._state.fee = 50
+
+        event = rebuy.RebuyChipsAdded(
+            player_root=b"player_123",
+            reservation_id=b"res_001",
+            seat=2,
+            amount=1500,
+            new_stack=2000,
+        )
+        destinations = _make_destinations({"player": 5})
+
+        pm.handle_chips_added(event, destinations=destinations)
+
+        process_events = pm.process_events()
+        assert len(process_events.pages) == 1
+        completed = rebuy.RebuyCompleted()
+        process_events.pages[0].event.Unpack(completed)
+        assert completed.player_root == b"player_123"
+        assert completed.chips_added == 1500

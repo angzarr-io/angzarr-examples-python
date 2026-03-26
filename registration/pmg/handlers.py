@@ -8,8 +8,6 @@ Coordinates registration flows across Player <-> Tournament:
 5. PM emits ConfirmRegistrationFee or ReleaseRegistrationFee to Player
 """
 
-from dataclasses import dataclass, field
-
 from angzarr_client import now
 from angzarr_client.process_manager import (
     ProcessManager,
@@ -25,79 +23,7 @@ from angzarr_client.proto.examples import registration_pb2 as registration
 from angzarr_client.proto.examples import tournament_pb2 as tournament
 
 from state import RegistrationState
-
-
-@dataclass
-class TournamentStateHelper:
-    """Minimal tournament state for PM validation."""
-
-    status: int = tournament.TournamentStatus.TOURNAMENT_STATUS_UNSPECIFIED
-    registration_open: bool = True
-    max_players: int = 0
-    registered_count: int = 0
-    buy_in: int = 0
-    starting_stack: int = 0
-    registered_players: set[str] = field(default_factory=set)  # hex player roots
-
-
-def rebuild_tournament_state(event_book: types.EventBook) -> TournamentStateHelper:
-    """Rebuild tournament state from EventBook."""
-    state = TournamentStateHelper()
-
-    # Check for snapshot first
-    if event_book.HasField("snapshot") and event_book.snapshot.HasField("state"):
-        state_any = event_book.snapshot.state
-        if state_any.type_url.endswith("TournamentState"):
-            proto_state = tournament.TournamentState()
-            state_any.Unpack(proto_state)
-            state.status = proto_state.status
-            state.max_players = proto_state.max_players
-            state.buy_in = proto_state.buy_in
-            state.starting_stack = proto_state.starting_stack
-            for player in proto_state.registered_players:
-                state.registered_players.add(player.player_root.hex())
-            state.registered_count = len(state.registered_players)
-            # Derive registration_open from status
-            state.registration_open = state.status in (
-                tournament.TournamentStatus.TOURNAMENT_CREATED,
-                tournament.TournamentStatus.TOURNAMENT_REGISTERING,
-            )
-
-    # Apply events
-    for page in event_book.pages:
-        if not page.HasField("event"):
-            continue
-        event_any = page.event
-        type_url = event_any.type_url
-
-        if type_url.endswith("TournamentCreated"):
-            evt = tournament.TournamentCreated()
-            event_any.Unpack(evt)
-            state.status = tournament.TournamentStatus.TOURNAMENT_CREATED
-            state.max_players = evt.max_players
-            state.buy_in = evt.buy_in
-            state.starting_stack = evt.starting_stack
-            state.registration_open = True
-        elif type_url.endswith("RegistrationOpened"):
-            state.status = tournament.TournamentStatus.TOURNAMENT_REGISTERING
-            state.registration_open = True
-        elif type_url.endswith("RegistrationClosed"):
-            state.registration_open = False
-        elif type_url.endswith("TournamentStarted"):
-            state.status = tournament.TournamentStatus.TOURNAMENT_RUNNING
-            state.registration_open = False
-        elif type_url.endswith("TournamentPlayerEnrolled"):
-            evt = tournament.TournamentPlayerEnrolled()
-            event_any.Unpack(evt)
-            state.registered_players.add(evt.player_root.hex())
-            state.registered_count = len(state.registered_players)
-        elif type_url.endswith("TournamentPlayerUnregistered"):
-            evt = tournament.TournamentPlayerUnregistered()
-            event_any.Unpack(evt)
-            state.registered_players.discard(evt.player_root.hex())
-            state.registered_count = len(state.registered_players)
-
-    return state
+from tournament_state import TournamentStateHelper, tournament_state_router
 
 
 class RegistrationPM(ProcessManager[RegistrationState]):
@@ -107,6 +33,12 @@ class RegistrationPM(ProcessManager[RegistrationState]):
     """
 
     name = "pmg-registration"
+
+    # Register StateRouters for destination domains
+    # Handlers with dict[str, ...] type hints receive auto-rebuilt state
+    _destination_routers = {
+        "tournament": tournament_state_router,
+    }
 
     def _create_empty_state(self) -> RegistrationState:
         return RegistrationState()
@@ -187,14 +119,20 @@ class RegistrationPM(ProcessManager[RegistrationState]):
     def handle_registration_requested(
         self,
         event: registration.RegistrationRequested,
-        destinations: list[types.EventBook],
+        destinations: dict[str, TournamentStateHelper],
         root: bytes,
     ) -> tournament.EnrollPlayer | None:
         """Handle RegistrationRequested from Player domain.
 
         Validates Tournament state and emits EnrollPlayer if valid.
+
+        Args:
+            event: The RegistrationRequested event
+            destinations: Rebuilt destination states by domain (auto-built via StateRouter)
+            root: The player_root from the trigger's Cover
         """
-        if len(destinations) < 1:
+        tournament_state = destinations.get("tournament")
+        if tournament_state is None:
             self._emit_failure(
                 root,
                 event.tournament_root,
@@ -205,8 +143,6 @@ class RegistrationPM(ProcessManager[RegistrationState]):
             return None
 
         player_root = root
-        tournament_eb = destinations[0]
-        tournament_state = rebuild_tournament_state(tournament_eb)
 
         # Validate registration is open
         if not tournament_state.registration_open:

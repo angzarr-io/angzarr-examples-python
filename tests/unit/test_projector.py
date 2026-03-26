@@ -70,7 +70,7 @@ def make_event_page(event_msg, time_str: str = None) -> types.EventPage:
         created_at = make_timestamp()
 
     return types.EventPage(
-        sequence=0,
+        header=types.PageHeader(sequence=0),
         event=event_any,
         created_at=created_at,
     )
@@ -517,7 +517,7 @@ def given_unknown_event(ctx, type_url):
     event_any.value = b"test"
 
     ctx.event_page = types.EventPage(
-        sequence=0,
+        header=types.PageHeader(sequence=0),
         event=event_any,
         created_at=make_timestamp(),
     )

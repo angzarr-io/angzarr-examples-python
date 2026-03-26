@@ -3,11 +3,17 @@
 Handles:
 - HandEnded (from table) → ReleaseFunds (to player)
 - PotAwarded (from hand) → DepositFunds (to player)
+
+Design Philosophy:
+    Sagas translate events to commands without making business decisions.
+    Use destinations.stamp_command() for sequence stamping. The Player
+    aggregate validates fund operations.
 """
 
 from google.protobuf.any_pb2 import Any as AnyProto
 from google.protobuf.message import Message
 
+from angzarr_client.destinations import Destinations
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import player_pb2 as player
@@ -28,9 +34,24 @@ def _pack_command(cmd: Message, type_prefix: str = "examples") -> AnyProto:
     )
 
 
-def _make_command_book(domain: str, root: bytes, command: Message) -> types.CommandBook:
-    """Create a CommandBook with a single command."""
-    return types.CommandBook(
+def _make_command_book(
+    domain: str,
+    root: bytes,
+    command: Message,
+    destinations: Destinations | None = None,
+) -> types.CommandBook:
+    """Create a CommandBook with a single command.
+
+    Args:
+        domain: Target domain for the command.
+        root: Target aggregate root ID.
+        command: Command message to pack.
+        destinations: Optional Destinations for sequence stamping.
+
+    Returns:
+        CommandBook ready for dispatch.
+    """
+    book = types.CommandBook(
         cover=types.Cover(
             domain=domain,
             root=types.UUID(value=root),
@@ -42,6 +63,12 @@ def _make_command_book(domain: str, root: bytes, command: Message) -> types.Comm
         ],
     )
 
+    # Stamp with sequence if destinations provided
+    if destinations is not None:
+        destinations.stamp_command(book, domain)
+
+    return book
+
 
 class HandResultsSaga(Saga):
     """Saga that handles hand results and updates player balances.
@@ -49,6 +76,10 @@ class HandResultsSaga(Saga):
     Handles:
     - HandEnded: Release reserved funds back to players
     - PotAwarded: Deposit winnings to players
+
+    Design Philosophy:
+        This saga translates events to commands. The Player aggregate
+        validates fund operations and ensures consistency.
     """
 
     @property
@@ -83,6 +114,7 @@ class HandResultsSaga(Saga):
         commands = []
 
         # Emit ReleaseFunds for each player in stack_changes
+        # Player aggregate validates the release operation
         for player_root_hex, change in event.stack_changes.items():
             # Convert hex string back to bytes
             player_root = bytes.fromhex(player_root_hex)
@@ -93,7 +125,9 @@ class HandResultsSaga(Saga):
                 table_root=context.aggregate_root,
             )
 
-            commands.append(_make_command_book("player", player_root, release_funds))
+            commands.append(
+                _make_command_book("player", player_root, release_funds, context.destinations)
+            )
 
         return commands
 
@@ -113,6 +147,7 @@ class HandResultsSaga(Saga):
         commands = []
 
         # Emit DepositFunds for each winner
+        # Player aggregate validates the deposit operation
         for winner in event.winners:
             # Create DepositFunds command
             deposit_funds = player.DepositFunds(
@@ -123,7 +158,7 @@ class HandResultsSaga(Saga):
             )
 
             commands.append(
-                _make_command_book("player", winner.player_root, deposit_funds)
+                _make_command_book("player", winner.player_root, deposit_funds, context.destinations)
             )
 
         return commands

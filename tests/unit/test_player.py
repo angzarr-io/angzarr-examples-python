@@ -9,14 +9,14 @@ import pytest
 from google.protobuf.any_pb2 import Any as ProtoAny
 from pytest_bdd import given, parsers, scenarios, then, when
 
-from handlers.commands import (
-    handle_deposit_funds,
-    handle_register_player,
-    handle_release_funds,
-    handle_reserve_funds,
-    handle_withdraw_funds,
+from player.agg.handlers import (
+    handle_deposit,
+    handle_register,
+    handle_release,
+    handle_reserve,
+    handle_withdraw,
 )
-from handlers.state import PlayerState, build_state
+from player.agg.state import PlayerState, build_state
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import try_unpack, type_matches
@@ -179,7 +179,7 @@ def handle_register_player_cmd(ctx, name, email):
         email=email,
         player_type=poker_types.HUMAN,
     )
-    _handle_command(ctx, cmd, handle_register_player)
+    _handle_command(ctx, cmd, handle_register)
 
 
 # docs:end:when_step
@@ -197,7 +197,7 @@ def handle_register_player_ai_cmd(ctx, name, email):
         email=email,
         player_type=poker_types.AI,
     )
-    _handle_command(ctx, cmd, handle_register_player)
+    _handle_command(ctx, cmd, handle_register)
 
 
 @when(parsers.parse("I handle a DepositFunds command with amount {amount:d}"))
@@ -206,7 +206,7 @@ def handle_deposit_funds_cmd(ctx, amount):
     cmd = player.DepositFunds(
         amount=poker_types.Currency(amount=amount),
     )
-    _handle_command(ctx, cmd, handle_deposit_funds)
+    _handle_command(ctx, cmd, handle_deposit)
 
 
 @when(parsers.parse("I handle a WithdrawFunds command with amount {amount:d}"))
@@ -215,7 +215,7 @@ def handle_withdraw_funds_cmd(ctx, amount):
     cmd = player.WithdrawFunds(
         amount=poker_types.Currency(amount=amount),
     )
-    _handle_command(ctx, cmd, handle_withdraw_funds)
+    _handle_command(ctx, cmd, handle_withdraw)
 
 
 @when(
@@ -229,7 +229,7 @@ def handle_reserve_funds_cmd(ctx, amount, table_id):
         amount=poker_types.Currency(amount=amount),
         table_root=table_id.encode(),
     )
-    _handle_command(ctx, cmd, handle_reserve_funds)
+    _handle_command(ctx, cmd, handle_reserve)
 
 
 @when(parsers.parse('I handle a ReleaseFunds command for table "{table_id}"'))
@@ -238,7 +238,7 @@ def handle_release_funds_cmd(ctx, table_id):
     cmd = player.ReleaseFunds(
         table_root=table_id.encode(),
     )
-    _handle_command(ctx, cmd, handle_release_funds)
+    _handle_command(ctx, cmd, handle_release)
 
 
 @when("I rebuild the player state")
@@ -251,7 +251,7 @@ def rebuild_player_state(ctx):
 
 
 # docs:start:then_step
-@then("the result is a PlayerRegistered event")
+@then("the result is a examples.PlayerRegistered event")
 def result_is_player_registered(ctx):
     """Verify result is PlayerRegistered event."""
     assert ctx.result is not None, f"Expected result, got error: {ctx.error}"
@@ -263,7 +263,7 @@ def result_is_player_registered(ctx):
 # docs:end:then_step
 
 
-@then("the result is a FundsDeposited event")
+@then("the result is a examples.FundsDeposited event")
 def result_is_funds_deposited(ctx):
     """Verify result is FundsDeposited event."""
     assert ctx.result is not None, f"Expected result, got error: {ctx.error}"
@@ -272,7 +272,7 @@ def result_is_funds_deposited(ctx):
     assert type_matches(event_any, player.FundsDeposited)
 
 
-@then("the result is a FundsWithdrawn event")
+@then("the result is a examples.FundsWithdrawn event")
 def result_is_funds_withdrawn(ctx):
     """Verify result is FundsWithdrawn event."""
     assert ctx.result is not None, f"Expected result, got error: {ctx.error}"
@@ -280,7 +280,7 @@ def result_is_funds_withdrawn(ctx):
     assert type_matches(event_any, player.FundsWithdrawn)
 
 
-@then("the result is a FundsReserved event")
+@then("the result is a examples.FundsReserved event")
 def result_is_funds_reserved(ctx):
     """Verify result is FundsReserved event."""
     assert ctx.result is not None, f"Expected result, got error: {ctx.error}"
@@ -288,7 +288,7 @@ def result_is_funds_reserved(ctx):
     assert type_matches(event_any, player.FundsReserved)
 
 
-@then("the result is a FundsReleased event")
+@then("the result is a examples.FundsReleased event")
 def result_is_funds_released(ctx):
     """Verify result is FundsReleased event."""
     assert ctx.result is not None, f"Expected result, got error: {ctx.error}"

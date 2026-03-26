@@ -6,6 +6,7 @@ Tests are skipped if the module is not available.
 
 import pytest
 
+from angzarr_client.destinations import Destinations
 from angzarr_client.helpers import type_matches
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
@@ -102,6 +103,7 @@ class TestTableSyncSaga:
             event_type="HandStarted",
             aggregate_type="table",
             aggregate_root=uuid_for("table-1"),
+            destinations=Destinations({"hand": 0}),
         )
 
         commands = saga.handle(context)
@@ -137,6 +139,7 @@ class TestTableSyncSaga:
             event_type="HandComplete",
             aggregate_type="hand",
             aggregate_root=uuid_for("hand-1"),
+            destinations=Destinations({"table": 0}),
         )
 
         commands = saga.handle(context)
@@ -175,6 +178,7 @@ class TestHandResultsSaga:
             event_type="HandEnded",
             aggregate_type="table",
             aggregate_root=uuid_for("table-1"),
+            destinations=Destinations({"player": 0}),
         )
 
         commands = saga.handle(context)
@@ -204,6 +208,7 @@ class TestHandResultsSaga:
             event_type="PotAwarded",
             aggregate_type="hand",
             aggregate_root=uuid_for("hand-1"),
+            destinations=Destinations({"player": 0}),
         )
 
         commands = saga.handle(context)
@@ -247,7 +252,7 @@ class TestSagaRouter:
 
         event_book = make_event_book("table", uuid_for("table-1"), [event])
 
-        commands = router.route(event_book, "table")
+        commands = router.route(event_book, "table", {"hand": 0, "table": 0, "player": 0})
 
         # Only DealCards from TableSyncSaga
         assert len(commands) == 1
@@ -275,7 +280,7 @@ class TestSagaRouter:
 
         event_book = make_event_book("table", uuid_for("table-1"), events)
 
-        commands = router.route(event_book, "table")
+        commands = router.route(event_book, "table", {"hand": 0, "table": 0, "player": 0})
 
         assert len(commands) == 2
         for cmd in commands:
@@ -312,7 +317,7 @@ class TestSagaRouter:
         event_book = make_event_book("table", uuid_for("table-1"), [event])
 
         # Should not raise exception
-        commands = router.route(event_book, "table")
+        commands = router.route(event_book, "table", {"hand": 0, "table": 0, "player": 0})
 
         # TableSyncSaga should still emit its command
         deal_commands = [
@@ -343,6 +348,7 @@ class TestHandResultsSagaEdgeCases:
             event_type="HandEnded",
             aggregate_type="table",
             aggregate_root=uuid_for("table-1"),
+            destinations=Destinations({"player": 0}),
         )
 
         commands = saga.handle(context)
@@ -367,6 +373,7 @@ class TestHandResultsSagaEdgeCases:
             event_type="HandEnded",
             aggregate_type="table",
             aggregate_root=uuid_for("table-1"),
+            destinations=Destinations({"player": 0}),
         )
 
         commands = saga.handle(context)
