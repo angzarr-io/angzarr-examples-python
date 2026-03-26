@@ -3,9 +3,9 @@ name = "angzarr-poker"
 version = "0.1.0"
 description = "Poker engine built on angzarr CQRS/ES framework"
 requires-python = ">=3.11"
-# uv.sources is used for local development with relative path
+# Dependencies
 dependencies = [
-    "angzarr-client",
+    "angzarr-client>=0.3.1",
     "protobuf>=5.0.0",
     "grpcio>=1.60.0",
     "grpcio-tools>=1.60.0",
