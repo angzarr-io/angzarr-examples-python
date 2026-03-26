@@ -110,11 +110,14 @@ class PokerNet(nn.Module):
     def predict(
         self,
         state: NDArray[np.float32],
+        temperature: float = 0.0,
     ) -> tuple[int, int, list[float], float]:
         """Predict action for a single state.
 
         Args:
             state: State tensor from encoder.
+            temperature: Exploration temperature. 0 = greedy (argmax),
+                >0 = sample from softmax(logits/temperature). Higher = more random.
 
         Returns:
             Tuple of (action, amount, probabilities, value).
@@ -130,8 +133,15 @@ class PokerNet(nn.Module):
             # Get action probabilities
             probs = F.softmax(logits, dim=-1)
 
-            # Sample action (or argmax for inference)
-            action = torch.argmax(probs, dim=-1).item()
+            # Sample action with temperature for exploration, argmax for inference
+            if temperature > 0:
+                # Apply temperature scaling and sample
+                scaled_logits = logits / temperature
+                scaled_probs = F.softmax(scaled_logits, dim=-1)
+                action = torch.multinomial(scaled_probs, num_samples=1).squeeze(-1).item()
+            else:
+                # Greedy (argmax) for inference
+                action = torch.argmax(probs, dim=-1).item()
 
             # Calculate bet amount (placeholder - needs pot/stack from state)
             # For now, return bet_fraction as-is; caller maps to actual amount

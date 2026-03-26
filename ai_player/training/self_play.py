@@ -47,6 +47,7 @@ class SelfPlayGame:
         engine=None,
         small_blind: int = 5,
         big_blind: int = 10,
+        exploration_temperature: float = 0.0,
     ):
         """Initialize self-play game.
 
@@ -57,7 +58,9 @@ class SelfPlayGame:
             engine: SQLAlchemy engine for recording training states (optional).
             small_blind: Small blind amount.
             big_blind: Big blind amount.
+            exploration_temperature: Softmax temperature for action sampling (0=greedy).
         """
+        self._exploration_temperature = exploration_temperature
         from run_game import PokerGame, GameVariant
 
         # Create base game with logging disabled
@@ -109,7 +112,11 @@ class SelfPlayGame:
         return result
 
     def _record_hand_states(self, stacks_before: dict, stacks_after: dict) -> None:
-        """Record all states from the completed hand with rewards."""
+        """Record all states from the completed hand with rewards.
+
+        Uses PostgreSQL ON CONFLICT to handle duplicates from concurrent projector.
+        """
+        from sqlalchemy.dialects.postgresql import insert
         from sqlalchemy.orm import Session as DBSession
 
         bb = self._base_game.big_blind
@@ -121,36 +128,41 @@ class SelfPlayGame:
                 after = stacks_after.get(player_name, 0)
                 reward = (after - before) / bb  # Reward in BBs
 
-                # Create training state record
-                ts = TrainingState(
-                    hand_root=state["hand_root"],
-                    sequence=state["sequence"],
-                    player_root=state["player_root"],
-                    edition="selfplay",
-                    hole_card_1=state.get("hole_card_1"),
-                    hole_card_2=state.get("hole_card_2"),
-                    community_1=state.get("community_1"),
-                    community_2=state.get("community_2"),
-                    community_3=state.get("community_3"),
-                    community_4=state.get("community_4"),
-                    community_5=state.get("community_5"),
-                    pot_size=state["pot_size"],
-                    stack_size=state["stack_size"],
-                    amount_to_call=state["amount_to_call"],
-                    current_bet=state["current_bet"],
-                    min_raise=state["min_raise"],
-                    position=state["position"],
-                    phase=state["phase"],
-                    players_remaining=state["players_remaining"],
-                    players_to_act=state["players_to_act"],
-                    action=state["action"],
-                    amount=state["amount"],
-                    reward=reward,
-                    terminal=state == self._pending_states[-1],
-                    game_variant="texas_holdem",
-                    big_blind=bb,
+                # Build values dict for upsert
+                values = {
+                    "hand_root": state["hand_root"],
+                    "sequence": state["sequence"],
+                    "player_root": state["player_root"],
+                    "edition": "selfplay",
+                    "hole_card_1": state.get("hole_card_1"),
+                    "hole_card_2": state.get("hole_card_2"),
+                    "community_1": state.get("community_1"),
+                    "community_2": state.get("community_2"),
+                    "community_3": state.get("community_3"),
+                    "community_4": state.get("community_4"),
+                    "community_5": state.get("community_5"),
+                    "pot_size": state["pot_size"],
+                    "stack_size": state["stack_size"],
+                    "amount_to_call": state["amount_to_call"],
+                    "current_bet": state["current_bet"],
+                    "min_raise": state["min_raise"],
+                    "position": state["position"],
+                    "phase": state["phase"],
+                    "players_remaining": state["players_remaining"],
+                    "players_to_act": state["players_to_act"],
+                    "action": state["action"],
+                    "amount": state["amount"],
+                    "reward": reward,
+                    "terminal": state == self._pending_states[-1],
+                    "game_variant": "texas_holdem",
+                    "big_blind": bb,
+                }
+
+                # Use INSERT ... ON CONFLICT DO NOTHING to handle duplicates
+                stmt = insert(TrainingState).values(**values).on_conflict_do_nothing(
+                    index_elements=["hand_root", "sequence"]
                 )
-                session.add(ts)
+                session.execute(stmt)
 
             session.commit()
 
@@ -166,8 +178,10 @@ class SelfPlayGame:
         # Build state tensor from game state
         state_tensor = self._encode_game_state(player)
 
-        # Run model inference
-        action_idx, amount, probs, value = model.predict(state_tensor)
+        # Run model inference with exploration
+        action_idx, amount, probs, value = model.predict(
+            state_tensor, temperature=self._exploration_temperature
+        )
 
         game = self._base_game
 
@@ -422,6 +436,9 @@ class SelfPlayConfig:
     share_weights_every: int = 3  # Share every N iterations
     weight_averaging_alpha: float = 0.5  # How much to blend (0=keep own, 1=full average)
 
+    # Exploration
+    exploration_temperature: float = 0.5  # Softmax temperature for action sampling (0=greedy)
+
     # Convergence
     target_bb: float = 10.0
     convergence_window: int = 5
@@ -607,6 +624,7 @@ class SelfPlayTrainer:
                 engine=self._engine,  # Pass engine for training state recording
                 small_blind=5,
                 big_blind=10,
+                exploration_temperature=cfg.exploration_temperature,
             )
 
             # Create table

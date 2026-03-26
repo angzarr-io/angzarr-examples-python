@@ -37,7 +37,7 @@ FROM base AS dependencies
 COPY ai_player/pyproject.toml ai_player/uv.lock* ./
 
 # Install dependencies (using CPU-only PyTorch via pyproject.toml index)
-RUN uv sync --no-dev --no-install-project
+RUN uv sync --no-dev --frozen
 
 # =============================================================================
 # Proto stage - Generate proto stubs
@@ -74,9 +74,10 @@ EXPOSE 50500
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import grpc; ch = grpc.insecure_channel('localhost:50500'); grpc.channel_ready_future(ch).result(timeout=5)" || exit 1
+    CMD .venv/bin/python -c "import grpc; ch = grpc.insecure_channel('localhost:50500'); grpc.channel_ready_future(ch).result(timeout=5)" || exit 1
 
-CMD ["uv", "run", "python", "-m", "ai_player.main"]
+# Run directly from venv (no uv run to avoid runtime sync)
+CMD [".venv/bin/python", "-m", "ai_player.main"]
 
 # =============================================================================
 # Training stage - With additional training dependencies
