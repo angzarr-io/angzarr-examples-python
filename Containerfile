@@ -82,6 +82,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 FROM runtime-base AS agg-player
 COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
 COPY --from=deps --chown=angzarr:angzarr /app/angzarr /app/angzarr
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
 COPY --from=source --chown=angzarr:angzarr /app/player /app/player
 COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
 ENV PATH=/app/.venv/bin:$PATH \
@@ -92,6 +93,7 @@ CMD ["python", "-m", "player.agg.main"]
 FROM runtime-base AS agg-table
 COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
 COPY --from=deps --chown=angzarr:angzarr /app/angzarr /app/angzarr
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
 COPY --from=source --chown=angzarr:angzarr /app/table /app/table
 COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
 ENV PATH=/app/.venv/bin:$PATH \
@@ -102,6 +104,7 @@ CMD ["python", "-m", "table.agg.main"]
 FROM runtime-base AS agg-hand
 COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
 COPY --from=deps --chown=angzarr:angzarr /app/angzarr /app/angzarr
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
 COPY --from=source --chown=angzarr:angzarr /app/hand /app/hand
 COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
 ENV PATH=/app/.venv/bin:$PATH \
@@ -115,6 +118,7 @@ CMD ["python", "-m", "hand.agg.main"]
 FROM runtime-base AS prj-training
 COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
 COPY --from=deps --chown=angzarr:angzarr /app/angzarr /app/angzarr
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
 COPY --from=source --chown=angzarr:angzarr /app/prj_training /app/prj_training
 COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
 ENV PATH=/app/.venv/bin:$PATH \

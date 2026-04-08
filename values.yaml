@@ -8,12 +8,12 @@ imagePullSecrets: []
 storage:
   type: postgres
   postgres:
-    host: "angzarr-db-rw"
+    host: "angzarr-db"
     port: 5432
     database: "angzarr"
     username: "angzarr"
     password: "angzarr"
-    uri: "postgres://angzarr:angzarr@angzarr-db-rw:5432/angzarr"
+    uri: "postgres://angzarr:angzarr@angzarr-db:5432/angzarr"
 
 messaging:
   type: amqp

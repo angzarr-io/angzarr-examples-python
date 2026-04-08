@@ -78,7 +78,7 @@ applicationResources:
 storage:
   type: postgres
   postgres:
-    uri: "postgres://angzarr:angzarr-dev@angzarr-db-rw:5432/angzarr"
+    uri: "postgres://angzarr:angzarr-dev@angzarr-db:5432/angzarr"
 
 # Messaging configuration
 # Requires: helm install angzarr-mq ./deploy/k8s/helm/rabbitmq -n angzarr
