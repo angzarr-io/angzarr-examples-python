@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import grpc
 import structlog
 
-from ai_player.state.session import SessionManager
-from ai_player.models.poker_net import PokerNet
 from ai_player.models.encoder import ActionContextEncoder
+from ai_player.models.poker_net import PokerNet
 from ai_player.state.persistence import ExperienceStore, OpponentProfileStore
+from ai_player.state.session import SessionManager
 
 if TYPE_CHECKING:
     from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
-    from ai_player.proto.examples import ai_sidecar_pb2_grpc as ai_player_pb2_grpc
-    from ai_player.proto.examples import poker_types_pb2
 
 logger = structlog.get_logger()
 
@@ -101,7 +99,7 @@ class AiPlayerServicer:
         Returns:
             ActionResponse with recommended action and probabilities.
         """
-        from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2, poker_types_pb2
+        from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
 
         start_time = time.time()
         self._requests_served += 1
@@ -312,14 +310,11 @@ class AiPlayerServicer:
         """
         from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
 
-        db_connected = self._experience_store is not None
-        experience_count = 0
-        profile_count = 0
 
         if self._experience_store:
-            experience_count = self._experience_store.count()
+            self._experience_store.count()
         if self._opponent_store:
-            profile_count = self._opponent_store.count()
+            self._opponent_store.count()
 
         # Note: ai_sidecar_pb2.HealthResponse only has these fields
         return ai_player_pb2.HealthResponse(

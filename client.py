@@ -7,7 +7,6 @@ domain aggregate through the angzarr gateway or directly to domain services.
 from __future__ import annotations
 
 import hashlib
-from typing import Any
 
 import grpc
 from google.protobuf import any_pb2
@@ -23,8 +22,6 @@ from angzarr_client.proto.angzarr.types_pb2 import (
     PageHeader,
     UUID,
     SYNC_MODE_ASYNC,
-    SYNC_MODE_SIMPLE,
-    SYNC_MODE_CASCADE,
 )
 
 
@@ -94,17 +91,29 @@ class GatewayClient:
                 "hand": 1322,
             }
 
-            if os.environ.get("ANGZARR_MODE") == "standalone":
+            mode = os.environ.get("ANGZARR_MODE", "")
+            if mode == "standalone":
                 # Use Unix domain sockets for standalone mode
                 self._domain_clients[domain] = DomainClient.for_domain(domain)
+            elif mode == "distributed":
+                # Use K8s DNS with actual service names: {domain}-aggregate
+                namespace = os.environ.get("ANGZARR_NAMESPACE", "angzarr")
+                port = int(os.environ.get("ANGZARR_CH_PORT", "1310"))
+                endpoint = f"{domain}-aggregate.{namespace}.svc:{port}"
+                channel = grpc.insecure_channel(endpoint)
+                self._domain_clients[domain] = DomainClient(channel)
             elif domain in local_ports:
                 # Use local port forwards for development
                 endpoint = f"localhost:{local_ports[domain]}"
                 channel = grpc.insecure_channel(endpoint)
                 self._domain_clients[domain] = DomainClient(channel)
             else:
-                # Try K8s DNS
-                self._domain_clients[domain] = DomainClient.for_domain(domain)
+                # Try K8s DNS with actual service names
+                namespace = os.environ.get("ANGZARR_NAMESPACE", "angzarr")
+                port = int(os.environ.get("ANGZARR_CH_PORT", "1310"))
+                endpoint = f"{domain}-aggregate.{namespace}.svc:{port}"
+                channel = grpc.insecure_channel(endpoint)
+                self._domain_clients[domain] = DomainClient(channel)
 
         return self._domain_clients[domain]
 

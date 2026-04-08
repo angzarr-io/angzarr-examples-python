@@ -16,7 +16,6 @@ import uuid
 from random import randbytes
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
 
 import structlog
 

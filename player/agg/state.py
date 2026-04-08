@@ -65,8 +65,8 @@ def apply_reserved(state: PlayerState, event: player.FundsReserved) -> None:
     """Apply FundsReserved event to state."""
     if event.new_reserved_balance:
         state.reserved_funds = event.new_reserved_balance.amount
-    table_key = event.table_root.hex()
-    if event.amount:
+    if event.table_root and event.amount:
+        table_key = event.table_root.hex()
         state.table_reservations[table_key] = event.amount.amount
 
 
@@ -74,8 +74,9 @@ def apply_released(state: PlayerState, event: player.FundsReleased) -> None:
     """Apply FundsReleased event to state."""
     if event.new_reserved_balance:
         state.reserved_funds = event.new_reserved_balance.amount
-    table_key = event.table_root.hex()
-    state.table_reservations.pop(table_key, None)
+    if event.table_root:
+        table_key = event.table_root.hex()
+        state.table_reservations.pop(table_key, None)
 
 
 def apply_transferred(state: PlayerState, event: player.FundsTransferred) -> None:

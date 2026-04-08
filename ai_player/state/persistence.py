@@ -7,10 +7,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import structlog
-from sqlalchemy import create_engine, select, func
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
-from ai_player.db.schema import Base, ExperienceReplay, PlayerProfile, HandHistory
+from ai_player.db.schema import Base, ExperienceReplay, HandHistory, PlayerProfile
 
 if TYPE_CHECKING:
     from ai_player.proto.examples import ai_player_pb2

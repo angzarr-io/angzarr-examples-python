@@ -9,7 +9,6 @@ after other players fold. The bug manifests when:
 
 import pytest
 from dataclasses import dataclass
-from typing import Optional
 
 
 # Action types (mirroring poker_types_pb2)

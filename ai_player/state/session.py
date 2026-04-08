@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from ai_player.proto.examples import ai_player_pb2, poker_types_pb2
+    from ai_player.proto.examples import ai_player_pb2
 
 logger = structlog.get_logger()
 
@@ -129,7 +129,7 @@ class SessionState:
             event: Hand event to process.
         """
         # Import proto enums
-        from ai_player.proto.examples import ai_player_pb2, poker_types_pb2
+        from ai_player.proto.examples import ai_player_pb2
 
         event_type = event.event_type
 

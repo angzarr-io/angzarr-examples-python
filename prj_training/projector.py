@@ -21,7 +21,7 @@ from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from .schema import Base, ProjectorCheckpoint, TrainingState
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+    pass
 
 logger = structlog.get_logger()
 

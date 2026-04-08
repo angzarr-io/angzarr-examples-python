@@ -7,20 +7,18 @@ and periodically shares weights with other players.
 
 from __future__ import annotations
 
-import copy
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 import structlog
 import torch
-from sqlalchemy import create_engine, select, func
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine, select
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+    pass
 
 # Add parent paths for imports
 import sys
@@ -28,10 +26,10 @@ import sys
 root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root))
 
+from prj_training.schema import Base, TrainingState
+
 from ai_player.models.poker_net import PokerNet
 from ai_player.training.trainer import Trainer, TrainerConfig
-from ai_player.training.fitness_tracker import FitnessTracker, FitnessMetrics
-from prj_training.schema import Base, TournamentResult, TrainingState
 
 logger = structlog.get_logger()
 
@@ -61,7 +59,7 @@ class SelfPlayGame:
             exploration_temperature: Softmax temperature for action sampling (0=greedy).
         """
         self._exploration_temperature = exploration_temperature
-        from run_game import PokerGame, GameVariant
+        from run_game import GameVariant, PokerGame
 
         # Create base game with logging disabled
         self._base_game = PokerGame(
@@ -196,7 +194,7 @@ class SelfPlayGame:
         min_raise_to = game.current_bet + min_raise_increment
 
         # Maximum we can put in (all-in)
-        max_raise_to = player.stack + player.bet
+        player.stack + player.bet
 
         # Map action index to proto action type
         # 0 = FOLD, 1 = CHECK/CALL, 2 = BET/RAISE
@@ -296,7 +294,9 @@ class SelfPlayGame:
             "position": player.seat,
             "phase": phase,
             "players_remaining": len([p for p in game.players.values() if not p.folded]),
-            "players_to_act": len([p for p in game.players.values() if not p.folded and not p.all_in]),
+            "players_to_act": len(
+                [p for p in game.players.values() if not p.folded and not p.all_in]
+            ),
             "action": action,
             "amount": amount,
         }
@@ -304,7 +304,6 @@ class SelfPlayGame:
 
     def _encode_game_state(self, player) -> torch.Tensor:
         """Encode current game state for model input."""
-        import numpy as np
 
         features = np.zeros(PokerNet.INPUT_DIM, dtype=np.float32)
         game = self._base_game
@@ -368,6 +367,7 @@ class SelfPlayGame:
     def _random_action(self, player) -> tuple:
         """Fallback random action."""
         import random
+
         from angzarr_client.proto.examples import poker_types_pb2 as types_pb2
 
         to_call = max(0, self._base_game.current_bet - player.bet)
@@ -430,7 +430,7 @@ class SelfPlayConfig:
     # Self-play parameters
     tournaments_per_iteration: int = 5
     max_iterations: int = 50
-    hands_per_tournament: int = 100  # Reduced from 200 for faster iteration
+    hands_per_tournament: int = 20  # Reduced for faster development iteration
 
     # Weight sharing
     share_weights_every: int = 3  # Share every N iterations
@@ -602,7 +602,8 @@ class SelfPlayTrainer:
         Returns:
             Dict mapping player name to their results.
         """
-        from run_game import GatewayClient, GameVariant
+        from run_game import GatewayClient
+
         from ai_player.models.encoder import ActionContextEncoder
 
         tournament_id = f"selfplay-{uuid.uuid4().hex[:8]}"
@@ -750,7 +751,6 @@ class SelfPlayTrainer:
             return 0.0
 
         # Train the agent's model
-        from ai_player.training.trainer import Trainer
 
         # Create a temporary trainer with this agent's model
         trainer = Trainer(trainer_config)
@@ -795,7 +795,11 @@ class SelfPlayTrainer:
         sorted_agents = sorted(self._agents, key=lambda a: -a.bb_per_100)
 
         print("\n=== Agent Leaderboard ===")
-        print(f"{'Rank':<5} {'Agent':<10} {'BB/100':<10} {'Win Rate':<10} {'Tournaments':<12} {'Hands':<10}")
+        header = (
+            f"{'Rank':<5} {'Agent':<10} {'BB/100':<10} "
+            f"{'Win Rate':<10} {'Tournaments':<12} {'Hands':<10}"
+        )
+        print(header)
         print("-" * 60)
 
         for i, agent in enumerate(sorted_agents, 1):

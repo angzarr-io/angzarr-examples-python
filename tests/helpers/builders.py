@@ -6,7 +6,6 @@ and easy customization.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
 from google.protobuf.message import Message
@@ -14,9 +13,8 @@ from google.protobuf.message import Message
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
 
-from .proto_helpers import make_cover, make_event_page, pack_event, uuid_for
+from .proto_helpers import make_cover, make_event_page, uuid_for
 
 
 class PlayerStateBuilder:

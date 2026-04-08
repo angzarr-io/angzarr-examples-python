@@ -24,7 +24,7 @@ root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root))
 
 from prj_training.schema import Base, TournamentResult
-from run_game import GatewayClient, PokerGame, GameVariant
+from run_game import GameVariant, GatewayClient, PokerGame
 
 logger = structlog.get_logger()
 
@@ -93,7 +93,11 @@ class TournamentRunner:
         )
 
         # Track initial stacks for calculating deltas
-        player_names = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Hank", "Ivan"][:cfg.players]
+        all_names = [
+            "Alice", "Bob", "Carol", "Dave", "Eve",
+            "Frank", "Grace", "Hank", "Ivan",
+        ]
+        player_names = all_names[:cfg.players]
 
         with GatewayClient(cfg.gateway_address) as client:
             game = PokerGame(

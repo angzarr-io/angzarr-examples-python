@@ -94,7 +94,10 @@ class ConvergenceTracker:
         """Calculate recent improvement rate (BB/100 per iteration)."""
         if len(self.history) < 2:
             return 0.0
-        window = self.history[-self.window_size :] if len(self.history) >= self.window_size else self.history
+        if len(self.history) >= self.window_size:
+            window = self.history[-self.window_size :]
+        else:
+            window = self.history
         return (window[-1] - window[0]) / len(window)
 
 

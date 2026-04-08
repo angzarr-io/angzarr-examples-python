@@ -5,6 +5,8 @@ Starts angzarr-standalone, then runs a complete poker game with 6 AI players
 until one player remains.
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import random
@@ -425,9 +427,16 @@ class PokerGame:
         )
         self.hand_sequence = resp.events_book().next_sequence()
 
-        sb_player.stack -= sb_amount
-        sb_player.bet = sb_amount
-        self.pot += sb_amount
+        # Sync from server response (authoritative)
+        for page in resp.events():
+            event = page.proto.event
+            if event.Is(hand_pb2.BlindPosted.DESCRIPTOR):
+                blind_event = hand_pb2.BlindPosted()
+                event.Unpack(blind_event)
+                self.pot = blind_event.pot_total
+                sb_player.stack = blind_event.player_stack
+                sb_player.bet = blind_event.amount
+                break
 
         self.log("└─ EVENT: BlindPosted")
 
@@ -451,10 +460,17 @@ class PokerGame:
         )
         self.hand_sequence = resp.events_book().next_sequence()
 
-        bb_player.stack -= bb_amount
-        bb_player.bet = bb_amount
-        self.pot += bb_amount
-        self.current_bet = bb_amount
+        # Sync from server response (authoritative)
+        for page in resp.events():
+            event = page.proto.event
+            if event.Is(hand_pb2.BlindPosted.DESCRIPTOR):
+                blind_event = hand_pb2.BlindPosted()
+                event.Unpack(blind_event)
+                self.pot = blind_event.pot_total
+                bb_player.stack = blind_event.player_stack
+                bb_player.bet = blind_event.amount
+                self.current_bet = blind_event.amount
+                break
 
         self.log("└─ EVENT: BlindPosted")
 
@@ -754,7 +770,6 @@ class PokerGame:
 
             # Try to execute, with retry on raise rejection
             max_retries = 5
-            original_action = action
             for attempt in range(max_retries):
                 try:
                     resp = self.client.execute(
@@ -820,34 +835,44 @@ class PokerGame:
                             action=action,
                             amount=0,
                         )
-                        self.log(f"│  [Fallback] Folding after repeated failures")
+                        self.log("│  [Fallback] Folding after repeated failures")
                         continue
                     # Re-raise if not handled
                     raise
 
             self.log("└─ EVENT: ActionTaken")
 
-            # Update local state
+            # Sync state from server response (authoritative source)
+            for page in resp.events():
+                event = page.proto.event
+                if event.Is(hand_pb2.ActionTaken.DESCRIPTOR):
+                    action_event = hand_pb2.ActionTaken()
+                    event.Unpack(action_event)
+                    # Calculate chips put in from stack delta (before syncing stack)
+                    chips_put_in = player.stack - action_event.player_stack
+                    # Sync pot from server (authoritative)
+                    self.pot = action_event.pot_total
+                    # Sync player stack from server
+                    player.stack = action_event.player_stack
+                    # Sync current bet from server
+                    self.current_bet = action_event.amount_to_call
+                    # Update player bet using stack delta
+                    if chips_put_in > 0:
+                        player.bet += chips_put_in
+                    break
+
+            # Update local state for non-financial tracking
             if action == types_pb2.FOLD:
                 player.folded = True
             elif action == types_pb2.CALL:
-                call_amount = min(self.current_bet - player.bet, player.stack)
-                player.stack -= call_amount
-                player.bet += call_amount
-                self.pot += call_amount
                 # Mark as all-in if can't afford minimum action (big blind)
                 if player.stack < self.big_blind:
                     player.all_in = True
             elif action in (types_pb2.BET, types_pb2.RAISE):
-                bet_amount = amount - player.bet
                 # Update last_raise_increment: the raise size above current bet
-                raise_increment = amount - self.current_bet
+                raise_increment = final_amount - self.current_bet
                 if raise_increment > self.last_raise_increment:
                     self.last_raise_increment = raise_increment
-                player.stack -= bet_amount
-                player.bet = amount
-                self.pot += bet_amount
-                self.current_bet = amount
                 last_aggressor = current_seat
                 # Mark as all-in if can't afford minimum action (big blind)
                 if player.stack < self.big_blind:

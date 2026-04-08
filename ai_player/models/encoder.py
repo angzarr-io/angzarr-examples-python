@@ -8,6 +8,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+
     from ai_player.proto.examples import ai_sidecar_pb2, poker_types_pb2
     from ai_player.state.session import SessionState
 
@@ -250,7 +251,9 @@ class ActionContextEncoder:
                     opp.pfr if opp.pfr > 0 else db_profile.get("pfr", 0.2),
                     opp.aggression if opp.aggression > 0 else db_profile.get("af", 1.0),
                     # Hands played (confidence indicator)
-                    min(1.0, opp.hands_played / 100.0) if opp.hands_played > 0 else min(1.0, db_profile.get("total_hands", 0) / 100.0),
+                    min(1.0, opp.hands_played / 100.0)
+                    if opp.hands_played > 0
+                    else min(1.0, db_profile.get("total_hands", 0) / 100.0),
                     # DB-only stats
                     db_profile.get("wtsd", 0.3),
                     1.0,  # Opponent present flag

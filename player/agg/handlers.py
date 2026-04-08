@@ -103,7 +103,7 @@ def handle_withdraw(
     if amount <= 0:
         raise CommandRejectedError("amount must be positive")
     if amount > state.available_balance:
-        raise CommandRejectedError("Insufficient funds")
+        raise CommandRejectedError("insufficient available balance")
 
     new_balance = state.bankroll - amount
     return player.FundsWithdrawn(
@@ -125,13 +125,12 @@ def handle_reserve(
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
         raise CommandRejectedError("amount must be positive")
+    if amount > state.available_balance:
+        raise CommandRejectedError("Insufficient funds")
 
     table_key = cmd.table_root.hex()
     if table_key in state.table_reservations:
         raise CommandRejectedError("Funds already reserved for this table")
-
-    if amount > state.available_balance:
-        raise CommandRejectedError("Insufficient funds")
 
     new_reserved = state.reserved_funds + amount
     new_available = state.bankroll - new_reserved
@@ -158,6 +157,8 @@ def handle_release(
     """Release reserved funds when leaving a table."""
     if not state.exists:
         raise CommandRejectedError("Player does not exist")
+    if not cmd.table_root:
+        raise CommandRejectedError("table_root is required")
 
     table_key = cmd.table_root.hex()
     reserved_for_table = state.table_reservations.get(table_key, 0)

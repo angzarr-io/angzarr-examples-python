@@ -6,6 +6,8 @@ which is derived from event logs.
 
 from __future__ import annotations
 
+# Import TrainingState schema - shared with prj_training projector
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,16 +21,12 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from ai_player.models.poker_net import PokerNet
 
-# Import TrainingState schema - shared with prj_training projector
-import sys
-from pathlib import Path
-
 # Add parent directory to allow importing prj_training
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from prj_training.schema import TrainingState
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+    pass
 
 logger = structlog.get_logger()
 
@@ -95,8 +93,8 @@ class Trainer:
         Returns:
             List of training state dictionaries.
         """
-        from sqlalchemy.orm import Session
         from sqlalchemy import select
+        from sqlalchemy.orm import Session
 
         limit = limit or self._config.max_examples
         examples = []
@@ -344,7 +342,7 @@ class Trainer:
         logger.info("training_started", epochs=epochs, examples=len(examples))
 
         for epoch in range(epochs):
-            avg_loss = self.train_epoch(examples)
+            self.train_epoch(examples)
 
             # Save checkpoint every epoch
             self.save_checkpoint(f"epoch_{self._epoch}")

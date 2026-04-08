@@ -83,7 +83,6 @@ class TestRaiseTracking:
 
     def test_call_does_not_change_min_raise(self):
         """Calling should not affect min_raise."""
-        big_blind = 10
 
         # After raise TO 30
         current_bet = 30
@@ -102,15 +101,12 @@ class TestRaiseTracking:
         This matches server behavior where min_raise uses max() and
         is only reset at the start of a new HAND, not a new round.
         """
-        big_blind = 10
 
         # After preflop with a raise to 30
-        current_bet = 30
         last_raise_increment = 20  # From the raise
 
         # Flop betting round starts - current_bet resets to 0
         # BUT min_raise (last_raise_increment) should NOT reset
-        current_bet = 0  # New round
         # last_raise_increment stays at 20
 
         # First bet on flop must be at least big_blind
@@ -119,7 +115,6 @@ class TestRaiseTracking:
 
         # Actually, let's check what happens with a fresh bet
         bet_amount = 25
-        current_bet = bet_amount
         raise_increment = bet_amount - 0  # 25 - 0 = 25
         if raise_increment > last_raise_increment:
             last_raise_increment = raise_increment
@@ -128,7 +123,6 @@ class TestRaiseTracking:
 
     def test_smaller_raise_does_not_decrease_min_raise(self):
         """Server uses max(), so smaller raise doesn't decrease min_raise."""
-        big_blind = 10
 
         # Big raise happened: min_raise is 50
         current_bet = 100
@@ -143,7 +137,6 @@ class TestRaiseTracking:
 
     def test_all_in_raise_less_than_min(self):
         """All-in for less than min raise is allowed (but doesn't reopen)."""
-        big_blind = 10
 
         current_bet = 30
         last_raise_increment = 20
