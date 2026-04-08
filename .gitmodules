@@ -1,6 +1,6 @@
-[submodule "features/specs"]
-	path = features/specs
-	url = https://github.com/angzarr-io/examples-features.git
 [submodule "angzarr-client-python"]
 	path = angzarr-client-python
 	url = https://github.com/angzarr-io/angzarr-client-python.git
+[submodule "angzarr-project"]
+	path = angzarr-project
+	url = https://github.com/angzarr-io/angzarr-project.git
