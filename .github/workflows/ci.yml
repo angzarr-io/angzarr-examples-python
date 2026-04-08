@@ -256,8 +256,7 @@ jobs:
           cd ../..
           kubectl create configmap gateway-descriptor \
             --from-file=types.bin=/tmp/types.bin \
-            --namespace angzarr-test \
-            --dry-run=client -o yaml | kubectl apply -f -
+            --namespace angzarr-test
 
       - name: Deploy applications
         env:
