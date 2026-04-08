@@ -1,6 +1,6 @@
 version: v2
 inputs:
-  - module: buf.build/angzarr/examples
+  - directory: angzarr-project/proto
 plugins:
   - remote: buf.build/protocolbuffers/python:v28.3
     out: proto
