@@ -1,3 +1,0 @@
-# Local development overrides - use local angzarr-client
-[sources]
-angzarr-client = { path = "../angzarr-client-python", editable = true }

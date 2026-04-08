@@ -27,6 +27,9 @@ dev = [
     "pytest-cov>=7.0.0",
 ]
 
+[tool.uv.sources]
+angzarr-client = { path = "angzarr-client-python", editable = true }
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
