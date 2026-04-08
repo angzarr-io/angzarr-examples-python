@@ -316,7 +316,7 @@ jobs:
           echo "=== Pod Status ==="
           kubectl get pods -n angzarr-test -o wide
 
-      - name: Run acceptance tests
+      - name: Run smoke tests
         run: |
           # Smoke test: verify all pods are running and services are healthy
           echo "=== Verifying all pods are ready ==="
@@ -334,6 +334,44 @@ jobs:
             echo "ERROR: Gateway port 9084 not reachable"
             exit 1
           }
+
+      - name: Generate protos for acceptance tests
+        run: |
+          cd angzarr-client-python
+          buf generate
+          python scripts/generate_protos.py
+
+      - name: Run acceptance tests
+        run: |
+          # Wait for player aggregate pod to be ready
+          echo "Waiting for player aggregate pod..."
+          kubectl wait --for=condition=ready pod -l angzarr.io/domain=player \
+            -n angzarr-test --timeout=180s || {
+            echo "Player aggregate pod not ready, checking status..."
+            kubectl get pods -n angzarr-test
+            exit 1
+          }
+
+          # Port-forward player aggregate coordinator for tests
+          kubectl port-forward -n angzarr-test svc/player-aggregate 1310:1310 &
+          PF_PID=$!
+          trap "kill $PF_PID 2>/dev/null || true" EXIT
+
+          # Wait for port-forward to establish
+          for i in $(seq 1 10); do
+            if nc -z localhost 1310 2>/dev/null; then
+              echo "Port-forward to player-aggregate:1310 established"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "WARNING: Port-forward may not be ready, proceeding anyway..."
+            fi
+            sleep 1
+          done
+
+          # Run acceptance tests
+          PLAYER_URL=localhost:1310 \
+            uv run python -m pytest tests/acceptance/ -v --timeout=600
 
       - name: Show logs on failure
         if: failure()
