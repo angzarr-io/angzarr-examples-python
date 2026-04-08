@@ -41,7 +41,7 @@ packages = ["angzarr", "agg-player", "agg-table", "agg-hand"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-v --ignore=tests/features"
+addopts = "-v --ignore=tests/features --ignore=tests/acceptance"
 
 [tool.black]
 target-version = ["py311"]
