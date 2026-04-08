@@ -5,7 +5,7 @@ description = "Poker engine built on angzarr CQRS/ES framework"
 requires-python = ">=3.11"
 # Dependencies
 dependencies = [
-    "angzarr-client>=0.3.1",
+    "angzarr-client>=0.5.0",
     "protobuf>=5.0.0",
     "grpcio>=1.60.0",
     "grpcio-tools>=1.60.0",

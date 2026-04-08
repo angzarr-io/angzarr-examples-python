@@ -26,7 +26,7 @@ from angzarr import types_pb2 as angzarr_dot_types__pb2
 from google.api import annotations_pb2 as google_dot_api_dot_annotations__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x61ngzarr/process_manager.proto\x12\x07\x61ngzarr\x1a\x13\x61ngzarr/types.proto\x1a\x1cgoogle/api/annotations.proto\"\xc9\x01\n ProcessManagerCoordinatorRequest\x12,\n\x07trigger\x18\x01 \x01(\x0b\x32\x12.angzarr.EventBookR\x07trigger\x12.\n\tsync_mode\x18\x02 \x01(\x0e\x32\x11.angzarr.SyncModeR\x08syncMode\x12G\n\x12\x63\x61scade_error_mode\x18\x03 \x01(\x0e\x32\x19.angzarr.CascadeErrorModeR\x10\x63\x61scadeErrorMode\"T\n\x12SpeculatePmRequest\x12>\n\x07request\x18\x01 \x01(\x0b\x32$.angzarr.ProcessManagerHandleRequestR\x07request\"\x85\x01\n\x1cProcessManagerPrepareRequest\x12,\n\x07trigger\x18\x01 \x01(\x0b\x32\x12.angzarr.EventBookR\x07trigger\x12\x37\n\rprocess_state\x18\x02 \x01(\x0b\x32\x12.angzarr.EventBookR\x0cprocessState\"S\n\x1dProcessManagerPrepareResponse\x12\x32\n\x0c\x64\x65stinations\x18\x01 \x03(\x0b\x32\x0e.angzarr.CoverR\x0c\x64\x65stinations\"\xbc\x01\n\x1bProcessManagerHandleRequest\x12,\n\x07trigger\x18\x01 \x01(\x0b\x32\x12.angzarr.EventBookR\x07trigger\x12\x37\n\rprocess_state\x18\x02 \x01(\x0b\x32\x12.angzarr.EventBookR\x0cprocessState\x12\x36\n\x0c\x64\x65stinations\x18\x03 \x03(\x0b\x32\x12.angzarr.EventBookR\x0c\x64\x65stinations\"\xb5\x01\n\x1cProcessManagerHandleResponse\x12\x39\n\x0eprocess_events\x18\x01 \x01(\x0b\x32\x12.angzarr.EventBookR\rprocessEvents\x12\x30\n\x08\x63ommands\x18\x02 \x03(\x0b\x32\x14.angzarr.CommandBookR\x08\x63ommands\x12(\n\x05\x66\x61\x63ts\x18\x03 \x03(\x0b\x32\x12.angzarr.EventBookR\x05\x66\x61\x63ts2\xc8\x01\n\x15ProcessManagerService\x12X\n\x07Prepare\x12%.angzarr.ProcessManagerPrepareRequest\x1a&.angzarr.ProcessManagerPrepareResponse\x12U\n\x06Handle\x12$.angzarr.ProcessManagerHandleRequest\x1a%.angzarr.ProcessManagerHandleResponse2\x90\x02\n ProcessManagerCoordinatorService\x12t\n\x06Handle\x12).angzarr.ProcessManagerCoordinatorRequest\x1a%.angzarr.ProcessManagerHandleResponse\"\x18\x82\xd3\xe4\x93\x02\x12\"\r/v1/pm/handle:\x01*\x12v\n\x11HandleSpeculative\x12\x1b.angzarr.SpeculatePmRequest\x1a%.angzarr.ProcessManagerHandleResponse\"\x1d\x82\xd3\xe4\x93\x02\x17\"\x12/v1/pm/speculative:\x01*BM\n\x0b\x64\x65v.angzarrP\x01Z(github.com/angzarr/angzarr/proto/angzarr\xaa\x02\x07\x41ngzarr\xea\x02\x07\x41ngzarrb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x61ngzarr/process_manager.proto\x12\x07\x61ngzarr\x1a\x13\x61ngzarr/types.proto\x1a\x1cgoogle/api/annotations.proto\"\xc9\x01\n ProcessManagerCoordinatorRequest\x12,\n\x07trigger\x18\x01 \x01(\x0b\x32\x12.angzarr.EventBookR\x07trigger\x12.\n\tsync_mode\x18\x02 \x01(\x0e\x32\x11.angzarr.SyncModeR\x08syncMode\x12G\n\x12\x63\x61scade_error_mode\x18\x03 \x01(\x0e\x32\x19.angzarr.CascadeErrorModeR\x10\x63\x61scadeErrorMode\"T\n\x12SpeculatePmRequest\x12>\n\x07request\x18\x01 \x01(\x0b\x32$.angzarr.ProcessManagerHandleRequestR\x07request\"\x85\x01\n\x1cProcessManagerPrepareRequest\x12,\n\x07trigger\x18\x01 \x01(\x0b\x32\x12.angzarr.EventBookR\x07trigger\x12\x37\n\rprocess_state\x18\x02 \x01(\x0b\x32\x12.angzarr.EventBookR\x0cprocessState\"S\n\x1dProcessManagerPrepareResponse\x12\x32\n\x0c\x64\x65stinations\x18\x01 \x03(\x0b\x32\x0e.angzarr.CoverR\x0c\x64\x65stinations\"\xc2\x02\n\x1bProcessManagerHandleRequest\x12,\n\x07trigger\x18\x01 \x01(\x0b\x32\x12.angzarr.EventBookR\x07trigger\x12\x37\n\rprocess_state\x18\x02 \x01(\x0b\x32\x12.angzarr.EventBookR\x0cprocessState\x12s\n\x15\x64\x65stination_sequences\x18\x03 \x03(\x0b\x32>.angzarr.ProcessManagerHandleRequest.DestinationSequencesEntryR\x14\x64\x65stinationSequences\x1aG\n\x19\x44\x65stinationSequencesEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\rR\x05value:\x02\x38\x01\"\xb5\x01\n\x1cProcessManagerHandleResponse\x12\x39\n\x0eprocess_events\x18\x01 \x01(\x0b\x32\x12.angzarr.EventBookR\rprocessEvents\x12\x30\n\x08\x63ommands\x18\x02 \x03(\x0b\x32\x14.angzarr.CommandBookR\x08\x63ommands\x12(\n\x05\x66\x61\x63ts\x18\x03 \x03(\x0b\x32\x12.angzarr.EventBookR\x05\x66\x61\x63ts2\xc8\x01\n\x15ProcessManagerService\x12X\n\x07Prepare\x12%.angzarr.ProcessManagerPrepareRequest\x1a&.angzarr.ProcessManagerPrepareResponse\x12U\n\x06Handle\x12$.angzarr.ProcessManagerHandleRequest\x1a%.angzarr.ProcessManagerHandleResponse2\x90\x02\n ProcessManagerCoordinatorService\x12t\n\x06Handle\x12).angzarr.ProcessManagerCoordinatorRequest\x1a%.angzarr.ProcessManagerHandleResponse\"\x18\x82\xd3\xe4\x93\x02\x12\"\r/v1/pm/handle:\x01*\x12v\n\x11HandleSpeculative\x12\x1b.angzarr.SpeculatePmRequest\x1a%.angzarr.ProcessManagerHandleResponse\"\x1d\x82\xd3\xe4\x93\x02\x17\"\x12/v1/pm/speculative:\x01*BM\n\x0b\x64\x65v.angzarrP\x01Z(github.com/angzarr/angzarr/proto/angzarr\xaa\x02\x07\x41ngzarr\xea\x02\x07\x41ngzarrb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,6 +34,8 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'angzarr.process_manager_pb2
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\013dev.angzarrP\001Z(github.com/angzarr/angzarr/proto/angzarr\252\002\007Angzarr\352\002\007Angzarr'
+  _globals['_PROCESSMANAGERHANDLEREQUEST_DESTINATIONSEQUENCESENTRY']._loaded_options = None
+  _globals['_PROCESSMANAGERHANDLEREQUEST_DESTINATIONSEQUENCESENTRY']._serialized_options = b'8\001'
   _globals['_PROCESSMANAGERCOORDINATORSERVICE'].methods_by_name['Handle']._loaded_options = None
   _globals['_PROCESSMANAGERCOORDINATORSERVICE'].methods_by_name['Handle']._serialized_options = b'\202\323\344\223\002\022\"\r/v1/pm/handle:\001*'
   _globals['_PROCESSMANAGERCOORDINATORSERVICE'].methods_by_name['HandleSpeculative']._loaded_options = None
@@ -47,11 +49,13 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_PROCESSMANAGERPREPARERESPONSE']._serialized_start=519
   _globals['_PROCESSMANAGERPREPARERESPONSE']._serialized_end=602
   _globals['_PROCESSMANAGERHANDLEREQUEST']._serialized_start=605
-  _globals['_PROCESSMANAGERHANDLEREQUEST']._serialized_end=793
-  _globals['_PROCESSMANAGERHANDLERESPONSE']._serialized_start=796
-  _globals['_PROCESSMANAGERHANDLERESPONSE']._serialized_end=977
-  _globals['_PROCESSMANAGERSERVICE']._serialized_start=980
-  _globals['_PROCESSMANAGERSERVICE']._serialized_end=1180
-  _globals['_PROCESSMANAGERCOORDINATORSERVICE']._serialized_start=1183
-  _globals['_PROCESSMANAGERCOORDINATORSERVICE']._serialized_end=1455
+  _globals['_PROCESSMANAGERHANDLEREQUEST']._serialized_end=927
+  _globals['_PROCESSMANAGERHANDLEREQUEST_DESTINATIONSEQUENCESENTRY']._serialized_start=856
+  _globals['_PROCESSMANAGERHANDLEREQUEST_DESTINATIONSEQUENCESENTRY']._serialized_end=927
+  _globals['_PROCESSMANAGERHANDLERESPONSE']._serialized_start=930
+  _globals['_PROCESSMANAGERHANDLERESPONSE']._serialized_end=1111
+  _globals['_PROCESSMANAGERSERVICE']._serialized_start=1114
+  _globals['_PROCESSMANAGERSERVICE']._serialized_end=1314
+  _globals['_PROCESSMANAGERCOORDINATORSERVICE']._serialized_start=1317
+  _globals['_PROCESSMANAGERCOORDINATORSERVICE']._serialized_end=1589
 # @@protoc_insertion_point(module_scope)

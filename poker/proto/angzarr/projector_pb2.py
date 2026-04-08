@@ -23,11 +23,11 @@ _sym_db = _symbol_database.Default()
 
 
 from angzarr import types_pb2 as angzarr_dot_types__pb2
-from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 from google.api import annotations_pb2 as google_dot_api_dot_annotations__pb2
+from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61ngzarr/projector.proto\x12\x07\x61ngzarr\x1a\x13\x61ngzarr/types.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cgoogle/api/annotations.proto\"G\n\x19SpeculateProjectorRequest\x12*\n\x06\x65vents\x18\x01 \x01(\x0b\x32\x12.angzarr.EventBookR\x06\x65vents2\x83\x01\n\x10ProjectorService\x12\x31\n\x06Handle\x12\x12.angzarr.EventBook\x1a\x13.angzarr.Projection\x12<\n\x11HandleSpeculative\x12\x12.angzarr.EventBook\x1a\x13.angzarr.Projection2\xba\x02\n\x1bProjectorCoordinatorService\x12W\n\nHandleSync\x12\x15.angzarr.EventRequest\x1a\x13.angzarr.Projection\"\x1d\x82\xd3\xe4\x93\x02\x17\"\x12/v1/projector/sync:\x01*\x12N\n\x06Handle\x12\x12.angzarr.EventBook\x1a\x16.google.protobuf.Empty\"\x18\x82\xd3\xe4\x93\x02\x12\"\r/v1/projector:\x01*\x12r\n\x11HandleSpeculative\x12\".angzarr.SpeculateProjectorRequest\x1a\x13.angzarr.Projection\"$\x82\xd3\xe4\x93\x02\x1e\"\x19/v1/projector/speculative:\x01*BM\n\x0b\x64\x65v.angzarrP\x01Z(github.com/angzarr/angzarr/proto/angzarr\xaa\x02\x07\x41ngzarr\xea\x02\x07\x41ngzarrb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61ngzarr/projector.proto\x12\x07\x61ngzarr\x1a\x13\x61ngzarr/types.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1bgoogle/protobuf/empty.proto\"G\n\x19SpeculateProjectorRequest\x12*\n\x06\x65vents\x18\x01 \x01(\x0b\x32\x12.angzarr.EventBookR\x06\x65vents2\x83\x01\n\x10ProjectorService\x12\x31\n\x06Handle\x12\x12.angzarr.EventBook\x1a\x13.angzarr.Projection\x12<\n\x11HandleSpeculative\x12\x12.angzarr.EventBook\x1a\x13.angzarr.Projection2\xba\x02\n\x1bProjectorCoordinatorService\x12W\n\nHandleSync\x12\x15.angzarr.EventRequest\x1a\x13.angzarr.Projection\"\x1d\x82\xd3\xe4\x93\x02\x17\"\x12/v1/projector/sync:\x01*\x12N\n\x06Handle\x12\x12.angzarr.EventBook\x1a\x16.google.protobuf.Empty\"\x18\x82\xd3\xe4\x93\x02\x12\"\r/v1/projector:\x01*\x12r\n\x11HandleSpeculative\x12\".angzarr.SpeculateProjectorRequest\x1a\x13.angzarr.Projection\"$\x82\xd3\xe4\x93\x02\x1e\"\x19/v1/projector/speculative:\x01*BM\n\x0b\x64\x65v.angzarrP\x01Z(github.com/angzarr/angzarr/proto/angzarr\xaa\x02\x07\x41ngzarr\xea\x02\x07\x41ngzarrb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)

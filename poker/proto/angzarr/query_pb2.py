@@ -23,11 +23,11 @@ _sym_db = _symbol_database.Default()
 
 
 from angzarr import types_pb2 as angzarr_dot_types__pb2
-from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 from google.api import annotations_pb2 as google_dot_api_dot_annotations__pb2
+from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13\x61ngzarr/query.proto\x12\x07\x61ngzarr\x1a\x13\x61ngzarr/types.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cgoogle/api/annotations.proto2\xef\x02\n\x11\x45ventQueryService\x12[\n\x0cGetEventBook\x12\x0e.angzarr.Query\x1a\x12.angzarr.EventBook\"\'\x82\xd3\xe4\x93\x02!\x12\x1f/v1/query/{cover.domain}/events\x12\x61\n\tGetEvents\x12\x0e.angzarr.Query\x1a\x12.angzarr.EventBook\".\x82\xd3\xe4\x93\x02(\x12&/v1/query/{cover.domain}/events/stream0\x01\x12\x35\n\x0bSynchronize\x12\x0e.angzarr.Query\x1a\x12.angzarr.EventBook(\x01\x30\x01\x12\x63\n\x11GetAggregateRoots\x12\x16.google.protobuf.Empty\x1a\x16.angzarr.AggregateRoot\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/v1/query/aggregates0\x01\x42`\n\x0b\x64\x65v.angzarrB\x11QueryServiceProtoP\x01Z(github.com/angzarr/angzarr/proto/angzarr\xaa\x02\x07\x41ngzarr\xea\x02\x07\x41ngzarrb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13\x61ngzarr/query.proto\x12\x07\x61ngzarr\x1a\x13\x61ngzarr/types.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1bgoogle/protobuf/empty.proto2\xef\x02\n\x11\x45ventQueryService\x12[\n\x0cGetEventBook\x12\x0e.angzarr.Query\x1a\x12.angzarr.EventBook\"\'\x82\xd3\xe4\x93\x02!\x12\x1f/v1/query/{cover.domain}/events\x12\x61\n\tGetEvents\x12\x0e.angzarr.Query\x1a\x12.angzarr.EventBook\".\x82\xd3\xe4\x93\x02(\x12&/v1/query/{cover.domain}/events/stream0\x01\x12\x35\n\x0bSynchronize\x12\x0e.angzarr.Query\x1a\x12.angzarr.EventBook(\x01\x30\x01\x12\x63\n\x11GetAggregateRoots\x12\x16.google.protobuf.Empty\x1a\x16.angzarr.AggregateRoot\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/v1/query/aggregates0\x01\x42`\n\x0b\x64\x65v.angzarrB\x11QueryServiceProtoP\x01Z(github.com/angzarr/angzarr/proto/angzarr\xaa\x02\x07\x41ngzarr\xea\x02\x07\x41ngzarrb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)

@@ -23,6 +23,11 @@ class CommandHandlerServiceStub(object):
                 request_serializer=angzarr_dot_types__pb2.ContextualCommand.SerializeToString,
                 response_deserializer=angzarr_dot_command__handler__pb2.BusinessResponse.FromString,
                 _registered_method=True)
+        self.HandleFact = channel.unary_unary(
+                '/angzarr.CommandHandlerService/HandleFact',
+                request_serializer=angzarr_dot_command__handler__pb2.FactRequest.SerializeToString,
+                response_deserializer=angzarr_dot_types__pb2.EventBook.FromString,
+                _registered_method=True)
         self.Replay = channel.unary_unary(
                 '/angzarr.CommandHandlerService/Replay',
                 request_serializer=angzarr_dot_command__handler__pb2.ReplayRequest.SerializeToString,
@@ -43,6 +48,14 @@ class CommandHandlerServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def HandleFact(self, request, context):
+        """Process fact events - update aggregate state based on external realities.
+        Optional: if unimplemented, facts are persisted as-is (pass-through).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Replay(self, request, context):
         """Replay events to compute state (for conflict detection)
         Optional: only needed if aggregate supports MERGE_COMMUTATIVE
@@ -58,6 +71,11 @@ def add_CommandHandlerServiceServicer_to_server(servicer, server):
                     servicer.Handle,
                     request_deserializer=angzarr_dot_types__pb2.ContextualCommand.FromString,
                     response_serializer=angzarr_dot_command__handler__pb2.BusinessResponse.SerializeToString,
+            ),
+            'HandleFact': grpc.unary_unary_rpc_method_handler(
+                    servicer.HandleFact,
+                    request_deserializer=angzarr_dot_command__handler__pb2.FactRequest.FromString,
+                    response_serializer=angzarr_dot_types__pb2.EventBook.SerializeToString,
             ),
             'Replay': grpc.unary_unary_rpc_method_handler(
                     servicer.Replay,
@@ -95,6 +113,33 @@ class CommandHandlerService(object):
             '/angzarr.CommandHandlerService/Handle',
             angzarr_dot_types__pb2.ContextualCommand.SerializeToString,
             angzarr_dot_command__handler__pb2.BusinessResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def HandleFact(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/angzarr.CommandHandlerService/HandleFact',
+            angzarr_dot_command__handler__pb2.FactRequest.SerializeToString,
+            angzarr_dot_types__pb2.EventBook.FromString,
             options,
             channel_credentials,
             insecure,
