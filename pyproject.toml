@@ -42,6 +42,9 @@ pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-v --ignore=tests/features"
 
+[tool.ruff]
+exclude = ["*_pb2.py", "*_pb2_grpc.py"]
+
 [tool.ruff.lint.per-file-ignores]
 # These files require sys.path manipulation before imports
 "run_game.py" = ["E402"]
