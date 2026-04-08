@@ -3,7 +3,7 @@
 # Build: docker build -t poker-python-player --target agg-player .
 
 ARG PYTHON_VERSION=3.11
-ARG UV_VERSION=0.5.14
+ARG UV_VERSION=0.10.3
 
 # ============================================================================
 # Base - Python with uv and buf
