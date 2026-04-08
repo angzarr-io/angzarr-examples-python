@@ -36,6 +36,17 @@ jobs:
       - name: Use container justfile
         run: cp justfile.container justfile
 
+      - name: Install buf
+        uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      - name: Generate protos for angzarr-client-python
+        run: |
+          cd angzarr-client-python
+          buf generate
+          python scripts/generate_protos.py
+
       - name: Update uv
         run: |
           curl -LsSf https://astral.sh/uv/${{ env.UV_VERSION }}/install.sh | sh
