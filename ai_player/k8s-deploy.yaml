@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-player
+  namespace: angzarr
+  labels:
+    app: ai-player
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-player
+  template:
+    metadata:
+      labels:
+        app: ai-player
+    spec:
+      containers:
+      - name: ai-player
+        image: ghcr.io/angzarr-io/poker-ai-player:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 50500
+          name: grpc
+        env:
+        - name: PORT
+          value: "50500"
+        - name: DEVICE
+          value: "cpu"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-player
+  namespace: angzarr
+  labels:
+    app: ai-player
+spec:
+  selector:
+    app: ai-player
+  ports:
+  - port: 50500
+    targetPort: 50500
+    name: grpc

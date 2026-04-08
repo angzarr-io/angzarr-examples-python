@@ -1,0 +1,55 @@
+2026-03-24 16:48:53 [debug    ] model_registered               model_id=agent_alice
+2026-03-24 16:48:53 [debug    ] model_registered               model_id=agent_bob
+2026-03-24 16:48:53 [debug    ] model_registered               model_id=agent_carol
+2026-03-24 16:48:53 [debug    ] model_registered               model_id=agent_dave
+2026-03-24 16:48:53 [debug    ] model_registered               model_id=agent_eve
+2026-03-24 16:48:53 [debug    ] model_registered               model_id=agent_frank
+2026-03-24 16:48:53 [debug    ] model_registered               model_id=agent_grace
+2026-03-24 16:48:53 [debug    ] model_registered               model_id=agent_hank
+2026-03-24 16:48:53 [debug    ] model_registered               model_id=agent_ivan
+2026-03-24 16:48:53 [info     ] agents_initialized             count=9
+2026-03-24 16:48:53 [info     ] selfplay_starting              max_iterations=15 num_players=9 tournaments_per_iter=3
+2026-03-24 16:48:53 [info     ] iteration_starting             iteration=1
+2026-03-24 16:48:53 [debug    ] tournament_starting            tournament_id=selfplay-329117ee
+/home/babbitt/workspace/angzarr/examples-python/main/ai_player/models/poker_net.py:123: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  x = torch.tensor(state, dtype=torch.float32, device=self._device)
+2026-03-24 16:49:29 [debug    ] tournament_complete            hands=100 tournament_id=selfplay-329117ee winner=Bob
+2026-03-24 16:49:29 [debug    ] tournament_starting            tournament_id=selfplay-89f0948f
+2026-03-24 16:50:05 [debug    ] tournament_complete            hands=100 tournament_id=selfplay-89f0948f winner=Frank
+2026-03-24 16:50:05 [debug    ] tournament_starting            tournament_id=selfplay-9d46376d
+2026-03-24 16:50:42 [debug    ] tournament_complete            hands=100 tournament_id=selfplay-9d46376d winner=Eve
+2026-03-24 16:50:42 [info     ] training_phase                 iteration=1
+2026-03-24 16:50:42 [warning  ] insufficient_data              agent=Alice examples=0
+2026-03-24 16:50:42 [warning  ] insufficient_data              agent=Bob examples=0
+2026-03-24 16:50:42 [warning  ] insufficient_data              agent=Carol examples=0
+2026-03-24 16:50:42 [warning  ] insufficient_data              agent=Dave examples=0
+2026-03-24 16:50:42 [warning  ] insufficient_data              agent=Eve examples=0
+2026-03-24 16:50:42 [warning  ] insufficient_data              agent=Frank examples=0
+2026-03-24 16:50:42 [warning  ] insufficient_data              agent=Grace examples=0
+2026-03-24 16:50:42 [warning  ] insufficient_data              agent=Hank examples=0
+2026-03-24 16:50:42 [warning  ] insufficient_data              agent=Ivan examples=0
+2026-03-24 16:50:42 [info     ] winner_weights_shared          alpha=0.5 learners=8 winner=agent_bob
+2026-03-24 16:50:42 [info     ] winner_teaches                 winner=Bob wins_this_iteration=1
+2026-03-24 16:50:42 [info     ] iteration_complete             best_agent=Frank best_bb_per_100=20.0 iteration=1
+
+=== Agent Leaderboard ===
+Rank  Agent      BB/100     Win Rate   Tournaments  Hands     
+------------------------------------------------------------
+1     Frank         20.00    33.3%          3        300
+2     Eve           17.00    33.3%          3        300
+3     Ivan          11.00     0.0%          3        300
+4     Alice          8.00     0.0%          3        300
+5     Bob           -1.00    33.3%          3        300
+6     Hank          -7.00     0.0%          3        300
+7     Carol        -16.00     0.0%          3        300
+8     Dave         -16.00     0.0%          3        300
+9     Grace        -16.00     0.0%          3        300
+
+2026-03-24 16:50:42 [info     ] target_reached                 bb_per_100=20.0
+2026-03-24 16:50:42 [info     ] models_saved                   best_agent=Frank best_bb_per_100=20.0 suffix=final
+2026-03-24 16:50:42 [info     ] selfplay_complete              best_agent=Frank best_bb_per_100=20.0 iterations=1
+
+Best Agent: Frank
+BB/100: 20.00
+Win Rate: 33.3%
+Model saved to: ./models/selfplay/best_model.pt

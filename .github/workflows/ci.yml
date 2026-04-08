@@ -297,7 +297,7 @@ jobs:
         run: |
           helm upgrade --install poker \
             oci://ghcr.io/angzarr-io/charts/angzarr \
-            --version 0.5.0 \
+            --version 0.5.1 \
             -f values.yaml \
             -f deploy/k8s/helm/values-ci.yaml \
             --set "applications.business[0].image.tag=${TAG}" \

@@ -1,0 +1,68 @@
+2026-03-24 18:46:38 [debug    ] model_registered               model_id=agent_alice
+2026-03-24 18:46:38 [debug    ] model_registered               model_id=agent_bob
+2026-03-24 18:46:38 [debug    ] model_registered               model_id=agent_carol
+2026-03-24 18:46:38 [debug    ] model_registered               model_id=agent_dave
+2026-03-24 18:46:38 [debug    ] model_registered               model_id=agent_eve
+2026-03-24 18:46:38 [debug    ] model_registered               model_id=agent_frank
+2026-03-24 18:46:38 [debug    ] model_registered               model_id=agent_grace
+2026-03-24 18:46:38 [debug    ] model_registered               model_id=agent_hank
+2026-03-24 18:46:38 [debug    ] model_registered               model_id=agent_ivan
+2026-03-24 18:46:38 [info     ] agents_initialized             count=9
+2026-03-24 18:46:38 [info     ] selfplay_starting              max_iterations=15 num_players=9 tournaments_per_iter=3
+2026-03-24 18:46:38 [info     ] iteration_starting             iteration=1
+2026-03-24 18:46:38 [debug    ] tournament_starting            tournament_id=selfplay-fb38a21c
+/home/babbitt/workspace/angzarr/examples-python/main/ai_player/models/poker_net.py:123: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  x = torch.tensor(state, dtype=torch.float32, device=self._device)
+2026-03-24 18:46:39 [debug    ] tournament_complete            hands=6 tournament_id=selfplay-fb38a21c winner=Alice
+2026-03-24 18:46:39 [debug    ] tournament_starting            tournament_id=selfplay-93f46246
+Traceback (most recent call last):
+  File "/home/babbitt/workspace/angzarr/client-python/main/angzarr_client/client.py", line 182, in handle_command
+    return self._stub.HandleCommand(request)
+           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/grpc/_channel.py", line 1159, in __call__
+    return _end_unary_response_blocking(state, call, False, None)
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/grpc/_channel.py", line 990, in _end_unary_response_blocking
+    raise _InactiveRpcError(state)  # pytype: disable=not-instantiable
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+grpc._channel._InactiveRpcError: <_InactiveRpcError of RPC that terminated with:
+	status = StatusCode.FAILED_PRECONDITION
+	details = "Player is all-in"
+	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:9, grpc_message:"Player is all-in"}"
+>
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 925, in <module>
+    main()
+    ~~~~^^
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 916, in main
+    best = trainer.run()
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 820, in run
+    results = self.run_tournament()
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 625, in run_tournament
+    game.play_hand()
+    ~~~~~~~~~~~~~~^^
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 102, in play_hand
+    result = self._base_game.play_hand()
+  File "/home/babbitt/workspace/angzarr/examples-python/main/run_game.py", line 955, in play_hand
+    self.betting_round(first_postflop)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/home/babbitt/workspace/angzarr/examples-python/main/run_game.py", line 759, in betting_round
+    resp = self.client.execute(
+        "hand", self.hand_root, cmd, sequence=self.hand_sequence
+    )
+  File "/home/babbitt/workspace/angzarr/examples-python/main/client.py", line 164, in execute
+    response = client.execute_with_mode(cmd_book, sync_mode)
+  File "/home/babbitt/workspace/angzarr/client-python/main/angzarr_client/client.py", line 329, in execute_with_mode
+    return self.command_handler.handle_command(request)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/babbitt/workspace/angzarr/client-python/main/angzarr_client/client.py", line 184, in handle_command
+    raise GRPCError(e) from e
+angzarr_client.errors.GRPCError: grpc error: <_InactiveRpcError of RPC that terminated with:
+	status = StatusCode.FAILED_PRECONDITION
+	details = "Player is all-in"
+	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:9, grpc_message:"Player is all-in"}"
+>

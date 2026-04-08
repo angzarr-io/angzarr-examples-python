@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: poker-game
+  namespace: angzarr
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      containers:
+      - name: game
+        image: ghcr.io/angzarr-io/poker-ai-player:latest
+        imagePullPolicy: IfNotPresent
+        workingDir: /scripts
+        command:
+          - "/app/.venv/bin/python"
+          - "run_game.py"
+          - "--no-standalone"
+          - "--players"
+          - "3"
+          - "--max-hands"
+          - "1"
+        env:
+        - name: ANGZARR_MODE
+          value: "distributed"
+        - name: ANGZARR_NAMESPACE
+          value: "angzarr"
+        - name: ANGZARR_CH_PORT
+          value: "1310"
+        - name: PYTHONPATH
+          value: "/app/ai_player/proto:/app:/scripts"
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+      volumes:
+      - name: scripts
+        configMap:
+          name: game-scripts
+      restartPolicy: Never
+  backoffLimit: 1

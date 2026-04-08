@@ -1,0 +1,128 @@
+2026-03-24 16:32:23 [debug    ] model_registered               model_id=agent_alice
+2026-03-24 16:32:23 [debug    ] model_registered               model_id=agent_bob
+2026-03-24 16:32:23 [debug    ] model_registered               model_id=agent_carol
+2026-03-24 16:32:23 [debug    ] model_registered               model_id=agent_dave
+2026-03-24 16:32:23 [debug    ] model_registered               model_id=agent_eve
+2026-03-24 16:32:23 [debug    ] model_registered               model_id=agent_frank
+2026-03-24 16:32:23 [debug    ] model_registered               model_id=agent_grace
+2026-03-24 16:32:23 [debug    ] model_registered               model_id=agent_hank
+2026-03-24 16:32:23 [debug    ] model_registered               model_id=agent_ivan
+2026-03-24 16:32:23 [info     ] agents_initialized             count=9
+2026-03-24 16:32:23 [info     ] selfplay_starting              max_iterations=15 num_players=9 tournaments_per_iter=3
+2026-03-24 16:32:23 [info     ] iteration_starting             iteration=1
+2026-03-24 16:32:23 [debug    ] tournament_starting            tournament_id=selfplay-6617bb75
+/home/babbitt/workspace/angzarr/examples-python/main/ai_player/models/poker_net.py:123: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  x = torch.tensor(state, dtype=torch.float32, device=self._device)
+2026-03-24 16:33:27 [debug    ] tournament_complete            hands=100 tournament_id=selfplay-6617bb75 winner=Carol
+2026-03-24 16:33:27 [debug    ] tournament_starting            tournament_id=selfplay-75820c82
+2026-03-24 16:34:40 [debug    ] tournament_complete            hands=100 tournament_id=selfplay-75820c82 winner=Bob
+2026-03-24 16:34:40 [debug    ] tournament_starting            tournament_id=selfplay-4819716a
+2026-03-24 16:34:57 [debug    ] tournament_complete            hands=100 tournament_id=selfplay-4819716a winner=Bob
+2026-03-24 16:34:57 [info     ] training_phase                 iteration=1
+Traceback (most recent call last):
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+psycopg2.OperationalError: SSL SYSCALL error: EOF detected
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 766, in <module>
+    main()
+    ~~~~^^
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 757, in main
+    best = trainer.run()
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 662, in run
+    self.train_agent(agent)
+    ~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 536, in train_agent
+    for ts in session.scalars(stmt):
+              ~~~~~~~~~~~~~~~^^^^^^
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 2459, in scalars
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        **kw,
+        ^^^^^
+    ).scalars()
+    ^
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+        statement, params or {}, execution_options=execution_options
+    )
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<8 lines>...
+        cache_hit=cache_hit,
+    )
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) SSL SYSCALL error: EOF detected
+
+[SQL: SELECT training_states.id, training_states.hand_root, training_states.sequence, training_states.player_root, training_states.edition, training_states.hole_card_1, training_states.hole_card_2, training_states.community_1, training_states.community_2, training_states.community_3, training_states.community_4, training_states.community_5, training_states.pot_size, training_states.stack_size, training_states.amount_to_call, training_states.current_bet, training_states.min_raise, training_states.position, training_states.phase, training_states.players_remaining, training_states.players_to_act, training_states.action, training_states.amount, training_states.reward, training_states.terminal, training_states.game_variant, training_states.big_blind, training_states.created_at 
+FROM training_states 
+WHERE training_states.reward IS NOT NULL ORDER BY training_states.id DESC 
+ LIMIT %(param_1)s]
+[parameters: {'param_1': 100000}]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
