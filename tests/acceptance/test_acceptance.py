@@ -180,9 +180,7 @@ class TestPlayerAggregate:
                 assert resp.HasField("events"), "Response should contain events"
                 events = resp.events
                 assert len(events.pages) > 0, "Should have deposited event"
-                print(
-                    f"Successfully deposited funds, got {len(events.pages)} event(s)"
-                )
+                print(f"Successfully deposited funds, got {len(events.pages)} event(s)")
                 last_err = None
                 break
             except grpc.RpcError as e:
