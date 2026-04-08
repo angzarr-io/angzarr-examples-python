@@ -9,11 +9,13 @@ imagePullSecrets:
 # Service names match Helm release names (postgres-simple/rabbitmq-simple use .Release.Name)
 storage:
   postgres:
+    uri: "postgres://angzarr:angzarr@angzarr-db:5432/angzarr"
     host: "angzarr-db"
     port: 5432
 
 messaging:
   amqp:
+    url: "amqp://angzarr:angzarr@angzarr-mq:5672/%2F"
     host: "angzarr-mq"
     port: 5672
 
