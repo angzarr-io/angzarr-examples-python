@@ -78,6 +78,8 @@ applicationResources:
 storage:
   type: postgres
   postgres:
+    host: "angzarr-db"
+    port: 5432
     uri: "postgres://angzarr:angzarr-dev@angzarr-db:5432/angzarr"
 
 # Messaging configuration
@@ -86,6 +88,8 @@ messaging:
   type: "amqp"
   amqp:
     enabled: true
+    host: "angzarr-mq"
+    port: 5672
     url: "amqp://guest:guest@angzarr-mq:5672/%2F"
 
 # AMQP event bus

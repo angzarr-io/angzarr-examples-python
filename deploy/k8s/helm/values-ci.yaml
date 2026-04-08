@@ -5,6 +5,18 @@
 imagePullSecrets:
   - name: ghcr-pull-secret
 
+# Init containers use host/port for health checks (nc -z)
+# Service names match Helm release names (postgres-simple/rabbitmq-simple use .Release.Name)
+storage:
+  postgres:
+    host: "angzarr-db"
+    port: 5432
+
+messaging:
+  amqp:
+    host: "angzarr-mq"
+    port: 5672
+
 # Use IfNotPresent since images are pre-loaded into Kind
 applications:
   business:
