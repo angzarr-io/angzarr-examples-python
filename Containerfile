@@ -40,16 +40,17 @@ WORKDIR /app
 # ============================================================================
 FROM base AS deps
 
-# Copy project files
+# Copy project files and angzarr-client-python submodule (local path source)
 COPY pyproject.toml uv.lock ./
 COPY buf.gen.yaml ./
+COPY angzarr-client-python ./angzarr-client-python
 
 # Generate protos from buf registry
 RUN mkdir -p angzarr/proto && buf generate
 
-# Install dependencies (using --no-sources to skip local dev overrides)
+# Install dependencies (including angzarr-client from local path source)
 RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
-    uv sync --no-dev --no-install-project --no-sources
+    uv sync --no-dev --no-install-project
 
 # ============================================================================
 # Source - copy application code
