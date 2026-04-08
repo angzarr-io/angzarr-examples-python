@@ -89,7 +89,11 @@ jobs:
           setup_only: true
 
       - name: Generate protos
-        run: buf generate
+        run: |
+          buf generate
+          cd angzarr-client-python
+          buf generate
+          python scripts/generate_protos.py
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
