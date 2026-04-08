@@ -80,7 +80,7 @@ storage:
   postgres:
     host: "angzarr-db"
     port: 5432
-    uri: "postgres://angzarr:angzarr-dev@angzarr-db:5432/angzarr"
+    uri: "postgres://angzarr:angzarr@angzarr-db:5432/angzarr"
 
 # Messaging configuration
 # Requires: helm install angzarr-mq ./deploy/k8s/helm/rabbitmq -n angzarr
@@ -90,12 +90,12 @@ messaging:
     enabled: true
     host: "angzarr-mq"
     port: 5672
-    url: "amqp://guest:guest@angzarr-mq:5672/%2F"
+    url: "amqp://angzarr:angzarr@angzarr-mq:5672/%2F"
 
 # AMQP event bus
 amqp:
   enabled: true
-  url: "amqp://guest:guest@angzarr-mq:5672/%2F"
+  url: "amqp://angzarr:angzarr@angzarr-mq:5672/%2F"
 
 # External secrets disabled for local dev
 externalSecrets:
