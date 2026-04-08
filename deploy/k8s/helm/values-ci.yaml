@@ -1,0 +1,46 @@
+# CI-specific overrides for Helm deployment
+# Used in addition to values.yaml when deploying in CI
+
+# Image pull secret for GHCR
+imagePullSecrets:
+  - name: ghcr-pull-secret
+
+# Use IfNotPresent since images are pre-loaded into Kind
+applications:
+  business:
+    - name: poker-player
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-agg-player
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "player"
+      port: 50301
+
+    - name: poker-table
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-agg-table
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "table"
+      port: 50302
+
+    - name: poker-hand
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-agg-hand
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "hand"
+      port: 50303
+
+  sagas: []
+
+  projectors:
+    - name: prj-training
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-prj-training
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "hand"
+      port: 50491
+      topics:
+        - "hand"
