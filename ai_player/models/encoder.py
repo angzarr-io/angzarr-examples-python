@@ -180,7 +180,9 @@ class ActionContextEncoder:
             spr / 10.0,  # Normalized SPR
             1.0 if request.amount_to_call == 0 else 0.0,  # Check available
             1.0 if request.amount_to_call > 0 else 0.0,  # Facing bet
-            1.0 if request.stack_size <= request.amount_to_call else 0.0,  # All-in required
+            (
+                1.0 if request.stack_size <= request.amount_to_call else 0.0
+            ),  # All-in required
         ]
 
     def _encode_position(
@@ -243,21 +245,29 @@ class ActionContextEncoder:
                 # Merge proto stats with DB profiles
                 db_profile = profiles.get(opp.player_root, {})
 
-                features.extend([
-                    opp.position / 10.0,  # Position
-                    opp.stack / 10000.0,  # Normalized stack
-                    # Use proto stats (from request) or fall back to DB
-                    opp.vpip if opp.vpip > 0 else db_profile.get("vpip", 0.5),
-                    opp.pfr if opp.pfr > 0 else db_profile.get("pfr", 0.2),
-                    opp.aggression if opp.aggression > 0 else db_profile.get("af", 1.0),
-                    # Hands played (confidence indicator)
-                    min(1.0, opp.hands_played / 100.0)
-                    if opp.hands_played > 0
-                    else min(1.0, db_profile.get("total_hands", 0) / 100.0),
-                    # DB-only stats
-                    db_profile.get("wtsd", 0.3),
-                    1.0,  # Opponent present flag
-                ])
+                features.extend(
+                    [
+                        opp.position / 10.0,  # Position
+                        opp.stack / 10000.0,  # Normalized stack
+                        # Use proto stats (from request) or fall back to DB
+                        opp.vpip if opp.vpip > 0 else db_profile.get("vpip", 0.5),
+                        opp.pfr if opp.pfr > 0 else db_profile.get("pfr", 0.2),
+                        (
+                            opp.aggression
+                            if opp.aggression > 0
+                            else db_profile.get("af", 1.0)
+                        ),
+                        # Hands played (confidence indicator)
+                        (
+                            min(1.0, opp.hands_played / 100.0)
+                            if opp.hands_played > 0
+                            else min(1.0, db_profile.get("total_hands", 0) / 100.0)
+                        ),
+                        # DB-only stats
+                        db_profile.get("wtsd", 0.3),
+                        1.0,  # Opponent present flag
+                    ]
+                )
             else:
                 # No opponent in this slot
                 features.extend([0.0] * self.OPPONENT_FEATURES)

@@ -31,7 +31,9 @@ class PlayerStateBuilder:
         self._table_reservations: dict[str, int] = {}
         self._status = ""
 
-    def registered(self, name: str = "TestPlayer", email: str = "test@example.com") -> PlayerStateBuilder:
+    def registered(
+        self, name: str = "TestPlayer", email: str = "test@example.com"
+    ) -> PlayerStateBuilder:
         """Set player as registered with default values."""
         self._player_id = f"player_{email}"
         self._display_name = name
@@ -86,7 +88,9 @@ class TableStateBuilder:
         self._max_buy_in = 1000
         self._small_blind = 5
         self._big_blind = 10
-        self._seats: dict[int, tuple[bytes, int]] = {}  # position -> (player_root, stack)
+        self._seats: dict[int, tuple[bytes, int]] = (
+            {}
+        )  # position -> (player_root, stack)
         self._status = "waiting"
         self._hand_count = 0
 
@@ -107,7 +111,9 @@ class TableStateBuilder:
         self._big_blind = big
         return self
 
-    def with_player(self, position: int, player_root: bytes, stack: int) -> TableStateBuilder:
+    def with_player(
+        self, position: int, player_root: bytes, stack: int
+    ) -> TableStateBuilder:
         """Add a seated player."""
         self._seats[position] = (player_root, stack)
         return self
@@ -164,15 +170,17 @@ class HandStateBuilder:
         hole_cards: list | None = None,
     ) -> HandStateBuilder:
         """Add a player to the hand."""
-        self._players.append({
-            "player_root": player_root,
-            "position": position,
-            "stack": stack,
-            "hole_cards": hole_cards or [],
-            "has_folded": False,
-            "is_all_in": False,
-            "current_bet": 0,
-        })
+        self._players.append(
+            {
+                "player_root": player_root,
+                "position": position,
+                "stack": stack,
+                "hole_cards": hole_cards or [],
+                "has_folded": False,
+                "is_all_in": False,
+                "current_bet": 0,
+            }
+        )
         return self
 
     def with_pot(self, amount: int) -> HandStateBuilder:
@@ -235,8 +243,7 @@ class EventBookBuilder:
     def build(self) -> types.EventBook:
         """Build the EventBook."""
         pages = [
-            make_event_page(event, sequence=i)
-            for i, event in enumerate(self._events)
+            make_event_page(event, sequence=i) for i, event in enumerate(self._events)
         ]
         return types.EventBook(
             cover=make_cover(self._domain, self._root),

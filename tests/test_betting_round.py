@@ -10,7 +10,6 @@ after other players fold. The bug manifests when:
 import pytest
 from dataclasses import dataclass
 
-
 # Action types (mirroring poker_types_pb2)
 FOLD = 1
 CHECK = 2
@@ -22,6 +21,7 @@ RAISE = 5
 @dataclass
 class MockPlayer:
     """Simplified player for testing betting logic."""
+
     name: str
     seat: int
     stack: int = 1000
@@ -33,11 +33,11 @@ class MockPlayer:
 class BettingRoundTester:
     """
     Extract and test the betting round iteration logic from run_game.py.
-    
+
     This class mirrors the betting_round() method but allows us to
     inject predetermined actions and track which players are asked to act.
     """
-    
+
     def __init__(self, players: dict[int, MockPlayer], big_blind: int = 10):
         self.players = players
         self.big_blind = big_blind
@@ -46,12 +46,12 @@ class BettingRoundTester:
         self.actions_to_return: list[tuple[int, int]] = []  # (action, amount)
         self.action_index = 0
         self.seats_asked_to_act: list[int] = []
-    
+
     def set_actions(self, actions: list[tuple[int, int]]):
         """Set the sequence of actions to return from get_action."""
         self.actions_to_return = actions
         self.action_index = 0
-    
+
     def get_action(self, player: MockPlayer) -> tuple[int, int]:
         """Return the next predetermined action."""
         self.seats_asked_to_act.append(player.seat)
@@ -61,7 +61,7 @@ class BettingRoundTester:
             return action, amount
         # Default: fold if we run out of actions
         return FOLD, 0
-    
+
     def betting_round(self, first_to_act_seat: int, preflop: bool = False):
         """
         Run a betting round - FIXED VERSION using seat-based iteration.
@@ -74,8 +74,11 @@ class BettingRoundTester:
 
         def get_active_seats():
             """Get currently active seats (not folded, not all-in)."""
-            return [s for s in all_seats
-                    if not self.players[s].folded and not self.players[s].all_in]
+            return [
+                s
+                for s in all_seats
+                if not self.players[s].folded and not self.players[s].all_in
+            ]
 
         def next_active_seat(current: int) -> int | None:
             """Find the next active seat clockwise from current."""
@@ -123,8 +126,7 @@ class BettingRoundTester:
 
             # Check termination: all active players have matched the current bet
             all_bets_matched = all(
-                self.players[s].bet == self.current_bet
-                for s in active
+                self.players[s].bet == self.current_bet for s in active
             )
 
             # Check if last aggressor is still in active seats
@@ -138,7 +140,10 @@ class BettingRoundTester:
             # 2. All bets are matched, AND
             # 3. Either no one raised (or aggressor is all-in), or we've come back to the last aggressor
             if current_seat in acted and all_bets_matched:
-                if effective_last_aggressor is None or current_seat == effective_last_aggressor:
+                if (
+                    effective_last_aggressor is None
+                    or current_seat == effective_last_aggressor
+                ):
                     break
 
             action, amount = self.get_action(player)
@@ -227,7 +232,7 @@ class BettingRoundTester:
 
 class TestBettingRoundIteration:
     """Test that betting round iteration visits all players correctly."""
-    
+
     def create_6_player_game(self) -> BettingRoundTester:
         """Create a 6-player game setup."""
         players = {
@@ -239,55 +244,57 @@ class TestBettingRoundIteration:
             5: MockPlayer("Frank", 5, stack=1000),
         }
         return BettingRoundTester(players, big_blind=10)
-    
+
     def test_preflop_with_raise_all_players_act(self):
         """
         Test that all players get to act after a raise.
-        
+
         Scenario from tournament2.log:
         - Dealer: Alice (seat 0)
         - SB: Bob (seat 1) posts $5
         - BB: Carol (seat 2) posts $10
         - Preflop starts at UTG (seat 3 = Dave)
-        
+
         Actions:
         - Dave (seat 3): FOLD
-        - Eve (seat 4): FOLD  
+        - Eve (seat 4): FOLD
         - Frank (seat 5): RAISE to $48
         - Alice (seat 0): FOLD
         - Bob (seat 1): CALL $43  <-- BUG: Bob is skipped in buggy version!
         - Carol (seat 2): CALL $38
         - Round should end (back to raiser Frank, all bets matched)
-        
+
         The bug causes Frank to be asked to act again before Bob.
         """
         game = self.create_6_player_game()
-        
+
         # Set up blinds
-        game.players[1].bet = 5   # Bob SB
+        game.players[1].bet = 5  # Bob SB
         game.players[2].bet = 10  # Carol BB
         game.current_bet = 10
         game.pot = 15
-        
+
         # Predetermined actions
-        game.set_actions([
-            (FOLD, 0),        # Dave folds
-            (FOLD, 0),        # Eve folds
-            (RAISE, 48),      # Frank raises to $48
-            (FOLD, 0),        # Alice folds
-            (CALL, 43),       # Bob calls $43 (total $48)
-            (CALL, 38),       # Carol calls $38 (total $48)
-        ])
-        
+        game.set_actions(
+            [
+                (FOLD, 0),  # Dave folds
+                (FOLD, 0),  # Eve folds
+                (RAISE, 48),  # Frank raises to $48
+                (FOLD, 0),  # Alice folds
+                (CALL, 43),  # Bob calls $43 (total $48)
+                (CALL, 38),  # Carol calls $38 (total $48)
+            ]
+        )
+
         # UTG is seat 3 (dealer 0 + 3)
         game.betting_round(first_to_act_seat=3, preflop=True)
-        
+
         # Check which seats were asked to act
         print(f"Seats asked to act: {game.seats_asked_to_act}")
-        
+
         # The correct order should include Bob (seat 1) before asking Frank again
         expected_order = [3, 4, 5, 0, 1, 2]  # Dave, Eve, Frank, Alice, Bob, Carol
-        
+
         # This test will FAIL with the current buggy code
         # because Bob (seat 1) is skipped and Frank (seat 5) is asked to act again
         assert game.seats_asked_to_act == expected_order, (
@@ -295,85 +302,88 @@ class TestBettingRoundIteration:
             f"got {game.seats_asked_to_act}. "
             f"Bug: Bob (seat 1) was likely skipped!"
         )
-    
+
     def test_preflop_with_raise_bob_must_act(self):
         """
         Simpler test: verify Bob (SB) gets to act after Frank's raise.
-        
+
         This test specifically checks that seat 1 (Bob) appears in the
         seats_asked_to_act list after seat 5 (Frank) raises.
         """
         game = self.create_6_player_game()
-        
+
         # Set up blinds
-        game.players[1].bet = 5   # Bob SB  
+        game.players[1].bet = 5  # Bob SB
         game.players[2].bet = 10  # Carol BB
         game.current_bet = 10
         game.pot = 15
-        
+
         # Actions: Dave folds, Eve folds, Frank raises, Alice folds, then...
-        game.set_actions([
-            (FOLD, 0),        # Dave folds
-            (FOLD, 0),        # Eve folds
-            (RAISE, 48),      # Frank raises
-            (FOLD, 0),        # Alice folds
-            (CALL, 43),       # Bob should be asked here
-            (CALL, 38),       # Carol
-        ])
-        
+        game.set_actions(
+            [
+                (FOLD, 0),  # Dave folds
+                (FOLD, 0),  # Eve folds
+                (RAISE, 48),  # Frank raises
+                (FOLD, 0),  # Alice folds
+                (CALL, 43),  # Bob should be asked here
+                (CALL, 38),  # Carol
+            ]
+        )
+
         game.betting_round(first_to_act_seat=3, preflop=True)
-        
+
         # Get the order of non-folded actions after Frank's raise
         frank_index = game.seats_asked_to_act.index(5)  # Frank is seat 5
-        seats_after_frank = game.seats_asked_to_act[frank_index + 1:]
-        
+        seats_after_frank = game.seats_asked_to_act[frank_index + 1 :]
+
         print(f"Full action order: {game.seats_asked_to_act}")
         print(f"Seats asked after Frank's raise: {seats_after_frank}")
-        
+
         # Bob (seat 1) MUST be asked to act after Frank raises
         assert 1 in seats_after_frank, (
             f"Bob (seat 1) was not asked to act after Frank's raise! "
             f"Seats after Frank: {seats_after_frank}"
         )
-    
+
     def test_no_repeat_asking_raiser(self):
         """
         The raiser should not be asked to act again unless someone re-raises.
-        
+
         When Frank raises and everyone calls, Frank should NOT be asked again.
         """
         game = self.create_6_player_game()
-        
+
         # Set up blinds
         game.players[1].bet = 5
         game.players[2].bet = 10
         game.current_bet = 10
         game.pot = 15
-        
-        game.set_actions([
-            (FOLD, 0),        # Dave
-            (FOLD, 0),        # Eve
-            (RAISE, 48),      # Frank raises
-            (FOLD, 0),        # Alice
-            (CALL, 43),       # Bob calls
-            (CALL, 38),       # Carol calls
-            (FOLD, 0),        # This should NOT happen - extra in case of bug
-        ])
-        
+
+        game.set_actions(
+            [
+                (FOLD, 0),  # Dave
+                (FOLD, 0),  # Eve
+                (RAISE, 48),  # Frank raises
+                (FOLD, 0),  # Alice
+                (CALL, 43),  # Bob calls
+                (CALL, 38),  # Carol calls
+                (FOLD, 0),  # This should NOT happen - extra in case of bug
+            ]
+        )
+
         game.betting_round(first_to_act_seat=3, preflop=True)
-        
+
         # Count how many times Frank (seat 5) was asked to act
         frank_asks = game.seats_asked_to_act.count(5)
-        
+
         print(f"Full action order: {game.seats_asked_to_act}")
         print(f"Frank was asked {frank_asks} times")
-        
+
         # Frank should only be asked ONCE (when he raises)
         assert frank_asks == 1, (
             f"Frank (seat 5) was asked to act {frank_asks} times! "
             f"Should only be once. Full order: {game.seats_asked_to_act}"
         )
-
 
     def test_all_in_aggressor_terminates_round(self):
         """
@@ -398,19 +408,21 @@ class TestBettingRoundIteration:
         game = BettingRoundTester(players, big_blind=10)
 
         # Preflop blinds
-        game.players[0].bet = 5   # Bob SB
+        game.players[0].bet = 5  # Bob SB
         game.players[1].bet = 10  # Dave BB
         game.current_bet = 10
         game.pot = 15
 
         # Eve (short stack) goes all-in, others call
-        game.set_actions([
-            (RAISE, 27),    # Eve raises all-in to $27
-            (CALL, 27),     # Frank calls
-            (CALL, 22),     # Bob calls ($27 - $5 SB)
-            (CALL, 17),     # Dave calls ($27 - $10 BB)
-            # Round should END here - but bug caused it to continue
-        ])
+        game.set_actions(
+            [
+                (RAISE, 27),  # Eve raises all-in to $27
+                (CALL, 27),  # Frank calls
+                (CALL, 22),  # Bob calls ($27 - $5 SB)
+                (CALL, 17),  # Dave calls ($27 - $10 BB)
+                # Round should END here - but bug caused it to continue
+            ]
+        )
 
         # UTG is seat 2 (Eve)
         game.betting_round(first_to_act_seat=2, preflop=True)

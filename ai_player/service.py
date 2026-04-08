@@ -310,7 +310,6 @@ class AiPlayerServicer:
         """
         from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
 
-
         if self._experience_store:
             self._experience_store.count()
         if self._opponent_store:

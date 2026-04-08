@@ -45,6 +45,7 @@ ACTION_RAISE = types_pb2.RAISE
 @dataclass
 class DecisionPoint:
     """Represents a decision point in a hand."""
+
     hand_root: bytes
     sequence: int  # Sequence BEFORE this decision
     player_root: bytes
@@ -62,6 +63,7 @@ class DecisionPoint:
 @dataclass
 class WhatIfBranch:
     """An edition branch exploring an alternative action."""
+
     edition_name: str
     decision_point: DecisionPoint
     action: int
@@ -72,6 +74,7 @@ class WhatIfBranch:
 @dataclass
 class HandState:
     """Tracks state for a hand being played."""
+
     hand_root: bytes
     hand_sequence: int = 0
     pot: int = 0
@@ -118,7 +121,11 @@ class WhatIfGenerator:
             alternatives.append((ACTION_FOLD, 0))
 
         # Consider CALL if didn't call
-        if dp.to_call > 0 and dp.actual_action != ACTION_CALL and dp.stack >= dp.to_call:
+        if (
+            dp.to_call > 0
+            and dp.actual_action != ACTION_CALL
+            and dp.stack >= dp.to_call
+        ):
             alternatives.append((ACTION_CALL, dp.to_call))
 
         # Consider CHECK if no bet to call
@@ -227,23 +234,23 @@ class WhatIfGenerator:
         branches_created = []
 
         # Build player map
-        player_map = {p['seat']: p for p in players}
+        player_map = {p["seat"]: p for p in players}
         seats = sorted(player_map.keys())
 
         # Deal cards
         variant = types_pb2.TEXAS_HOLDEM
         players_in_hand = [
             hand_pb2.PlayerInHand(
-                player_root=player_map[s]['root'],
+                player_root=player_map[s]["root"],
                 position=s,
-                stack=player_map[s]['stack'],
+                stack=player_map[s]["stack"],
             )
             for s in seats
         ]
 
         cmd = hand_pb2.DealCards(
-            table_root=b'\x00' * 16,  # Dummy table root for what-if scenarios
-            hand_number=int(hand_id.split('-')[-1]) if '-' in hand_id else 1,
+            table_root=b"\x00" * 16,  # Dummy table root for what-if scenarios
+            hand_number=int(hand_id.split("-")[-1]) if "-" in hand_id else 1,
             game_variant=variant,
             players=players_in_hand,
             dealer_position=dealer_seat,
@@ -255,9 +262,11 @@ class WhatIfGenerator:
         logger.info("dealing_cards", hand_id=hand_id, players=len(players))
 
         resp = self.client.execute(
-            "hand", hand_root, cmd,
+            "hand",
+            hand_root,
+            cmd,
             sequence=state.hand_sequence,
-            sync_mode=SYNC_MODE_CASCADE
+            sync_mode=SYNC_MODE_CASCADE,
         )
 
         events_book = resp.events_book()
@@ -278,38 +287,42 @@ class WhatIfGenerator:
 
         # Small blind
         sb_player = player_map[sb_seat]
-        sb_amount = min(small_blind, sb_player['stack'])
+        sb_amount = min(small_blind, sb_player["stack"])
         cmd = hand_pb2.PostBlind(
-            player_root=sb_player['root'],
+            player_root=sb_player["root"],
             blind_type="small",
             amount=sb_amount,
         )
         resp = self.client.execute(
-            "hand", hand_root, cmd,
+            "hand",
+            hand_root,
+            cmd,
             sequence=state.hand_sequence,
-            sync_mode=SYNC_MODE_CASCADE
+            sync_mode=SYNC_MODE_CASCADE,
         )
         state.hand_sequence = resp.events_book().next_sequence()
-        sb_player['stack'] -= sb_amount
-        sb_player['bet'] = sb_amount
+        sb_player["stack"] -= sb_amount
+        sb_player["bet"] = sb_amount
         state.pot += sb_amount
 
         # Big blind
         bb_player = player_map[bb_seat]
-        bb_amount = min(big_blind, bb_player['stack'])
+        bb_amount = min(big_blind, bb_player["stack"])
         cmd = hand_pb2.PostBlind(
-            player_root=bb_player['root'],
+            player_root=bb_player["root"],
             blind_type="big",
             amount=bb_amount,
         )
         resp = self.client.execute(
-            "hand", hand_root, cmd,
+            "hand",
+            hand_root,
+            cmd,
             sequence=state.hand_sequence,
-            sync_mode=SYNC_MODE_CASCADE
+            sync_mode=SYNC_MODE_CASCADE,
         )
         state.hand_sequence = resp.events_book().next_sequence()
-        bb_player['stack'] -= bb_amount
-        bb_player['bet'] = bb_amount
+        bb_player["stack"] -= bb_amount
+        bb_player["bet"] = bb_amount
         state.pot += bb_amount
         state.current_bet = bb_amount
 
@@ -321,65 +334,80 @@ class WhatIfGenerator:
             if round_name == "flop":
                 cmd = hand_pb2.DealCommunityCards(count=3)
                 resp = self.client.execute(
-                    "hand", hand_root, cmd,
+                    "hand",
+                    hand_root,
+                    cmd,
                     sequence=state.hand_sequence,
-                    sync_mode=SYNC_MODE_CASCADE
+                    sync_mode=SYNC_MODE_CASCADE,
                 )
                 state.hand_sequence = resp.events_book().next_sequence()
                 logger.info("community_dealt", round=round_name)
             elif round_name in ("turn", "river"):
                 cmd = hand_pb2.DealCommunityCards(count=1)
                 resp = self.client.execute(
-                    "hand", hand_root, cmd,
+                    "hand",
+                    hand_root,
+                    cmd,
                     sequence=state.hand_sequence,
-                    sync_mode=SYNC_MODE_CASCADE
+                    sync_mode=SYNC_MODE_CASCADE,
                 )
                 state.hand_sequence = resp.events_book().next_sequence()
                 logger.info("community_dealt", round=round_name)
 
             # Betting round
-            active_players = [p for p in player_map.values() if not p.get('folded') and p['stack'] > 0]
+            active_players = [
+                p for p in player_map.values() if not p.get("folded") and p["stack"] > 0
+            ]
             if len(active_players) < 2:
                 break
 
             # Reset bets for new round (except preflop)
             if round_name != "preflop":
                 for p in player_map.values():
-                    p['bet'] = 0
+                    p["bet"] = 0
                 state.current_bet = 0
 
             # Simple betting loop
             for _ in range(len(active_players) * 2):  # Max iterations
-                active = [p for p in player_map.values() if not p.get('folded') and p['stack'] > 0]
+                active = [
+                    p
+                    for p in player_map.values()
+                    if not p.get("folded") and p["stack"] > 0
+                ]
                 if len(active) < 2:
                     break
 
                 for player in active:
-                    if player.get('folded') or player['stack'] <= 0:
+                    if player.get("folded") or player["stack"] <= 0:
                         continue
 
-                    to_call = max(0, state.current_bet - player.get('bet', 0))
+                    to_call = max(0, state.current_bet - player.get("bet", 0))
 
                     # Record decision point before action
                     dp_sequence = state.hand_sequence
 
                     # Random action for main timeline
                     # Min raise is current_bet + big_blind (or double current bet)
-                    min_raise_total = max(state.current_bet + big_blind, state.current_bet * 2)
-                    can_raise = player['stack'] > to_call and (player['stack'] - to_call) >= big_blind
+                    min_raise_total = max(
+                        state.current_bet + big_blind, state.current_bet * 2
+                    )
+                    can_raise = (
+                        player["stack"] > to_call
+                        and (player["stack"] - to_call) >= big_blind
+                    )
 
                     if to_call == 0:
                         # No bet to call - can check or bet
-                        if random.random() < 0.2 and player['stack'] >= big_blind:
+                        if random.random() < 0.2 and player["stack"] >= big_blind:
                             action = ACTION_BET
-                            amount = min(big_blind * 2, player['stack'])
+                            amount = min(big_blind * 2, player["stack"])
                         else:
                             action = ACTION_CHECK
                             amount = 0
                     elif random.random() < 0.6:
                         # Call
                         action = ACTION_CALL
-                        amount = min(to_call, player['stack'])
+                        amount = min(to_call, player["stack"])
                     elif random.random() < 0.5:
                         # Fold
                         action = ACTION_FOLD
@@ -387,51 +415,61 @@ class WhatIfGenerator:
                     elif can_raise:
                         # Raise (total amount, not increment)
                         action = ACTION_RAISE
-                        raise_to = min(min_raise_total, player['stack'])
+                        raise_to = min(min_raise_total, player["stack"])
                         amount = raise_to
                     else:
                         # Can't raise, just call
                         action = ACTION_CALL
-                        amount = min(to_call, player['stack'])
+                        amount = min(to_call, player["stack"])
 
                     # Execute action on main timeline
                     cmd = hand_pb2.PlayerAction(
-                        player_root=player['root'],
+                        player_root=player["root"],
                         action=action,
                         amount=amount,
                     )
 
                     try:
                         resp = self.client.execute(
-                            "hand", hand_root, cmd,
+                            "hand",
+                            hand_root,
+                            cmd,
                             sequence=state.hand_sequence,
-                            sync_mode=SYNC_MODE_CASCADE
+                            sync_mode=SYNC_MODE_CASCADE,
                         )
 
                         events_book = resp.events_book()
                         if events_book is None:
-                            logger.warning("action_failed", player=player['name'], error="No events returned")
+                            logger.warning(
+                                "action_failed",
+                                player=player["name"],
+                                error="No events returned",
+                            )
                             continue
 
                         state.hand_sequence = events_book.next_sequence()
                     except Exception as e:
-                        logger.warning("action_error", player=player['name'], error=str(e))
+                        logger.warning(
+                            "action_error", player=player["name"], error=str(e)
+                        )
                         # Try fold instead
                         cmd = hand_pb2.PlayerAction(
-                            player_root=player['root'],
+                            player_root=player["root"],
                             action=ACTION_FOLD,
                             amount=0,
                         )
                         try:
                             resp = self.client.execute(
-                                "hand", hand_root, cmd,
+                                "hand",
+                                hand_root,
+                                cmd,
                                 sequence=state.hand_sequence,
-                                sync_mode=SYNC_MODE_CASCADE
+                                sync_mode=SYNC_MODE_CASCADE,
                             )
                             events_book = resp.events_book()
                             if events_book:
                                 state.hand_sequence = events_book.next_sequence()
-                                player['folded'] = True
+                                player["folded"] = True
                         except Exception:
                             pass
                         continue
@@ -440,12 +478,12 @@ class WhatIfGenerator:
                     dp = DecisionPoint(
                         hand_root=hand_root,
                         sequence=dp_sequence,
-                        player_root=player['root'],
-                        player_name=player['name'],
+                        player_root=player["root"],
+                        player_name=player["name"],
                         actual_action=action,
                         actual_amount=amount,
                         to_call=to_call,
-                        stack=player['stack'],
+                        stack=player["stack"],
                         pot=state.pot,
                         min_raise=big_blind,
                         current_bet=state.current_bet,
@@ -465,14 +503,17 @@ class WhatIfGenerator:
 
                     # Update player state
                     if action == ACTION_FOLD:
-                        player['folded'] = True
+                        player["folded"] = True
                     elif action in (ACTION_CALL, ACTION_BET, ACTION_RAISE):
-                        actual_amount = min(amount if action != ACTION_CALL else to_call, player['stack'])
-                        player['stack'] -= actual_amount
-                        player['bet'] = player.get('bet', 0) + actual_amount
+                        actual_amount = min(
+                            amount if action != ACTION_CALL else to_call,
+                            player["stack"],
+                        )
+                        player["stack"] -= actual_amount
+                        player["bet"] = player.get("bet", 0) + actual_amount
                         state.pot += actual_amount
                         if action in (ACTION_BET, ACTION_RAISE):
-                            state.current_bet = player['bet']
+                            state.current_bet = player["bet"]
 
         logger.info(
             "hand_complete",
@@ -486,26 +527,32 @@ class WhatIfGenerator:
 
 def main():
     """Run what-if scenario generation."""
-    parser = argparse.ArgumentParser(description="Generate what-if scenarios for poker training")
-    parser.add_argument(
-        "--hands", type=int, default=5,
-        help="Number of hands to play (default: 5)"
+    parser = argparse.ArgumentParser(
+        description="Generate what-if scenarios for poker training"
     )
     parser.add_argument(
-        "--players", type=int, default=4,
-        help="Number of players (default: 4)"
+        "--hands", type=int, default=5, help="Number of hands to play (default: 5)"
     )
     parser.add_argument(
-        "--stack", type=int, default=1000,
-        help="Starting stack per player (default: 1000)"
+        "--players", type=int, default=4, help="Number of players (default: 4)"
     )
     parser.add_argument(
-        "--exploration-rate", type=float, default=0.3,
-        help="Probability of creating a what-if branch at each decision (default: 0.3)"
+        "--stack",
+        type=int,
+        default=1000,
+        help="Starting stack per player (default: 1000)",
     )
     parser.add_argument(
-        "--max-branches", type=int, default=5,
-        help="Maximum branches per hand (default: 5)"
+        "--exploration-rate",
+        type=float,
+        default=0.3,
+        help="Probability of creating a what-if branch at each decision (default: 0.3)",
+    )
+    parser.add_argument(
+        "--max-branches",
+        type=int,
+        default=5,
+        help="Maximum branches per hand (default: 5)",
     )
 
     args = parser.parse_args()
@@ -533,18 +580,20 @@ def main():
     )
 
     # Create players
-    player_names = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"][:args.players]
+    player_names = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"][: args.players]
     players = []
     for i, name in enumerate(player_names):
         player_root = derive_root("player", f"whatif-player-{name.lower()}")
-        players.append({
-            'name': name,
-            'root': player_root,
-            'stack': args.stack,
-            'seat': i,
-            'bet': 0,
-            'folded': False,
-        })
+        players.append(
+            {
+                "name": name,
+                "root": player_root,
+                "stack": args.stack,
+                "seat": i,
+                "bet": 0,
+                "folded": False,
+            }
+        )
 
     total_branches = 0
     total_decisions = 0
@@ -553,9 +602,9 @@ def main():
         for hand_num in range(1, args.hands + 1):
             # Reset player state
             for p in players:
-                p['stack'] = args.stack
-                p['bet'] = 0
-                p['folded'] = False
+                p["stack"] = args.stack
+                p["bet"] = 0
+                p["folded"] = False
 
             state, branches = generator.run_hand_with_whatifs(
                 hand_id=f"hand-{hand_num}",

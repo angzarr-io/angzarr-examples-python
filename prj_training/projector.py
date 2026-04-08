@@ -87,7 +87,9 @@ class TrainingProjector:
         # Create tables if needed
         Base.metadata.create_all(self._engine)
 
-        logger.info("training_projector_initialized", database=database_url.split("@")[-1])
+        logger.info(
+            "training_projector_initialized", database=database_url.split("@")[-1]
+        )
 
     def handle(self, event_book: types.EventBook) -> types.Projection:
         """Handle an EventBook from the projector coordinator.
@@ -108,7 +110,11 @@ class TrainingProjector:
 
         # Get edition from cover (defaults to "angzarr" for main timeline)
         edition = "angzarr"
-        if event_book.cover and event_book.cover.HasField("edition") and event_book.cover.edition.name:
+        if (
+            event_book.cover
+            and event_book.cover.HasField("edition")
+            and event_book.cover.edition.name
+        ):
             edition = event_book.cover.edition.name
 
         try:
@@ -121,7 +127,10 @@ class TrainingProjector:
                 type_url = event_any.type_url
 
                 # Track sequence from header
-                if page.header and page.header.WhichOneof("sequence_type") == "sequence":
+                if (
+                    page.header
+                    and page.header.WhichOneof("sequence_type") == "sequence"
+                ):
                     last_seq = page.header.sequence
 
                 logger.debug(
@@ -140,7 +149,9 @@ class TrainingProjector:
                         self._handle_blind_posted(hand_root, edition, event_any)
 
                     elif type_url.endswith("ActionTaken"):
-                        self._handle_action_taken(hand_root, edition, event_any, last_seq)
+                        self._handle_action_taken(
+                            hand_root, edition, event_any, last_seq
+                        )
 
                     elif type_url.endswith("CommunityCardsDealt"):
                         self._handle_community_dealt(hand_root, edition, event_any)
@@ -183,7 +194,9 @@ class TrainingProjector:
             self._hands[key] = HandState(hand_root=hand_root, edition=edition)
         return self._hands[key]
 
-    def _handle_cards_dealt(self, hand_root: str, edition: str, event_any: types.Any) -> None:
+    def _handle_cards_dealt(
+        self, hand_root: str, edition: str, event_any: types.Any
+    ) -> None:
         """Handle CardsDealt event - initialize hand state."""
         event = hand.CardsDealt()
         event_any.Unpack(event)
@@ -208,7 +221,9 @@ class TrainingProjector:
                 ps.stack = p.stack
                 ps.position = p.position
 
-    def _handle_blind_posted(self, hand_root: str, edition: str, event_any: types.Any) -> None:
+    def _handle_blind_posted(
+        self, hand_root: str, edition: str, event_any: types.Any
+    ) -> None:
         """Handle BlindPosted event - track blinds."""
         event = hand.BlindPosted()
         event_any.Unpack(event)
@@ -259,11 +274,21 @@ class TrainingProjector:
             hole_card_1=ps.hole_cards[0] if len(ps.hole_cards) > 0 else None,
             hole_card_2=ps.hole_cards[1] if len(ps.hole_cards) > 1 else None,
             # Community cards
-            community_1=state.community_cards[0] if len(state.community_cards) > 0 else None,
-            community_2=state.community_cards[1] if len(state.community_cards) > 1 else None,
-            community_3=state.community_cards[2] if len(state.community_cards) > 2 else None,
-            community_4=state.community_cards[3] if len(state.community_cards) > 3 else None,
-            community_5=state.community_cards[4] if len(state.community_cards) > 4 else None,
+            community_1=(
+                state.community_cards[0] if len(state.community_cards) > 0 else None
+            ),
+            community_2=(
+                state.community_cards[1] if len(state.community_cards) > 1 else None
+            ),
+            community_3=(
+                state.community_cards[2] if len(state.community_cards) > 2 else None
+            ),
+            community_4=(
+                state.community_cards[3] if len(state.community_cards) > 3 else None
+            ),
+            community_5=(
+                state.community_cards[4] if len(state.community_cards) > 4 else None
+            ),
             # Betting state
             pot_size=state.pot_size,
             stack_size=ps.stack,
@@ -301,7 +326,9 @@ class TrainingProjector:
             ps.total_invested += invested
             ps.bet_this_round = state.current_bet
 
-    def _handle_community_dealt(self, hand_root: str, edition: str, event_any: types.Any) -> None:
+    def _handle_community_dealt(
+        self, hand_root: str, edition: str, event_any: types.Any
+    ) -> None:
         """Handle CommunityCardsDealt event."""
         event = hand.CommunityCardsDealt()
         event_any.Unpack(event)
@@ -312,9 +339,13 @@ class TrainingProjector:
         state.phase = event.phase  # Already an int from proto enum
 
         # Update community cards from all_community_cards
-        state.community_cards = [self._encode_card(c) for c in event.all_community_cards]
+        state.community_cards = [
+            self._encode_card(c) for c in event.all_community_cards
+        ]
 
-    def _handle_betting_complete(self, hand_root: str, edition: str, event_any: types.Any) -> None:
+    def _handle_betting_complete(
+        self, hand_root: str, edition: str, event_any: types.Any
+    ) -> None:
         """Handle BettingRoundComplete event - reset round state."""
         event = hand.BettingRoundComplete()
         event_any.Unpack(event)
@@ -327,7 +358,9 @@ class TrainingProjector:
             ps.acted_this_round = False
         state.current_bet = 0
 
-    def _handle_pot_awarded(self, hand_root: str, edition: str, event_any: types.Any) -> None:
+    def _handle_pot_awarded(
+        self, hand_root: str, edition: str, event_any: types.Any
+    ) -> None:
         """Handle PotAwarded event - record winnings."""
         event = hand.PotAwarded()
         event_any.Unpack(event)
@@ -338,7 +371,9 @@ class TrainingProjector:
             pr = winner.player_root
             state.outcomes[pr] = state.outcomes.get(pr, 0) + winner.amount
 
-    def _handle_hand_complete(self, hand_root: str, edition: str, event_any: types.Any) -> None:
+    def _handle_hand_complete(
+        self, hand_root: str, edition: str, event_any: types.Any
+    ) -> None:
         """Handle HandComplete event - finalize and persist training states."""
         event = hand.HandComplete()
         event_any.Unpack(event)

@@ -42,6 +42,9 @@ pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-v --ignore=tests/features"
 
+[tool.black]
+target-version = ["py311"]
+
 [tool.ruff]
 extend-exclude = ["**/*_pb2.py", "**/*_pb2_grpc.py"]
 

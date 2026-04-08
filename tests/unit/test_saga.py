@@ -251,7 +251,9 @@ class TestSagaRouter:
 
         event_book = make_event_book("table", uuid_for("table-1"), [event])
 
-        commands = router.route(event_book, "table", {"hand": 0, "table": 0, "player": 0})
+        commands = router.route(
+            event_book, "table", {"hand": 0, "table": 0, "player": 0}
+        )
 
         # Only DealCards from TableSyncSaga
         assert len(commands) == 1
@@ -279,7 +281,9 @@ class TestSagaRouter:
 
         event_book = make_event_book("table", uuid_for("table-1"), events)
 
-        commands = router.route(event_book, "table", {"hand": 0, "table": 0, "player": 0})
+        commands = router.route(
+            event_book, "table", {"hand": 0, "table": 0, "player": 0}
+        )
 
         assert len(commands) == 2
         for cmd in commands:
@@ -316,7 +320,9 @@ class TestSagaRouter:
         event_book = make_event_book("table", uuid_for("table-1"), [event])
 
         # Should not raise exception
-        commands = router.route(event_book, "table", {"hand": 0, "table": 0, "player": 0})
+        commands = router.route(
+            event_book, "table", {"hand": 0, "table": 0, "player": 0}
+        )
 
         # TableSyncSaga should still emit its command
         deal_commands = [

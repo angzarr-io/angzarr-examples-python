@@ -47,7 +47,9 @@ class LiveOpponentStats:
     def aggression_factor(self) -> float:
         """Aggression factor: (bets + raises) / calls."""
         if self.calls == 0:
-            return float(self.bets + self.raises) if (self.bets + self.raises) > 0 else 0.0
+            return (
+                float(self.bets + self.raises) if (self.bets + self.raises) > 0 else 0.0
+            )
         return (self.bets + self.raises) / self.calls
 
     @property
@@ -180,13 +182,19 @@ class SessionState:
 
         # Track own pot commitment
         if player_root == self.player_root:
-            if action in (poker_types_pb2.BET, poker_types_pb2.RAISE, poker_types_pb2.CALL):
+            if action in (
+                poker_types_pb2.BET,
+                poker_types_pb2.RAISE,
+                poker_types_pb2.CALL,
+            ):
                 self.pot_committed += amount
             return
 
         # Update opponent stats
         if player_root not in self.opponent_stats:
-            self.opponent_stats[player_root] = LiveOpponentStats(player_root=player_root)
+            self.opponent_stats[player_root] = LiveOpponentStats(
+                player_root=player_root
+            )
 
         stats = self.opponent_stats[player_root]
 
@@ -208,12 +216,14 @@ class SessionState:
             stats.vpip_count += 1
 
         # Add to action history
-        self.action_history.append({
-            "player_root": player_root,
-            "action": action,
-            "amount": amount,
-            "phase": phase,
-        })
+        self.action_history.append(
+            {
+                "player_root": player_root,
+                "action": action,
+                "amount": amount,
+                "phase": phase,
+            }
+        )
 
     def _record_showdown(self, player_root: bytes) -> None:
         """Record that a player went to showdown.

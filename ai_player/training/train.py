@@ -69,9 +69,13 @@ def main() -> int:
 
     logger.info(
         "training_config",
-        database_url=args.database_url.replace(
-            args.database_url.split("@")[0].split(":")[-1], "***"
-        ) if "@" in args.database_url else args.database_url,
+        database_url=(
+            args.database_url.replace(
+                args.database_url.split("@")[0].split(":")[-1], "***"
+            )
+            if "@" in args.database_url
+            else args.database_url
+        ),
         output_dir=args.output_dir,
         device=args.device,
         epochs=args.epochs,

@@ -131,7 +131,11 @@ class TableSyncSaga(Saga):
             deck_seed=b"",  # Let aggregate generate random seed
         )
 
-        return [_make_command_book("hand", event.hand_root, deal_cards, context.destinations)]
+        return [
+            _make_command_book(
+                "hand", event.hand_root, deal_cards, context.destinations
+            )
+        ]
 
     def _handle_hand_complete(self, context: SagaContext) -> list[types.CommandBook]:
         """Translate HandComplete → EndHand.
@@ -162,4 +166,8 @@ class TableSyncSaga(Saga):
             results=results,
         )
 
-        return [_make_command_book("table", event.table_root, end_hand, context.destinations)]
+        return [
+            _make_command_book(
+                "table", event.table_root, end_hand, context.destinations
+            )
+        ]

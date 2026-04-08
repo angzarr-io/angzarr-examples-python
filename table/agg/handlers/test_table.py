@@ -50,7 +50,9 @@ class TestCreate:
             )
 
         t2 = Table()
-        with pytest.raises(CommandRejectedError, match="max_buy_in must be >= min_buy_in"):
+        with pytest.raises(
+            CommandRejectedError, match="max_buy_in must be >= min_buy_in"
+        ):
             t2.create(
                 table.CreateTable(
                     table_name="Test",
@@ -266,8 +268,12 @@ class TestStartHand:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
 
         assert t.status == "waiting"
         event = t.start_hand(table.StartHand())
@@ -288,7 +294,9 @@ class TestStartHand:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
 
         with pytest.raises(CommandRejectedError, match="Not enough players"):
             t.start_hand(table.StartHand())
@@ -305,8 +313,12 @@ class TestStartHand:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
         t.start_hand(table.StartHand())
 
         with pytest.raises(CommandRejectedError, match="already in progress"):
@@ -328,8 +340,12 @@ class TestEndHand:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
         start_event = t.start_hand(table.StartHand())
 
         t.end_hand(table.EndHand(hand_root=start_event.hand_root))
@@ -349,8 +365,12 @@ class TestEndHand:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
         t.start_hand(table.StartHand())
 
         with pytest.raises(CommandRejectedError, match="Hand root mismatch"):
@@ -379,12 +399,16 @@ class TestCompleteLifecycle:
 
         # Player 1 joins
         player1 = b"\x01\x01\x01\x01"
-        t.join(table.JoinTable(player_root=player1, buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=player1, buy_in_amount=500, preferred_seat=-1)
+        )
         assert t.player_count == 1
 
         # Player 2 joins
         player2 = b"\x02\x02\x02\x02"
-        t.join(table.JoinTable(player_root=player2, buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=player2, buy_in_amount=500, preferred_seat=-1)
+        )
         assert t.player_count == 2
 
         # Start hand
@@ -413,8 +437,12 @@ class TestCompleteLifecycle:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
 
         eb = t.event_book()
         assert len(eb.pages) == 3  # create + 2 joins
@@ -464,8 +492,12 @@ class TestStateAccessors:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
         event = t.start_hand(table.StartHand())
         assert t.dealer_position == event.dealer_position
 
@@ -481,9 +513,13 @@ class TestStateAccessors:
                 max_players=2,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
         assert not t.is_full
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
         assert t.is_full
 
     def test_active_player_count_excludes_sitting_out(self):
@@ -714,7 +750,9 @@ class TestEdgeCases:
 
     def test_create_validates_big_blind_positive(self):
         t = Table()
-        with pytest.raises(CommandRejectedError, match="big_blind must be >= small_blind"):
+        with pytest.raises(
+            CommandRejectedError, match="big_blind must be >= small_blind"
+        ):
             t.create(
                 table.CreateTable(
                     table_name="Test",
@@ -784,11 +822,19 @@ class TestEdgeCases:
                 max_players=2,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
 
         with pytest.raises(CommandRejectedError, match="Table is full"):
-            t.join(table.JoinTable(player_root=b"\x03", buy_in_amount=500, preferred_seat=-1))
+            t.join(
+                table.JoinTable(
+                    player_root=b"\x03", buy_in_amount=500, preferred_seat=-1
+                )
+            )
 
     def test_join_rejects_occupied_preferred_seat(self):
         t = Table()
@@ -845,8 +891,12 @@ class TestEdgeCases:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
         t.start_hand(table.StartHand())
 
         with pytest.raises(
@@ -892,8 +942,12 @@ class TestEdgeCases:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
         start_event = t.start_hand(table.StartHand())
 
         # End with result showing player 1 won 100 from pot
@@ -919,8 +973,12 @@ class TestEdgeCases:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
         event = t.start_hand(table.StartHand())
 
         # In 2-player game, dealer posts SB
@@ -939,9 +997,15 @@ class TestEdgeCases:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x03", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x03", buy_in_amount=500, preferred_seat=-1)
+        )
         event = t.start_hand(table.StartHand())
 
         # SB is to left of dealer
@@ -1005,8 +1069,12 @@ class TestEdgeCases:
                 max_players=2,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
         # Directly call internal method
         assert t._find_available_seat() is None
 
@@ -1083,8 +1151,12 @@ class TestCrossLanguageConsistency:
                 max_players=6,
             )
         )
-        t.join(table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1))
-        t.join(table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1))
+        t.join(
+            table.JoinTable(player_root=b"\x01", buy_in_amount=500, preferred_seat=-1)
+        )
+        t.join(
+            table.JoinTable(player_root=b"\x02", buy_in_amount=500, preferred_seat=-1)
+        )
 
         event = t.start_hand(table.StartHand())
 

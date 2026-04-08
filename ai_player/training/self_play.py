@@ -157,8 +157,10 @@ class SelfPlayGame:
                 }
 
                 # Use INSERT ... ON CONFLICT DO NOTHING to handle duplicates
-                stmt = insert(TrainingState).values(**values).on_conflict_do_nothing(
-                    index_elements=["hand_root", "sequence"]
+                stmt = (
+                    insert(TrainingState)
+                    .values(**values)
+                    .on_conflict_do_nothing(index_elements=["hand_root", "sequence"])
                 )
                 session.execute(stmt)
 
@@ -187,7 +189,7 @@ class SelfPlayGame:
         to_call = max(0, game.current_bet - player.bet)
 
         # The minimum raise increment (tracked by the game)
-        min_raise_increment = getattr(game, 'last_raise_increment', game.big_blind)
+        min_raise_increment = getattr(game, "last_raise_increment", game.big_blind)
 
         # Calculate minimum valid raise-to amount
         # Server requires: raise_amount >= min_raise, where raise_amount = raise_to - current_bet
@@ -251,7 +253,7 @@ class SelfPlayGame:
     def _record_action_state(self, player, action: int, amount: int) -> None:
         """Record the current state and action for later training."""
         game = self._base_game
-        hand_root = getattr(game, 'hand_root', None)
+        hand_root = getattr(game, "hand_root", None)
 
         # Encode cards
         def encode_card(card):
@@ -272,7 +274,7 @@ class SelfPlayGame:
             phase = 4  # river
 
         # Get the actual min raise increment (not just big blind)
-        min_raise_increment = getattr(game, 'last_raise_increment', game.big_blind)
+        min_raise_increment = getattr(game, "last_raise_increment", game.big_blind)
 
         state = {
             "hand_root": hand_root.hex() if hand_root else f"hand_{self._hand_counter}",
@@ -293,7 +295,9 @@ class SelfPlayGame:
             "min_raise": min_raise_increment,  # Actual min raise, not just big blind
             "position": player.seat,
             "phase": phase,
-            "players_remaining": len([p for p in game.players.values() if not p.folded]),
+            "players_remaining": len(
+                [p for p in game.players.values() if not p.folded]
+            ),
             "players_to_act": len(
                 [p for p in game.players.values() if not p.folded and not p.all_in]
             ),
@@ -315,7 +319,7 @@ class SelfPlayGame:
         to_call = max(0, game.current_bet - player.bet)
 
         # Get actual min raise increment (may be larger than BB after raises)
-        min_raise_increment = getattr(game, 'last_raise_increment', bb)
+        min_raise_increment = getattr(game, "last_raise_increment", bb)
 
         # Min raise-to amount (what the model needs to reach to make a valid raise)
         min_raise_to = game.current_bet + min_raise_increment
@@ -434,10 +438,14 @@ class SelfPlayConfig:
 
     # Weight sharing
     share_weights_every: int = 3  # Share every N iterations
-    weight_averaging_alpha: float = 0.5  # How much to blend (0=keep own, 1=full average)
+    weight_averaging_alpha: float = (
+        0.5  # How much to blend (0=keep own, 1=full average)
+    )
 
     # Exploration
-    exploration_temperature: float = 0.5  # Softmax temperature for action sampling (0=greedy)
+    exploration_temperature: float = (
+        0.5  # Softmax temperature for action sampling (0=greedy)
+    )
 
     # Convergence
     target_bb: float = 10.0
@@ -507,10 +515,9 @@ class MultiModelRegistry:
 
             for key in current_state:
                 # Blend: (1-alpha) * own + alpha * average
-                blended_state[key] = (
-                    (1 - alpha) * current_state[key].float() +
-                    alpha * avg_weights[key]
-                )
+                blended_state[key] = (1 - alpha) * current_state[
+                    key
+                ].float() + alpha * avg_weights[key]
 
             model.load_state_dict(blended_state)
 
@@ -541,10 +548,9 @@ class MultiModelRegistry:
 
             for key in current_state:
                 # Blend: (1-alpha) * own + alpha * winner
-                blended_state[key] = (
-                    (1 - alpha) * current_state[key].float() +
-                    alpha * winner_state[key].float()
-                )
+                blended_state[key] = (1 - alpha) * current_state[
+                    key
+                ].float() + alpha * winner_state[key].float()
 
             model.load_state_dict(blended_state)
 
@@ -577,7 +583,17 @@ class SelfPlayTrainer:
 
     def _init_agents(self) -> None:
         """Initialize player agents with their own models."""
-        names = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Hank", "Ivan"]
+        names = [
+            "Alice",
+            "Bob",
+            "Carol",
+            "Dave",
+            "Eve",
+            "Frank",
+            "Grace",
+            "Hank",
+            "Ivan",
+        ]
 
         for i in range(self._config.num_players):
             name = names[i] if i < len(names) else f"Player{i}"
@@ -723,24 +739,33 @@ class SelfPlayTrainer:
             )
             examples = []
             for ts in session.scalars(stmt):
-                examples.append({
-                    "hole_cards": [ts.hole_card_1, ts.hole_card_2],
-                    "community_cards": [
-                        c for c in [ts.community_1, ts.community_2, ts.community_3,
-                                    ts.community_4, ts.community_5] if c is not None
-                    ],
-                    "pot_size": ts.pot_size,
-                    "stack_size": ts.stack_size,
-                    "amount_to_call": ts.amount_to_call,
-                    "min_raise": ts.min_raise,
-                    "position": ts.position,
-                    "phase": ts.phase,
-                    "players_remaining": ts.players_remaining,
-                    "action": ts.action,
-                    "amount": ts.amount,
-                    "reward": ts.reward,
-                    "terminal": ts.terminal,
-                })
+                examples.append(
+                    {
+                        "hole_cards": [ts.hole_card_1, ts.hole_card_2],
+                        "community_cards": [
+                            c
+                            for c in [
+                                ts.community_1,
+                                ts.community_2,
+                                ts.community_3,
+                                ts.community_4,
+                                ts.community_5,
+                            ]
+                            if c is not None
+                        ],
+                        "pot_size": ts.pot_size,
+                        "stack_size": ts.stack_size,
+                        "amount_to_call": ts.amount_to_call,
+                        "min_raise": ts.min_raise,
+                        "position": ts.position,
+                        "phase": ts.phase,
+                        "players_remaining": ts.players_remaining,
+                        "action": ts.action,
+                        "amount": ts.amount,
+                        "reward": ts.reward,
+                        "terminal": ts.terminal,
+                    }
+                )
 
         if len(examples) < trainer_config.batch_size:
             logger.warning(
@@ -857,6 +882,7 @@ class SelfPlayTrainer:
             if iteration_winners:
                 # Find model that won most tournaments this iteration
                 from collections import Counter
+
                 winner_counts = Counter(iteration_winners)
                 top_winner = winner_counts.most_common(1)[0][0]
 

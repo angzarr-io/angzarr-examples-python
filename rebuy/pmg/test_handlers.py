@@ -14,7 +14,6 @@ Design Philosophy:
 import sys
 from pathlib import Path
 
-
 # Add rebuy/pmg to path for local imports
 sys.path.insert(0, str(Path(__file__).parent))
 

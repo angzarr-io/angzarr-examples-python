@@ -11,7 +11,6 @@ from google.protobuf.message import Message
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.proto.angzarr import types_pb2 as types
 
-
 S = TypeVar("S")  # State type
 E = TypeVar("E", bound=Message)  # Event type
 
@@ -205,9 +204,9 @@ class CommandExecutor:
         Raises:
             AssertionError: If no event or command failed.
         """
-        assert self.last_result is not None, (
-            f"No event - command failed: {self.last_error}"
-        )
+        assert (
+            self.last_result is not None
+        ), f"No event - command failed: {self.last_error}"
         return self.last_result
 
     def get_error(self) -> CommandRejectedError:

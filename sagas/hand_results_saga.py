@@ -126,7 +126,9 @@ class HandResultsSaga(Saga):
             )
 
             commands.append(
-                _make_command_book("player", player_root, release_funds, context.destinations)
+                _make_command_book(
+                    "player", player_root, release_funds, context.destinations
+                )
             )
 
         return commands
@@ -158,7 +160,9 @@ class HandResultsSaga(Saga):
             )
 
             commands.append(
-                _make_command_book("player", winner.player_root, deposit_funds, context.destinations)
+                _make_command_book(
+                    "player", winner.player_root, deposit_funds, context.destinations
+                )
             )
 
         return commands
