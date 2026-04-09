@@ -352,25 +352,17 @@ jobs:
             exit 1
           }
 
-          # Port-forward player aggregate coordinator for tests
+          # Port-forward all aggregate coordinators
           kubectl port-forward -n angzarr-test svc/player-aggregate 1310:1310 &
-          PF_PID=$!
-          trap "kill $PF_PID 2>/dev/null || true" EXIT
-
-          # Wait for port-forward to establish
-          for i in $(seq 1 10); do
-            if nc -z localhost 1310 2>/dev/null; then
-              echo "Port-forward to player-aggregate:1310 established"
-              break
-            fi
-            if [ $i -eq 10 ]; then
-              echo "WARNING: Port-forward may not be ready, proceeding anyway..."
-            fi
-            sleep 1
-          done
+          kubectl port-forward -n angzarr-test svc/table-aggregate 1311:1310 &
+          kubectl port-forward -n angzarr-test svc/hand-aggregate 1312:1310 &
+          trap "kill $(jobs -p) 2>/dev/null || true" EXIT
+          sleep 3
 
           # Run behave acceptance tests (Gherkin features from angzarr-project)
           PLAYER_URL=localhost:1310 \
+          TABLE_URL=localhost:1311 \
+          HAND_URL=localhost:1312 \
             uv run behave tests/acceptance/features/ --tags="~@wip" --no-capture
 
       - name: Show logs on failure

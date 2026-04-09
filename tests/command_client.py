@@ -68,12 +68,23 @@ def _ensure_proto_uuid(root):
 
 
 class GrpcClient(CommandClient):
-    """Sends commands to a running angzarr coordinator via gRPC."""
+    """Sends commands to running angzarr coordinators via gRPC.
 
-    def __init__(self, endpoint: str):
-        self._endpoint = endpoint
-        self._channel = grpc.insecure_channel(endpoint)
-        self._stub = CommandHandlerCoordinatorServiceStub(self._channel)
+    Routes by domain: PLAYER_URL, TABLE_URL, HAND_URL.
+    """
+
+    def __init__(self, player_url: str):
+        table_url = os.environ.get("TABLE_URL", player_url)
+        hand_url = os.environ.get("HAND_URL", player_url)
+        self._channels = {
+            "player": grpc.insecure_channel(player_url),
+            "table": grpc.insecure_channel(table_url),
+            "hand": grpc.insecure_channel(hand_url),
+        }
+        self._stubs = {
+            domain: CommandHandlerCoordinatorServiceStub(ch)
+            for domain, ch in self._channels.items()
+        }
 
     def send_command(
         self,
@@ -111,10 +122,12 @@ class GrpcClient(CommandClient):
             kwargs["cascade_error_mode"] = cascade_error_mode
 
         request = CommandRequest(**kwargs)
-        return self._stub.HandleCommand(request, timeout=30)
+        stub = self._stubs.get(domain, self._stubs["player"])
+        return stub.HandleCommand(request, timeout=30)
 
     def close(self) -> None:
-        self._channel.close()
+        for ch in self._channels.values():
+            ch.close()
 
 
 def create_client() -> CommandClient:
