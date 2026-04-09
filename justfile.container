@@ -8,7 +8,7 @@ default:
     @just --list
 
 # Generate poker domain protos from buf registry
-proto:
+proto-gen:
     buf generate
     find poker/proto -name "*.py" -exec sed -i 's/from poker import/from poker.proto.poker import/g' {} \;
 
