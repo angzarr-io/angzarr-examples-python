@@ -358,11 +358,14 @@ jobs:
           kubectl port-forward -n angzarr-test svc/hand-aggregate 1312:1310 &
           sleep 3
 
-          # Run behave acceptance tests
-          PLAYER_URL=localhost:1310 \
-          TABLE_URL=localhost:1311 \
-          HAND_URL=localhost:1312 \
-            cd tests/acceptance && uv run behave features/ --tags="~@wip" --no-capture
+          # Run behave acceptance tests from the acceptance directory
+          # so behave finds steps/ and features/ as siblings
+          export PLAYER_URL=localhost:1310
+          export TABLE_URL=localhost:1311
+          export HAND_URL=localhost:1312
+          export PYTHONPATH="${GITHUB_WORKSPACE}:${PYTHONPATH}"
+          cd tests/acceptance
+          uv run --directory "${GITHUB_WORKSPACE}" behave features/ --tags="~@wip" --no-capture
 
       - name: Show logs on failure
         if: failure()
