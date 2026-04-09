@@ -8,12 +8,6 @@ nodes:
     image: kindest/node:v1.31.0
     # Expose ports for gateway and stream services
     extraPortMappings:
-        hostPort: 1310
-        protocol: TCP
-        hostPort: 1311
-        protocol: TCP
-        hostPort: 1312
-        protocol: TCP
       - containerPort: 30084  # Gateway NodePort
         hostPort: 9084
         protocol: TCP
