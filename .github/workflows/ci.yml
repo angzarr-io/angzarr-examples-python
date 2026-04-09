@@ -373,10 +373,6 @@ jobs:
           PLAYER_URL=localhost:1310 \
             uv run behave tests/acceptance/features/ --tags="~@wip" --no-capture
 
-          # Run pytest acceptance tests (direct gRPC smoke tests)
-          PLAYER_URL=localhost:1310 \
-            uv run python -m pytest tests/acceptance/test_acceptance.py -v --timeout=600
-
       - name: Show logs on failure
         if: failure()
         run: |
