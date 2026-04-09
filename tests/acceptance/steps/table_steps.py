@@ -151,8 +151,7 @@ def step_given_five_card_draw_table(context, table_name, sb, bb):
 
 
 @given(
-    r'an Omaha table "(?P<table_name>[^"]+)" '
-    r"with blinds (?P<sb>\d+)/(?P<bb>\d+)"
+    r'an Omaha table "(?P<table_name>[^"]+)" ' r"with blinds (?P<sb>\d+)/(?P<bb>\d+)"
 )
 def step_given_omaha_table(context, table_name, sb, bb):
     """Create an Omaha table."""

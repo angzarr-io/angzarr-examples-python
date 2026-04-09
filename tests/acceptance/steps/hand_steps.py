@@ -360,8 +360,7 @@ def step_when_hand_completes_winner(context, name):
 
 
 @when(
-    r"the hand completes with sync_mode CASCADE "
-    r"and cascade_error_mode COMPENSATE"
+    r"the hand completes with sync_mode CASCADE " r"and cascade_error_mode COMPENSATE"
 )
 def step_when_hand_completes_cascade_compensate(context):
     """Complete hand with CASCADE and COMPENSATE."""

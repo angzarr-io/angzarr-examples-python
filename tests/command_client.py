@@ -103,9 +103,9 @@ class GrpcClient(CommandClient):
 
         kwargs = {
             "command": book,
-            "sync_mode": sync_mode
-            if sync_mode is not None
-            else SyncMode.SYNC_MODE_SIMPLE,
+            "sync_mode": (
+                sync_mode if sync_mode is not None else SyncMode.SYNC_MODE_SIMPLE
+            ),
         }
         if cascade_error_mode is not None:
             kwargs["cascade_error_mode"] = cascade_error_mode

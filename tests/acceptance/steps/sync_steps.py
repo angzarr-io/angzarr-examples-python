@@ -188,9 +188,9 @@ def step_when_event_without_correlation(context, mode):
 @then(r"the command succeeds immediately")
 def step_then_command_succeeds_immediately(context):
     """Assert command succeeded quickly (ASYNC mode)."""
-    assert context.command_succeeded, (
-        f"Command failed: {getattr(context, 'last_error', 'unknown')}"
-    )
+    assert (
+        context.command_succeeded
+    ), f"Command failed: {getattr(context, 'last_error', 'unknown')}"
     if context.command_start_time and context.command_end_time:
         elapsed = context.command_end_time - context.command_start_time
         assert elapsed < 1.0, f"Command took {elapsed:.2f}s, expected < 1.0s for ASYNC"
@@ -199,9 +199,9 @@ def step_then_command_succeeds_immediately(context):
 @then(r"the command succeeds with (?P<event_type>\w+) event")
 def step_then_command_succeeds_with_event(context, event_type):
     """Assert command succeeded with specific event type."""
-    assert context.command_succeeded, (
-        f"Command failed: {getattr(context, 'last_error', 'unknown')}"
-    )
+    assert (
+        context.command_succeeded
+    ), f"Command failed: {getattr(context, 'last_error', 'unknown')}"
 
 
 @then(r"the command succeeds with (?P<event>\w+) only")
@@ -252,10 +252,7 @@ def step_then_response_includes_projections(context):
     pass
 
 
-@then(
-    r"the response includes projection updates "
-    r"for both table and hand domains"
-)
+@then(r"the response includes projection updates " r"for both table and hand domains")
 def step_then_response_includes_multi_domain_projections(context):
     """Assert response includes projections from multiple domains."""
     pass
@@ -295,8 +292,7 @@ def step_then_cascade_includes_command(context, command, domain):
 
 
 @then(
-    r"the cascade results include (?P<event>\w+) event "
-    r"from (?P<domain>\w+) domain"
+    r"the cascade results include (?P<event>\w+) event " r"from (?P<domain>\w+) domain"
 )
 def step_then_cascade_includes_event(context, event, domain):
     """Assert cascade results include specific event."""
@@ -436,9 +432,9 @@ def step_then_commands_within_time(context, ms):
     """Assert all commands completed within time limit."""
     max_time = int(ms)
     for elapsed in getattr(context, "deposit_times", []):
-        assert elapsed < max_time, (
-            f"Command took {elapsed:.1f}ms, expected < {max_time}ms"
-        )
+        assert (
+            elapsed < max_time
+        ), f"Command took {elapsed:.1f}ms, expected < {max_time}ms"
 
 
 @then(r"total execution time is less than with SIMPLE mode")
