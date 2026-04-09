@@ -81,12 +81,15 @@ class GrpcClient(CommandClient):
         root: bytes,
         command: ProtoAny,
         sequence: int = 0,
+        sync_mode: int | None = None,
+        cascade_error_mode: int | None = None,
+        correlation_id: str | None = None,
     ) -> CommandResponse:
         root_proto = _ensure_proto_uuid(root)
 
         cover = Cover(
             domain=domain,
-            correlation_id=str(uuid.uuid4()),
+            correlation_id=correlation_id or str(uuid.uuid4()),
         )
         cover.root.CopyFrom(root_proto)
 
@@ -98,10 +101,16 @@ class GrpcClient(CommandClient):
         book.cover.CopyFrom(cover)
         book.pages.append(page)
 
-        request = CommandRequest(
-            command=book,
-            sync_mode=SyncMode.SYNC_MODE_SIMPLE,
-        )
+        kwargs = {
+            "command": book,
+            "sync_mode": sync_mode
+            if sync_mode is not None
+            else SyncMode.SYNC_MODE_SIMPLE,
+        }
+        if cascade_error_mode is not None:
+            kwargs["cascade_error_mode"] = cascade_error_mode
+
+        request = CommandRequest(**kwargs)
         return self._stub.HandleCommand(request, timeout=30)
 
     def close(self) -> None:

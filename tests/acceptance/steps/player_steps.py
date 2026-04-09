@@ -9,7 +9,7 @@ from behave import given, then, use_step_matcher, when
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
-from .common_steps import new_uuid_bytes, pack_command
+from .common_steps import new_uuid_bytes, pack_command, send_with_retry
 
 use_step_matcher("re")
 
@@ -39,11 +39,12 @@ def _register_player(context, name: str, email: str):
 
     response = context.client.send_command("player", root, packed, sequence=seq)
     context.last_response = response
+    context.last_error = None
     context.players[name]["sequence"] = seq + 1
     return response
 
 
-def _deposit_funds(context, name: str, amount: int):
+def _deposit_funds(context, name: str, amount: int, sync_mode=None):
     """Deposit funds for a player and update tracked state."""
     root = _player_root(context, name)
     cmd = player.DepositFunds(
@@ -52,8 +53,13 @@ def _deposit_funds(context, name: str, amount: int):
     packed = pack_command(cmd, "examples.DepositFunds")
     seq = context.players[name]["sequence"]
 
-    response = context.client.send_command("player", root, packed, sequence=seq)
+    kwargs = {"sequence": seq}
+    if sync_mode is not None:
+        kwargs["sync_mode"] = sync_mode
+
+    response = send_with_retry(context, "player", root, packed, seq)
     context.last_response = response
+    context.last_error = None
     context.players[name]["sequence"] = seq + 1
     context.players[name]["bankroll"] += amount
     return response
@@ -79,7 +85,6 @@ def step_given_table_with_seated_players(context, table_name):
     """Set up a table with pre-seated players.
 
     Creates the table and joins all players listed in the data table.
-    Requires table_steps to be importable.
     """
     from .table_steps import _create_table, _join_table
 
@@ -89,10 +94,13 @@ def step_given_table_with_seated_players(context, table_name):
         stack = int(row["stack"])
         email = f"{name.lower()}@example.com"
         _register_player(context, name, email)
-        _deposit_funds(context, name, stack)
+        _deposit_funds(context, name, stack * 2)
 
     # Create the table
     _create_table(context, table_name, small_blind=5, big_blind=10)
+
+    # Track current table name for later use
+    context.current_table_name = table_name
 
     # Seat each player
     for row in context.table:
@@ -100,6 +108,51 @@ def step_given_table_with_seated_players(context, table_name):
         seat = int(row["seat"])
         stack = int(row["stack"])
         _join_table(context, name, table_name, seat, stack)
+
+
+@given(r'a table "(?P<table_name>[^"]+)" with (?P<count>\d+) seated players?')
+def step_given_table_with_n_seated_players(context, table_name, count):
+    """Set up a table with N default players."""
+    from .table_steps import _create_table, _join_table
+
+    count = int(count)
+    _create_table(context, table_name, small_blind=5, big_blind=10)
+    context.current_table_name = table_name
+
+    for i in range(count):
+        name = f"Player{i + 1}"
+        email = f"{name.lower()}@example.com"
+        _register_player(context, name, email)
+        _deposit_funds(context, name, 1000)
+        _join_table(context, name, table_name, i, 500)
+
+
+@given(r'a table "(?P<table_name>[^"]+)" with an active hand')
+def step_given_table_with_active_hand(context, table_name):
+    """Set up a table with an active hand."""
+    step_given_table_with_n_seated_players(context, table_name, "2")
+
+
+@given(
+    r'player "(?P<name>[^"]+)" has bankroll '
+    r"(?P<bankroll>\d+) with (?P<reserved>\d+) reserved"
+)
+def step_given_player_has_bankroll_with_reserved(context, name, bankroll, reserved):
+    """Pre-condition: player has given financial state."""
+    _player_root(context, name)
+    context.players[name]["bankroll"] = int(bankroll)
+    context.players[name]["reserved_funds"] = int(reserved)
+
+
+@given(r"(?P<count>\d+) registered players")
+def step_given_n_registered_players(context, count):
+    """Register N players for performance testing."""
+    context.test_players = []
+    for i in range(int(count)):
+        name = f"Player{i + 1}"
+        email = f"{name.lower()}@example.com"
+        _register_player(context, name, email)
+        context.test_players.append(name)
 
 
 # --- When steps ---
@@ -115,6 +168,42 @@ def step_when_register_player(context, name, email):
 def step_when_deposit_funds(context, amount, name):
     """Deposit chips into a player's bankroll."""
     _deposit_funds(context, name, int(amount))
+
+
+@when(
+    r'I deposit (?P<amount>\d+) chips to player "(?P<name>[^"]+)" '
+    r"with sync_mode (?P<mode>\w+)"
+)
+def step_when_deposit_with_sync_mode(context, amount, name, mode):
+    """Deposit chips with specified sync mode."""
+    from .sync_steps import parse_sync_mode
+
+    import time
+
+    sync_mode = parse_sync_mode(mode)
+    context.last_sync_mode = sync_mode
+    context.command_start_time = time.time()
+    _deposit_funds(context, name, int(amount), sync_mode=sync_mode)
+    context.command_end_time = time.time()
+    context.command_succeeded = context.last_error is None
+
+
+@when(r"I deposit chips to all players with sync_mode (?P<mode>\w+)")
+def step_when_deposit_to_all_players(context, mode):
+    """Deposit chips to all test players for performance testing."""
+    import time
+
+    from .sync_steps import parse_sync_mode
+
+    sync_mode = parse_sync_mode(mode)
+    context.last_sync_mode = sync_mode
+    context.deposit_times = []
+
+    for player_name in getattr(context, "test_players", []):
+        start = time.time()
+        _deposit_funds(context, player_name, 100, sync_mode=sync_mode)
+        end = time.time()
+        context.deposit_times.append((end - start) * 1000)
 
 
 # --- Then steps ---
