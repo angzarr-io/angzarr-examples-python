@@ -20,12 +20,17 @@ install *FLAGS:
 test-unit:
     uv run pytest -v
 
-# Run acceptance tests (Gherkin/behave) - features from submodule at features/specs
+# Run acceptance tests (Gherkin/behave) against deployed system or in-process
+# PLAYER_URL set → GrpcClient to coordinator; unset → InProcessClient
 test-acceptance:
+    PLAYER_URL="${PLAYER_URL:-}" uv run behave tests/acceptance/features/ --tags="~@wip"
+
+# Run unit-level behave specs (existing feature files)
+test-behave-unit:
     uv run behave features/specs/ --tags="~@wip"
 
 # Run all tests
-test: test-unit test-acceptance
+test: test-unit test-behave-unit test-acceptance
 
 # Format code (use --check for CI)
 fmt *FLAGS:
