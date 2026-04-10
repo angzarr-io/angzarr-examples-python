@@ -54,7 +54,7 @@ def deposit_validate(cmd: player.DepositFunds) -> int:
     """Validate deposit command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError("amount must be positive")
+        raise CommandRejectedError.invalid_argument("amount must be positive")
     return amount
 
 
@@ -101,7 +101,7 @@ def handle_withdraw(
 
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError("amount must be positive")
+        raise CommandRejectedError.invalid_argument("amount must be positive")
     if amount > state.available_balance:
         raise CommandRejectedError("insufficient available balance")
 
@@ -124,7 +124,7 @@ def handle_reserve(
 
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError("amount must be positive")
+        raise CommandRejectedError.invalid_argument("amount must be positive")
     if amount > state.available_balance:
         raise CommandRejectedError("Insufficient funds")
 

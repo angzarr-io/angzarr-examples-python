@@ -361,8 +361,12 @@ def step_then_event_has_new_available_balance(context, balance):
 def step_then_command_fails_with_status(context, status):
     """Verify the command failed with expected status."""
     assert context.error is not None, "Expected command to fail but it succeeded"
-    # CommandRejectedError maps to different gRPC statuses based on message
-    # For now, we just verify there's an error - the status mapping happens at the gRPC layer
+    assert hasattr(context.error, "status_code"), (
+        f"Error {type(context.error).__name__} has no status_code attribute"
+    )
+    assert context.error.status_code == status, (
+        f"Expected status {status}, got {context.error.status_code}"
+    )
 
 
 @then(r'the error message contains "(?P<text>[^"]+)"')
