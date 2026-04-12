@@ -1090,7 +1090,7 @@ def start_standalone() -> subprocess.Popen:
     env["ANGZARR_CONFIG"] = "standalone.yaml"
 
     proc = subprocess.Popen(
-        ["./bin/angzarr-standalone"],
+        ["angzarr-standalone"],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
