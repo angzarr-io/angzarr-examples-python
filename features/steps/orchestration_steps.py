@@ -40,7 +40,9 @@ def _init_orchestration_context(context):
 # =============================================================================
 
 
-@given(r"a table with seat (?P<seat>\d+) available and buy-in range (?P<min>\d+)-(?P<max>\d+)")
+@given(
+    r"a table with seat (?P<seat>\d+) available and buy-in range (?P<min>\d+)-(?P<max>\d+)"
+)
 def step_given_table_seat_available_with_range(context, seat, min, max):
     """Set up a table with a specific seat available and buy-in range."""
     _init_orchestration_context(context)
@@ -52,7 +54,9 @@ def step_given_table_seat_available_with_range(context, seat, min, max):
     context.available_seat = int(seat)
 
 
-@given(r"a player with a BuyInRequested event for seat (?P<seat>\d+) with amount (?P<amount>\d+)")
+@given(
+    r"a player with a BuyInRequested event for seat (?P<seat>\d+) with amount (?P<amount>\d+)"
+)
 def step_given_buy_in_requested_for_seat(context, seat, amount):
     """Create a BuyInRequested event for a specific seat and amount."""
     _init_orchestration_context(context)
@@ -87,9 +91,7 @@ def step_given_table_full(context, count):
     context.table_min_buy_in = 200
     context.table_max_buy_in = 2000
     context.table_max_players = num_players
-    context.occupied_seats = {
-        i: f"player-{i}".encode() for i in range(num_players)
-    }
+    context.occupied_seats = {i: f"player-{i}".encode() for i in range(num_players)}
     context.table_root = b"table-1"
 
 
@@ -297,9 +299,7 @@ def step_when_buy_in_orchestrator_handles_request(context):
 
     # Validate buy-in amount range
     if amount < min_buy_in or amount > max_buy_in:
-        context.emitted_events.append(
-            ("BuyInFailed", "INVALID_AMOUNT")
-        )
+        context.emitted_events.append(("BuyInFailed", "INVALID_AMOUNT"))
         return
 
     # For "any seat" requests, find an open seat
@@ -310,16 +310,12 @@ def step_when_buy_in_orchestrator_handles_request(context):
                 found = True
                 break
         if not found:
-            context.emitted_events.append(
-                ("BuyInFailed", "TABLE_FULL")
-            )
+            context.emitted_events.append(("BuyInFailed", "TABLE_FULL"))
             return
     else:
         # Check specific seat is available
         if seat in occupied:
-            context.emitted_events.append(
-                ("BuyInFailed", "SEAT_OCCUPIED")
-            )
+            context.emitted_events.append(("BuyInFailed", "SEAT_OCCUPIED"))
             return
 
     # All validation passed - emit command and process event
@@ -371,16 +367,12 @@ def step_when_registration_orchestrator_handles_request(context):
 
     # Validate registration is open
     if not reg_open:
-        context.emitted_events.append(
-            ("RegistrationFailed", "REGISTRATION_CLOSED")
-        )
+        context.emitted_events.append(("RegistrationFailed", "REGISTRATION_CLOSED"))
         return
 
     # Validate capacity
     if max_players > 0 and registered >= max_players:
-        context.emitted_events.append(
-            ("RegistrationFailed", "REGISTRATION_CLOSED")
-        )
+        context.emitted_events.append(("RegistrationFailed", "REGISTRATION_CLOSED"))
         return
 
     # All validation passed
@@ -431,16 +423,12 @@ def step_when_rebuy_orchestrator_handles_request(context):
 
     # Validate tournament is running with rebuy window open
     if not rebuy_open:
-        context.emitted_events.append(
-            ("RebuyFailed", "TOURNAMENT_NOT_RUNNING")
-        )
+        context.emitted_events.append(("RebuyFailed", "TOURNAMENT_NOT_RUNNING"))
         return
 
     # Validate player is seated
     if not player_seated:
-        context.emitted_events.append(
-            ("RebuyFailed", "NOT_SEATED")
-        )
+        context.emitted_events.append(("RebuyFailed", "NOT_SEATED"))
         return
 
     # All validation passed
@@ -485,89 +473,89 @@ def step_when_rebuy_handles_denied(context):
 @then(r"the PM emits a SeatPlayer command to the table")
 def step_then_pm_emits_seat_player(context):
     """Verify PM emits a SeatPlayer command."""
-    assert "SeatPlayer" in context.emitted_commands, (
-        f"Expected SeatPlayer command, got {context.emitted_commands}"
-    )
+    assert (
+        "SeatPlayer" in context.emitted_commands
+    ), f"Expected SeatPlayer command, got {context.emitted_commands}"
 
 
 @then(r"the PM emits a ConfirmBuyIn command to the player")
 def step_then_pm_emits_confirm_buy_in(context):
     """Verify PM emits a ConfirmBuyIn command."""
-    assert "ConfirmBuyIn" in context.emitted_commands, (
-        f"Expected ConfirmBuyIn command, got {context.emitted_commands}"
-    )
+    assert (
+        "ConfirmBuyIn" in context.emitted_commands
+    ), f"Expected ConfirmBuyIn command, got {context.emitted_commands}"
 
 
 @then(r"the PM emits a ReleaseBuyIn command to the player")
 def step_then_pm_emits_release_buy_in(context):
     """Verify PM emits a ReleaseBuyIn command."""
-    assert "ReleaseBuyIn" in context.emitted_commands, (
-        f"Expected ReleaseBuyIn command, got {context.emitted_commands}"
-    )
+    assert (
+        "ReleaseBuyIn" in context.emitted_commands
+    ), f"Expected ReleaseBuyIn command, got {context.emitted_commands}"
 
 
 @then(r"the PM emits an EnrollPlayer command to the tournament")
 def step_then_pm_emits_enroll_player(context):
     """Verify PM emits an EnrollPlayer command."""
-    assert "EnrollPlayer" in context.emitted_commands, (
-        f"Expected EnrollPlayer command, got {context.emitted_commands}"
-    )
+    assert (
+        "EnrollPlayer" in context.emitted_commands
+    ), f"Expected EnrollPlayer command, got {context.emitted_commands}"
 
 
 @then(r"the PM emits a ConfirmRegistrationFee command to the player")
 def step_then_pm_emits_confirm_registration(context):
     """Verify PM emits a ConfirmRegistrationFee command."""
-    assert "ConfirmRegistrationFee" in context.emitted_commands, (
-        f"Expected ConfirmRegistrationFee command, got {context.emitted_commands}"
-    )
+    assert (
+        "ConfirmRegistrationFee" in context.emitted_commands
+    ), f"Expected ConfirmRegistrationFee command, got {context.emitted_commands}"
 
 
 @then(r"the PM emits a ReleaseRegistrationFee command to the player")
 def step_then_pm_emits_release_registration(context):
     """Verify PM emits a ReleaseRegistrationFee command."""
-    assert "ReleaseRegistrationFee" in context.emitted_commands, (
-        f"Expected ReleaseRegistrationFee command, got {context.emitted_commands}"
-    )
+    assert (
+        "ReleaseRegistrationFee" in context.emitted_commands
+    ), f"Expected ReleaseRegistrationFee command, got {context.emitted_commands}"
 
 
 @then(r"the PM emits a ProcessRebuy command to the tournament")
 def step_then_pm_emits_process_rebuy(context):
     """Verify PM emits a ProcessRebuy command."""
-    assert "ProcessRebuy" in context.emitted_commands, (
-        f"Expected ProcessRebuy command, got {context.emitted_commands}"
-    )
+    assert (
+        "ProcessRebuy" in context.emitted_commands
+    ), f"Expected ProcessRebuy command, got {context.emitted_commands}"
 
 
 @then(r"the PM emits an AddRebuyChips command to the table")
 def step_then_pm_emits_add_rebuy_chips(context):
     """Verify PM emits an AddRebuyChips command."""
-    assert "AddRebuyChips" in context.emitted_commands, (
-        f"Expected AddRebuyChips command, got {context.emitted_commands}"
-    )
+    assert (
+        "AddRebuyChips" in context.emitted_commands
+    ), f"Expected AddRebuyChips command, got {context.emitted_commands}"
 
 
 @then(r"the PM emits a ConfirmRebuyFee command to the player")
 def step_then_pm_emits_confirm_rebuy(context):
     """Verify PM emits a ConfirmRebuyFee command."""
-    assert "ConfirmRebuyFee" in context.emitted_commands, (
-        f"Expected ConfirmRebuyFee command, got {context.emitted_commands}"
-    )
+    assert (
+        "ConfirmRebuyFee" in context.emitted_commands
+    ), f"Expected ConfirmRebuyFee command, got {context.emitted_commands}"
 
 
 @then(r"the PM emits a ReleaseRebuyFee command to the player")
 def step_then_pm_emits_release_rebuy(context):
     """Verify PM emits a ReleaseRebuyFee command."""
-    assert "ReleaseRebuyFee" in context.emitted_commands, (
-        f"Expected ReleaseRebuyFee command, got {context.emitted_commands}"
-    )
+    assert (
+        "ReleaseRebuyFee" in context.emitted_commands
+    ), f"Expected ReleaseRebuyFee command, got {context.emitted_commands}"
 
 
 @then(r"the PM emits no commands")
 def step_then_pm_emits_no_commands(context):
     """Verify PM did not emit any commands."""
-    assert len(context.emitted_commands) == 0, (
-        f"Expected no commands, got {context.emitted_commands}"
-    )
+    assert (
+        len(context.emitted_commands) == 0
+    ), f"Expected no commands, got {context.emitted_commands}"
 
 
 # =============================================================================
@@ -579,99 +567,90 @@ def step_then_pm_emits_no_commands(context):
 def step_then_pm_emits_buy_in_initiated(context):
     """Verify PM emits a BuyInInitiated process event."""
     event_names = [name for name, _ in context.emitted_events]
-    assert "BuyInInitiated" in event_names, (
-        f"Expected BuyInInitiated event, got {event_names}"
-    )
+    assert (
+        "BuyInInitiated" in event_names
+    ), f"Expected BuyInInitiated event, got {event_names}"
 
 
 @then(r'the PM emits a BuyInFailed process event with code "(?P<code>[^"]+)"')
 def step_then_pm_emits_buy_in_failed(context, code):
     """Verify PM emits a BuyInFailed process event with a specific failure code."""
     matching = [
-        (name, c) for name, c in context.emitted_events
-        if name == "BuyInFailed"
+        (name, c) for name, c in context.emitted_events if name == "BuyInFailed"
     ]
-    assert len(matching) > 0, (
-        f"Expected BuyInFailed event, got {[n for n, _ in context.emitted_events]}"
-    )
+    assert (
+        len(matching) > 0
+    ), f"Expected BuyInFailed event, got {[n for n, _ in context.emitted_events]}"
     actual_code = matching[0][1]
-    assert actual_code == code, (
-        f"Expected failure code '{code}', got '{actual_code}'"
-    )
+    assert actual_code == code, f"Expected failure code '{code}', got '{actual_code}'"
 
 
 @then(r"the PM emits a BuyInCompleted process event")
 def step_then_pm_emits_buy_in_completed(context):
     """Verify PM emits a BuyInCompleted process event."""
     event_names = [name for name, _ in context.emitted_events]
-    assert "BuyInCompleted" in event_names, (
-        f"Expected BuyInCompleted event, got {event_names}"
-    )
+    assert (
+        "BuyInCompleted" in event_names
+    ), f"Expected BuyInCompleted event, got {event_names}"
 
 
 @then(r"the PM emits a RegistrationInitiated process event")
 def step_then_pm_emits_registration_initiated(context):
     """Verify PM emits a RegistrationInitiated process event."""
     event_names = [name for name, _ in context.emitted_events]
-    assert "RegistrationInitiated" in event_names, (
-        f"Expected RegistrationInitiated event, got {event_names}"
-    )
+    assert (
+        "RegistrationInitiated" in event_names
+    ), f"Expected RegistrationInitiated event, got {event_names}"
 
 
 @then(r'the PM emits a RegistrationFailed process event with code "(?P<code>[^"]+)"')
 def step_then_pm_emits_registration_failed(context, code):
     """Verify PM emits a RegistrationFailed process event with a specific failure code."""
     matching = [
-        (name, c) for name, c in context.emitted_events
-        if name == "RegistrationFailed"
+        (name, c) for name, c in context.emitted_events if name == "RegistrationFailed"
     ]
-    assert len(matching) > 0, (
-        f"Expected RegistrationFailed event, got {[n for n, _ in context.emitted_events]}"
-    )
+    assert (
+        len(matching) > 0
+    ), f"Expected RegistrationFailed event, got {[n for n, _ in context.emitted_events]}"
     actual_code = matching[0][1]
-    assert actual_code == code, (
-        f"Expected failure code '{code}', got '{actual_code}'"
-    )
+    assert actual_code == code, f"Expected failure code '{code}', got '{actual_code}'"
 
 
 @then(r"the PM emits a RegistrationCompleted process event")
 def step_then_pm_emits_registration_completed(context):
     """Verify PM emits a RegistrationCompleted process event."""
     event_names = [name for name, _ in context.emitted_events]
-    assert "RegistrationCompleted" in event_names, (
-        f"Expected RegistrationCompleted event, got {event_names}"
-    )
+    assert (
+        "RegistrationCompleted" in event_names
+    ), f"Expected RegistrationCompleted event, got {event_names}"
 
 
 @then(r"the PM emits a RebuyInitiated process event")
 def step_then_pm_emits_rebuy_initiated(context):
     """Verify PM emits a RebuyInitiated process event."""
     event_names = [name for name, _ in context.emitted_events]
-    assert "RebuyInitiated" in event_names, (
-        f"Expected RebuyInitiated event, got {event_names}"
-    )
+    assert (
+        "RebuyInitiated" in event_names
+    ), f"Expected RebuyInitiated event, got {event_names}"
 
 
 @then(r'the PM emits a RebuyFailed process event with code "(?P<code>[^"]+)"')
 def step_then_pm_emits_rebuy_failed(context, code):
     """Verify PM emits a RebuyFailed process event with a specific failure code."""
     matching = [
-        (name, c) for name, c in context.emitted_events
-        if name == "RebuyFailed"
+        (name, c) for name, c in context.emitted_events if name == "RebuyFailed"
     ]
-    assert len(matching) > 0, (
-        f"Expected RebuyFailed event, got {[n for n, _ in context.emitted_events]}"
-    )
+    assert (
+        len(matching) > 0
+    ), f"Expected RebuyFailed event, got {[n for n, _ in context.emitted_events]}"
     actual_code = matching[0][1]
-    assert actual_code == code, (
-        f"Expected failure code '{code}', got '{actual_code}'"
-    )
+    assert actual_code == code, f"Expected failure code '{code}', got '{actual_code}'"
 
 
 @then(r"the PM emits a RebuyCompleted process event")
 def step_then_pm_emits_rebuy_completed(context):
     """Verify PM emits a RebuyCompleted process event."""
     event_names = [name for name, _ in context.emitted_events]
-    assert "RebuyCompleted" in event_names, (
-        f"Expected RebuyCompleted event, got {event_names}"
-    )
+    assert (
+        "RebuyCompleted" in event_names
+    ), f"Expected RebuyCompleted event, got {event_names}"

@@ -501,12 +501,12 @@ def step_then_player_stack_change(context, player_id, amount):
 def step_then_command_fails(context, status):
     """Verify the command failed with expected status."""
     assert context.error is not None, "Expected command to fail but it succeeded"
-    assert hasattr(context.error, "status_code"), (
-        f"Error {type(context.error).__name__} has no status_code attribute"
-    )
-    assert context.error.status_code == status, (
-        f"Expected status {status}, got {context.error.status_code}"
-    )
+    assert hasattr(
+        context.error, "status_code"
+    ), f"Error {type(context.error).__name__} has no status_code attribute"
+    assert (
+        context.error.status_code == status
+    ), f"Expected status {status}, got {context.error.status_code}"
 
 
 @then(r'the error message contains "(?P<text>[^"]+)"')
