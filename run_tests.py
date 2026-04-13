@@ -29,8 +29,6 @@ def run_tests(verbose: bool = False) -> int:
         Exit code (0 for success, 1 for failures).
     """
     root = Path(__file__).parent
-    total_passed = 0
-    total_failed = 0
     failed_suites = []
 
     for directory, test_files, description in TEST_SUITES:
@@ -74,7 +72,7 @@ def run_tests(verbose: bool = False) -> int:
         else:
             failed_suites.append(description)
             if not verbose:
-                print(f"❌ FAILED")
+                print("❌ FAILED")
                 print(result.stdout)
                 print(result.stderr)
 

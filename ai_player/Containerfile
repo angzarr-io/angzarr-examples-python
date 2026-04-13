@@ -98,3 +98,19 @@ ENV DEVICE=cpu
 ENV PYTHONPATH=/app/ai_player/proto
 
 CMD ["uv", "run", "python", "-m", "ai_player.training.train_rl"]
+
+# =============================================================================
+# Self-play training stage - Runs self-play tournaments in cluster
+# =============================================================================
+FROM training AS self-play
+
+# Copy additional files needed for self-play (from parent directory)
+COPY run_game.py client.py ./
+COPY prj_training/ ./prj_training/
+
+# Set mode to use K8s DNS for aggregate connections
+ENV ANGZARR_MODE=distributed
+# Add prj_training to PYTHONPATH for training dependencies
+ENV PYTHONPATH=/app/ai_player/proto:/app
+
+CMD ["uv", "run", "python", "-m", "ai_player.training.self_play"]

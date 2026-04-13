@@ -16,7 +16,6 @@ from angzarr_client import command_handler, now
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.proto.examples import tournament_pb2 as tournament
 
-
 # --- CreateTournament ---
 
 
@@ -124,9 +123,7 @@ def enroll_guard(state: TournamentState) -> None:
         raise CommandRejectedError("Tournament does not exist")
 
 
-def enroll_validate(
-    cmd: tournament.EnrollPlayer, state: TournamentState
-) -> str | None:
+def enroll_validate(cmd: tournament.EnrollPlayer, state: TournamentState) -> str | None:
     """Validate enrollment. Returns rejection reason or None if valid."""
     if not cmd.player_root:
         return "player_root is required"
@@ -179,9 +176,7 @@ def rebuy_guard(state: TournamentState) -> None:
         raise CommandRejectedError("Tournament is not running")
 
 
-def rebuy_validate(
-    cmd: tournament.ProcessRebuy, state: TournamentState
-) -> str | None:
+def rebuy_validate(cmd: tournament.ProcessRebuy, state: TournamentState) -> str | None:
     """Validate rebuy. Returns rejection reason or None if valid."""
     if not cmd.player_root:
         return "player_root is required"
@@ -276,9 +271,7 @@ def eliminate_guard(state: TournamentState) -> None:
         raise CommandRejectedError("Tournament is not running")
 
 
-def eliminate_validate(
-    cmd: tournament.EliminatePlayer, state: TournamentState
-) -> None:
+def eliminate_validate(cmd: tournament.EliminatePlayer, state: TournamentState) -> None:
     """Validate EliminatePlayer command."""
     if not cmd.player_root:
         raise CommandRejectedError("player_root is required")

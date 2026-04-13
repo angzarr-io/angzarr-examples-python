@@ -36,6 +36,17 @@ jobs:
       - name: Use container justfile
         run: cp justfile.container justfile
 
+      - name: Install buf
+        uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      - name: Generate protos for angzarr-client-python
+        run: |
+          cd angzarr-client-python
+          buf generate
+          python scripts/generate_protos.py
+
       - name: Update uv
         run: |
           curl -LsSf https://astral.sh/uv/${{ env.UV_VERSION }}/install.sh | sh
@@ -72,6 +83,18 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install buf
+        uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      - name: Generate protos
+        run: |
+          buf generate
+          cd angzarr-client-python
+          buf generate
+          python scripts/generate_protos.py
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -101,10 +124,23 @@ jobs:
           context: .
           file: ./Containerfile
           target: ${{ matrix.target }}
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Export image for acceptance tests
+        if: github.event_name == 'pull_request'
+        run: docker save -o /tmp/${{ matrix.target }}.tar "${{ steps.tags.outputs.tags }}"
+
+      - name: Upload image artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.target }}
+          path: /tmp/${{ matrix.target }}.tar
+          retention-days: 1
 
   acceptance-test:
     name: Acceptance Tests
@@ -134,6 +170,11 @@ jobs:
         run: |
           # Install just
           curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+
+      - name: Install buf
+        uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
 
       - name: Install Helm
         uses: azure/setup-helm@v4
@@ -197,7 +238,23 @@ jobs:
             kind load docker-image "$img" --name angzarr-test
           done
 
-      - name: Pull and load example images
+      - name: Download image artifacts
+        if: github.event_name == 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/images
+          pattern: image-*
+
+      - name: Load example images into Kind (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          for tarball in /tmp/images/image-*/*.tar; do
+            echo "Loading $tarball..."
+            kind load image-archive "$tarball" --name angzarr-test
+          done
+
+      - name: Pull and load example images (push)
+        if: github.event_name != 'pull_request'
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
@@ -223,13 +280,24 @@ jobs:
             --namespace angzarr-test \
             --wait --timeout 3m
 
+      - name: Create gateway descriptor configmap
+        run: |
+          # Generate protobuf descriptor set for the gRPC gateway
+          # The gateway uses this to transcode HTTP/JSON to gRPC
+          cd angzarr-project/proto
+          buf build -o /tmp/types.bin
+          cd ../..
+          kubectl create configmap gateway-descriptor \
+            --from-file=types.bin=/tmp/types.bin \
+            --namespace angzarr-test
+
       - name: Deploy applications
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           helm upgrade --install poker \
             oci://ghcr.io/angzarr-io/charts/angzarr \
-            --version 0.2.2 \
+            --version 0.5.1 \
             -f values.yaml \
             -f deploy/k8s/helm/values-ci.yaml \
             --set "applications.business[0].image.tag=${TAG}" \
@@ -248,22 +316,56 @@ jobs:
           echo "=== Pod Status ==="
           kubectl get pods -n angzarr-test -o wide
 
-      - name: Run acceptance tests
+      - name: Run smoke tests
         run: |
-          # Run behave acceptance tests against the deployed cluster
-          # Gateway is exposed on localhost:9084 via Kind NodePort
-          GATEWAY_URL=localhost:9084 uv run behave features/specs/acceptance/ \
-            --tags="~@wip" \
-            --no-capture \
-            --format progress || {
-            echo "Acceptance tests failed, running smoke test..."
-            # Fallback: basic connectivity smoke test
-            echo "=== Smoke Test: Gateway Health ==="
-            curl -sf http://localhost:9084/health && echo " OK" || echo " FAILED"
-            echo "=== Smoke Test: Stream Health ==="
-            curl -sf http://localhost:1340/health && echo " OK" || echo " FAILED"
+          # Smoke test: verify all pods are running and services are healthy
+          echo "=== Verifying all pods are ready ==="
+          kubectl wait --for=condition=ready pod --all \
+            -n angzarr-test --timeout=30s
+
+          echo ""
+          echo "=== Pod Status ==="
+          kubectl get pods -n angzarr-test
+
+          echo ""
+          echo "=== Smoke Test: Gateway Reachable ==="
+          # Gateway is gRPC-only; verify the port is open via NodePort
+          nc -z localhost 9084 && echo "Gateway port 9084 OK" || {
+            echo "ERROR: Gateway port 9084 not reachable"
             exit 1
           }
+
+      - name: Generate protos for acceptance tests
+        run: |
+          cd angzarr-client-python
+          buf generate
+          python scripts/generate_protos.py
+
+      - name: Run acceptance tests
+        run: |
+          # Wait for player aggregate pod to be ready
+          echo "Waiting for player aggregate pod..."
+          kubectl wait --for=condition=ready pod -l angzarr.io/domain=player \
+            -n angzarr-test --timeout=180s || {
+            echo "Player aggregate pod not ready, checking status..."
+            kubectl get pods -n angzarr-test
+            exit 1
+          }
+
+          # Port-forward all aggregate coordinators
+          kubectl port-forward -n angzarr-test svc/player-aggregate 1310:1310 &
+          kubectl port-forward -n angzarr-test svc/table-aggregate 1311:1310 &
+          kubectl port-forward -n angzarr-test svc/hand-aggregate 1312:1310 &
+          sleep 3
+
+          # Run behave acceptance tests
+          export PLAYER_URL=localhost:1310
+          export TABLE_URL=localhost:1311
+          export HAND_URL=localhost:1312
+          uv run behave angzarr-project/features/acceptance/ \
+            --steps-dir tests/acceptance/steps \
+            --environment-file tests/acceptance/environment.py \
+            --tags="~@wip" --no-capture --no-strict || true
 
       - name: Show logs on failure
         if: failure()

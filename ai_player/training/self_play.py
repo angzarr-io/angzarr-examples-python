@@ -7,20 +7,18 @@ and periodically shares weights with other players.
 
 from __future__ import annotations
 
-import copy
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 import structlog
 import torch
-from sqlalchemy import create_engine, select, func
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine, select
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+    pass
 
 # Add parent paths for imports
 import sys
@@ -28,10 +26,10 @@ import sys
 root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root))
 
+from prj_training.schema import Base, TrainingState
+
 from ai_player.models.poker_net import PokerNet
 from ai_player.training.trainer import Trainer, TrainerConfig
-from ai_player.training.fitness_tracker import FitnessTracker, FitnessMetrics
-from prj_training.schema import Base, TournamentResult, TrainingState
 
 logger = structlog.get_logger()
 
@@ -61,7 +59,7 @@ class SelfPlayGame:
             exploration_temperature: Softmax temperature for action sampling (0=greedy).
         """
         self._exploration_temperature = exploration_temperature
-        from run_game import PokerGame, GameVariant
+        from run_game import GameVariant, PokerGame
 
         # Create base game with logging disabled
         self._base_game = PokerGame(
@@ -159,8 +157,10 @@ class SelfPlayGame:
                 }
 
                 # Use INSERT ... ON CONFLICT DO NOTHING to handle duplicates
-                stmt = insert(TrainingState).values(**values).on_conflict_do_nothing(
-                    index_elements=["hand_root", "sequence"]
+                stmt = (
+                    insert(TrainingState)
+                    .values(**values)
+                    .on_conflict_do_nothing(index_elements=["hand_root", "sequence"])
                 )
                 session.execute(stmt)
 
@@ -189,14 +189,14 @@ class SelfPlayGame:
         to_call = max(0, game.current_bet - player.bet)
 
         # The minimum raise increment (tracked by the game)
-        min_raise_increment = getattr(game, 'last_raise_increment', game.big_blind)
+        min_raise_increment = getattr(game, "last_raise_increment", game.big_blind)
 
         # Calculate minimum valid raise-to amount
         # Server requires: raise_amount >= min_raise, where raise_amount = raise_to - current_bet
         min_raise_to = game.current_bet + min_raise_increment
 
         # Maximum we can put in (all-in)
-        max_raise_to = player.stack + player.bet
+        player.stack + player.bet
 
         # Map action index to proto action type
         # 0 = FOLD, 1 = CHECK/CALL, 2 = BET/RAISE
@@ -253,7 +253,7 @@ class SelfPlayGame:
     def _record_action_state(self, player, action: int, amount: int) -> None:
         """Record the current state and action for later training."""
         game = self._base_game
-        hand_root = getattr(game, 'hand_root', None)
+        hand_root = getattr(game, "hand_root", None)
 
         # Encode cards
         def encode_card(card):
@@ -274,7 +274,7 @@ class SelfPlayGame:
             phase = 4  # river
 
         # Get the actual min raise increment (not just big blind)
-        min_raise_increment = getattr(game, 'last_raise_increment', game.big_blind)
+        min_raise_increment = getattr(game, "last_raise_increment", game.big_blind)
 
         state = {
             "hand_root": hand_root.hex() if hand_root else f"hand_{self._hand_counter}",
@@ -295,8 +295,12 @@ class SelfPlayGame:
             "min_raise": min_raise_increment,  # Actual min raise, not just big blind
             "position": player.seat,
             "phase": phase,
-            "players_remaining": len([p for p in game.players.values() if not p.folded]),
-            "players_to_act": len([p for p in game.players.values() if not p.folded and not p.all_in]),
+            "players_remaining": len(
+                [p for p in game.players.values() if not p.folded]
+            ),
+            "players_to_act": len(
+                [p for p in game.players.values() if not p.folded and not p.all_in]
+            ),
             "action": action,
             "amount": amount,
         }
@@ -304,7 +308,6 @@ class SelfPlayGame:
 
     def _encode_game_state(self, player) -> torch.Tensor:
         """Encode current game state for model input."""
-        import numpy as np
 
         features = np.zeros(PokerNet.INPUT_DIM, dtype=np.float32)
         game = self._base_game
@@ -316,7 +319,7 @@ class SelfPlayGame:
         to_call = max(0, game.current_bet - player.bet)
 
         # Get actual min raise increment (may be larger than BB after raises)
-        min_raise_increment = getattr(game, 'last_raise_increment', bb)
+        min_raise_increment = getattr(game, "last_raise_increment", bb)
 
         # Min raise-to amount (what the model needs to reach to make a valid raise)
         min_raise_to = game.current_bet + min_raise_increment
@@ -368,6 +371,7 @@ class SelfPlayGame:
     def _random_action(self, player) -> tuple:
         """Fallback random action."""
         import random
+
         from angzarr_client.proto.examples import poker_types_pb2 as types_pb2
 
         to_call = max(0, self._base_game.current_bet - player.bet)
@@ -430,14 +434,18 @@ class SelfPlayConfig:
     # Self-play parameters
     tournaments_per_iteration: int = 5
     max_iterations: int = 50
-    hands_per_tournament: int = 100  # Reduced from 200 for faster iteration
+    hands_per_tournament: int = 20  # Reduced for faster development iteration
 
     # Weight sharing
     share_weights_every: int = 3  # Share every N iterations
-    weight_averaging_alpha: float = 0.5  # How much to blend (0=keep own, 1=full average)
+    weight_averaging_alpha: float = (
+        0.5  # How much to blend (0=keep own, 1=full average)
+    )
 
     # Exploration
-    exploration_temperature: float = 0.5  # Softmax temperature for action sampling (0=greedy)
+    exploration_temperature: float = (
+        0.5  # Softmax temperature for action sampling (0=greedy)
+    )
 
     # Convergence
     target_bb: float = 10.0
@@ -507,10 +515,9 @@ class MultiModelRegistry:
 
             for key in current_state:
                 # Blend: (1-alpha) * own + alpha * average
-                blended_state[key] = (
-                    (1 - alpha) * current_state[key].float() +
-                    alpha * avg_weights[key]
-                )
+                blended_state[key] = (1 - alpha) * current_state[
+                    key
+                ].float() + alpha * avg_weights[key]
 
             model.load_state_dict(blended_state)
 
@@ -541,10 +548,9 @@ class MultiModelRegistry:
 
             for key in current_state:
                 # Blend: (1-alpha) * own + alpha * winner
-                blended_state[key] = (
-                    (1 - alpha) * current_state[key].float() +
-                    alpha * winner_state[key].float()
-                )
+                blended_state[key] = (1 - alpha) * current_state[
+                    key
+                ].float() + alpha * winner_state[key].float()
 
             model.load_state_dict(blended_state)
 
@@ -577,7 +583,17 @@ class SelfPlayTrainer:
 
     def _init_agents(self) -> None:
         """Initialize player agents with their own models."""
-        names = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Hank", "Ivan"]
+        names = [
+            "Alice",
+            "Bob",
+            "Carol",
+            "Dave",
+            "Eve",
+            "Frank",
+            "Grace",
+            "Hank",
+            "Ivan",
+        ]
 
         for i in range(self._config.num_players):
             name = names[i] if i < len(names) else f"Player{i}"
@@ -602,7 +618,8 @@ class SelfPlayTrainer:
         Returns:
             Dict mapping player name to their results.
         """
-        from run_game import GatewayClient, GameVariant
+        from run_game import GatewayClient
+
         from ai_player.models.encoder import ActionContextEncoder
 
         tournament_id = f"selfplay-{uuid.uuid4().hex[:8]}"
@@ -722,24 +739,33 @@ class SelfPlayTrainer:
             )
             examples = []
             for ts in session.scalars(stmt):
-                examples.append({
-                    "hole_cards": [ts.hole_card_1, ts.hole_card_2],
-                    "community_cards": [
-                        c for c in [ts.community_1, ts.community_2, ts.community_3,
-                                    ts.community_4, ts.community_5] if c is not None
-                    ],
-                    "pot_size": ts.pot_size,
-                    "stack_size": ts.stack_size,
-                    "amount_to_call": ts.amount_to_call,
-                    "min_raise": ts.min_raise,
-                    "position": ts.position,
-                    "phase": ts.phase,
-                    "players_remaining": ts.players_remaining,
-                    "action": ts.action,
-                    "amount": ts.amount,
-                    "reward": ts.reward,
-                    "terminal": ts.terminal,
-                })
+                examples.append(
+                    {
+                        "hole_cards": [ts.hole_card_1, ts.hole_card_2],
+                        "community_cards": [
+                            c
+                            for c in [
+                                ts.community_1,
+                                ts.community_2,
+                                ts.community_3,
+                                ts.community_4,
+                                ts.community_5,
+                            ]
+                            if c is not None
+                        ],
+                        "pot_size": ts.pot_size,
+                        "stack_size": ts.stack_size,
+                        "amount_to_call": ts.amount_to_call,
+                        "min_raise": ts.min_raise,
+                        "position": ts.position,
+                        "phase": ts.phase,
+                        "players_remaining": ts.players_remaining,
+                        "action": ts.action,
+                        "amount": ts.amount,
+                        "reward": ts.reward,
+                        "terminal": ts.terminal,
+                    }
+                )
 
         if len(examples) < trainer_config.batch_size:
             logger.warning(
@@ -750,7 +776,6 @@ class SelfPlayTrainer:
             return 0.0
 
         # Train the agent's model
-        from ai_player.training.trainer import Trainer
 
         # Create a temporary trainer with this agent's model
         trainer = Trainer(trainer_config)
@@ -795,7 +820,11 @@ class SelfPlayTrainer:
         sorted_agents = sorted(self._agents, key=lambda a: -a.bb_per_100)
 
         print("\n=== Agent Leaderboard ===")
-        print(f"{'Rank':<5} {'Agent':<10} {'BB/100':<10} {'Win Rate':<10} {'Tournaments':<12} {'Hands':<10}")
+        header = (
+            f"{'Rank':<5} {'Agent':<10} {'BB/100':<10} "
+            f"{'Win Rate':<10} {'Tournaments':<12} {'Hands':<10}"
+        )
+        print(header)
         print("-" * 60)
 
         for i, agent in enumerate(sorted_agents, 1):
@@ -853,6 +882,7 @@ class SelfPlayTrainer:
             if iteration_winners:
                 # Find model that won most tournaments this iteration
                 from collections import Counter
+
                 winner_counts = Counter(iteration_winners)
                 top_winner = winner_counts.most_common(1)[0][0]
 

@@ -6,6 +6,8 @@ which is derived from event logs.
 
 from __future__ import annotations
 
+# Import TrainingState schema - shared with prj_training projector
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,16 +21,12 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from ai_player.models.poker_net import PokerNet
 
-# Import TrainingState schema - shared with prj_training projector
-import sys
-from pathlib import Path
-
 # Add parent directory to allow importing prj_training
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from prj_training.schema import TrainingState
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+    pass
 
 logger = structlog.get_logger()
 
@@ -81,6 +79,7 @@ class Trainer:
 
         # Connect to database
         from sqlalchemy import create_engine
+
         self._engine = create_engine(config.database_url)
 
         self._epoch = 0
@@ -95,8 +94,8 @@ class Trainer:
         Returns:
             List of training state dictionaries.
         """
-        from sqlalchemy.orm import Session
         from sqlalchemy import select
+        from sqlalchemy.orm import Session
 
         limit = limit or self._config.max_examples
         examples = []
@@ -109,24 +108,33 @@ class Trainer:
                 .limit(limit)
             )
             for ts in session.scalars(stmt):
-                examples.append({
-                    "hole_cards": [ts.hole_card_1, ts.hole_card_2],
-                    "community_cards": [
-                        c for c in [ts.community_1, ts.community_2, ts.community_3,
-                                    ts.community_4, ts.community_5] if c is not None
-                    ],
-                    "pot_size": ts.pot_size,
-                    "stack_size": ts.stack_size,
-                    "amount_to_call": ts.amount_to_call,
-                    "min_raise": ts.min_raise,
-                    "position": ts.position,
-                    "phase": ts.phase,
-                    "players_remaining": ts.players_remaining,
-                    "action": ts.action,
-                    "amount": ts.amount,
-                    "reward": ts.reward,
-                    "terminal": ts.terminal,
-                })
+                examples.append(
+                    {
+                        "hole_cards": [ts.hole_card_1, ts.hole_card_2],
+                        "community_cards": [
+                            c
+                            for c in [
+                                ts.community_1,
+                                ts.community_2,
+                                ts.community_3,
+                                ts.community_4,
+                                ts.community_5,
+                            ]
+                            if c is not None
+                        ],
+                        "pot_size": ts.pot_size,
+                        "stack_size": ts.stack_size,
+                        "amount_to_call": ts.amount_to_call,
+                        "min_raise": ts.min_raise,
+                        "position": ts.position,
+                        "phase": ts.phase,
+                        "players_remaining": ts.players_remaining,
+                        "action": ts.action,
+                        "amount": ts.amount,
+                        "reward": ts.reward,
+                        "terminal": ts.terminal,
+                    }
+                )
 
         logger.info("training_data_loaded", count=len(examples))
         return examples
@@ -167,7 +175,9 @@ class Trainer:
             terminals.append(1.0 if ex.get("terminal") else 0.0)
 
         # Convert to tensors
-        states_t = torch.tensor(np.array(states), dtype=torch.float32, device=self._device)
+        states_t = torch.tensor(
+            np.array(states), dtype=torch.float32, device=self._device
+        )
         actions_t = torch.tensor(actions, dtype=torch.long, device=self._device)
         rewards_t = torch.tensor(rewards, dtype=torch.float32, device=self._device)
         terminals_t = torch.tensor(terminals, dtype=torch.float32, device=self._device)
@@ -344,7 +354,7 @@ class Trainer:
         logger.info("training_started", epochs=epochs, examples=len(examples))
 
         for epoch in range(epochs):
-            avg_loss = self.train_epoch(examples)
+            self.train_epoch(examples)
 
             # Save checkpoint every epoch
             self.save_checkpoint(f"epoch_{self._epoch}")
@@ -352,7 +362,9 @@ class Trainer:
         logger.info(
             "training_complete",
             total_epochs=self._epoch,
-            final_loss=self._total_loss_history[-1] if self._total_loss_history else 0.0,
+            final_loss=(
+                self._total_loss_history[-1] if self._total_loss_history else 0.0
+            ),
         )
 
     def save_checkpoint(self, version: str) -> Path:

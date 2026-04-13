@@ -47,10 +47,14 @@ def make_notification(
     # Build command page with source info in header
     header = types.PageHeader()
     if source_domain:
-        header.angzarr_deferred.CopyFrom(types.AngzarrDeferredSequence(
-            source=types.Cover(domain=source_domain, root=types.UUID(value=source_root)),
-            source_seq=0,
-        ))
+        header.angzarr_deferred.CopyFrom(
+            types.AngzarrDeferredSequence(
+                source=types.Cover(
+                    domain=source_domain, root=types.UUID(value=source_root)
+                ),
+                source_seq=0,
+            )
+        )
 
     rejected_cmd = types.CommandBook(
         cover=types.Cover(domain=rejected_domain),

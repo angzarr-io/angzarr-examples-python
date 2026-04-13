@@ -1,6 +1,6 @@
 """Table aggregate - rich domain model."""
 
-import uuid
+import hashlib
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -213,8 +213,8 @@ class Table(CommandHandler[_TableState]):
 
     def _find_available_seat(self, preferred: int = -1) -> Optional[int]:
         state = self._get_state()
-        # preferred_seat > 0 means explicit seat preference (proto3 defaults to 0)
-        if preferred > 0 and preferred < state.max_players:
+        # preferred_seat >= 0 means explicit seat preference; < 0 means no preference
+        if preferred >= 0 and preferred < state.max_players:
             if preferred not in state.seats:
                 return preferred
         for pos in range(state.max_players):
@@ -246,22 +246,24 @@ class Table(CommandHandler[_TableState]):
         if not cmd.table_name:
             raise CommandRejectedError("table_name is required")
         if cmd.small_blind <= 0:
-            raise CommandRejectedError("small_blind must be positive")
-        if cmd.big_blind <= 0:
-            raise CommandRejectedError("big_blind must be positive")
-        if cmd.big_blind < cmd.small_blind:
+            raise CommandRejectedError.invalid_argument("small_blind must be positive")
+        if cmd.big_blind <= 0 or cmd.big_blind < cmd.small_blind:
             raise CommandRejectedError("big_blind must be >= small_blind")
+        if cmd.min_buy_in <= 0:
+            raise CommandRejectedError.invalid_argument("min_buy_in must be positive")
+        if cmd.max_buy_in < cmd.min_buy_in:
+            raise CommandRejectedError("max_buy_in must be >= min_buy_in")
         if cmd.max_players < 2 or cmd.max_players > 10:
-            raise CommandRejectedError("max_players must be between 2 and 10")
+            raise CommandRejectedError("max_players must be 2-10")
 
         return table_proto.TableCreated(
             table_name=cmd.table_name,
             game_variant=cmd.game_variant,
             small_blind=cmd.small_blind,
             big_blind=cmd.big_blind,
-            min_buy_in=cmd.min_buy_in or cmd.big_blind * 20,
-            max_buy_in=cmd.max_buy_in or cmd.big_blind * 100,
-            max_players=cmd.max_players or 9,
+            min_buy_in=cmd.min_buy_in,
+            max_buy_in=cmd.max_buy_in,
+            max_players=cmd.max_players,
             action_timeout_seconds=cmd.action_timeout_seconds or 30,
             created_at=now(),
         )
@@ -280,14 +282,20 @@ class Table(CommandHandler[_TableState]):
         if self.is_full:
             raise CommandRejectedError("Table is full")
         if cmd.buy_in_amount < self.min_buy_in:
-            raise CommandRejectedError(f"Buy-in must be at least {self.min_buy_in}")
+            raise CommandRejectedError.invalid_argument(
+                f"Buy-in must be at least {self.min_buy_in}"
+            )
         if cmd.buy_in_amount > self.max_buy_in:
-            raise CommandRejectedError(f"Buy-in cannot exceed {self.max_buy_in}")
-        # preferred_seat -1 means no preference; 0+ means specific seat
-        if cmd.preferred_seat > 0 and self.get_seat(cmd.preferred_seat) is not None:
-            raise CommandRejectedError("Seat is occupied")
-
-        seat_position = self._find_available_seat(cmd.preferred_seat)
+            raise CommandRejectedError.invalid_argument(
+                f"Buy-in cannot exceed {self.max_buy_in}"
+            )
+        # preferred_seat >= 0 means specific seat; < 0 means no preference
+        if cmd.preferred_seat >= 0 and cmd.preferred_seat < self.max_players:
+            if self.get_seat(cmd.preferred_seat) is not None:
+                raise CommandRejectedError("Seat is occupied")
+            seat_position = cmd.preferred_seat
+        else:
+            seat_position = self._find_available_seat(-1)
 
         return table_proto.PlayerJoined(
             player_root=cmd.player_root,
@@ -330,13 +338,11 @@ class Table(CommandHandler[_TableState]):
 
         state = self._get_state()
 
-        # Generate hand root
+        # Generate hand root (deterministic based on table + hand number)
         hand_number = state.hand_count + 1
-        hand_uuid = uuid.uuid5(
-            uuid.NAMESPACE_DNS,
-            f"angzarr.poker.hand.{state.table_id}.{hand_number}",
-        )
-        hand_root = hand_uuid.bytes
+        hand_root_input = f"angzarr.poker.hand.{state.table_id}.{hand_number}"
+        hand_hash = hashlib.sha256(hand_root_input.encode()).digest()
+        hand_root = hand_hash[:16]  # Use first 16 bytes as UUID-like identifier
 
         # Advance dealer button
         dealer_position = self._next_dealer_position()

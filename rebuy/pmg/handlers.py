@@ -80,9 +80,7 @@ class RebuyPM(ProcessManager[RebuyState]):
     # --- Prepare handlers ---
 
     @prepares(rebuy.RebuyRequested)
-    def prepare_rebuy_requested(
-        self, event: rebuy.RebuyRequested
-    ) -> list[types.Cover]:
+    def prepare_rebuy_requested(self, event: rebuy.RebuyRequested) -> list[types.Cover]:
         """RebuyRequested from Player -> need Tournament + Table sequences."""
         return [
             types.Cover(
@@ -108,9 +106,7 @@ class RebuyPM(ProcessManager[RebuyState]):
         ]
 
     @prepares(tournament.RebuyDenied)
-    def prepare_rebuy_denied(
-        self, event: tournament.RebuyDenied
-    ) -> list[types.Cover]:
+    def prepare_rebuy_denied(self, event: tournament.RebuyDenied) -> list[types.Cover]:
         """RebuyDenied from Tournament -> need Player sequence."""
         return [
             types.Cover(
@@ -120,9 +116,7 @@ class RebuyPM(ProcessManager[RebuyState]):
         ]
 
     @prepares(rebuy.RebuyChipsAdded)
-    def prepare_chips_added(
-        self, event: rebuy.RebuyChipsAdded
-    ) -> list[types.Cover]:
+    def prepare_chips_added(self, event: rebuy.RebuyChipsAdded) -> list[types.Cover]:
         """RebuyChipsAdded from Table -> need Player sequence."""
         return [
             types.Cover(

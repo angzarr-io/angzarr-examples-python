@@ -226,7 +226,7 @@ class TestWithdrawFunds:
         with pytest.raises(CommandRejectedError) as exc:
             handle_withdraw(cmd, state, seq=0)
 
-        assert "Insufficient" in str(exc.value)
+        assert "insufficient available balance" in str(exc.value)
 
     def test_withdraw_respects_reserved_funds(self) -> None:
         """Cannot withdraw reserved funds."""
@@ -237,7 +237,7 @@ class TestWithdrawFunds:
         with pytest.raises(CommandRejectedError) as exc:
             handle_withdraw(cmd, state, seq=0)
 
-        assert "Insufficient" in str(exc.value)
+        assert "insufficient available balance" in str(exc.value)
 
     def test_withdraw_full_available_balance(self) -> None:
         """Can withdraw exactly the available balance."""
@@ -329,6 +329,29 @@ class TestReserveFunds:
 
         assert "Insufficient" in str(exc.value)
 
+    def test_reserve_validation_order_insufficient_before_duplicate(self) -> None:
+        """Insufficient funds checked before duplicate table (cross-language consistency).
+
+        When a player has BOTH insufficient funds AND already has a reservation,
+        the error should be "Insufficient funds" not "already reserved".
+        This matches Go behavior.
+        """
+        state = make_registered_state(bankroll=100)  # Only 100 available
+        table_root = b"table_123"
+        state.table_reservations[table_root.hex()] = 50  # Already reserved
+        state.reserved_funds = 50
+
+        cmd = player.ReserveFunds(
+            table_root=table_root,
+            amount=currency(500),  # More than available
+        )
+
+        with pytest.raises(CommandRejectedError) as exc:
+            handle_reserve(cmd, state, seq=0)
+
+        # Should fail on insufficient funds FIRST, not duplicate reservation
+        assert "Insufficient" in str(exc.value)
+
     def test_reserve_multiple_tables(self) -> None:
         """Can reserve for multiple tables."""
         state = make_registered_state(bankroll=1000)
@@ -396,6 +419,16 @@ class TestReleaseFunds:
             handle_release(cmd, state, seq=0)
 
         assert "No funds reserved" in str(exc.value)
+
+    def test_release_rejects_empty_table_root(self) -> None:
+        """Cannot release without table_root (cross-language consistency)."""
+        state = make_registered_state(bankroll=1000)
+        cmd = player.ReleaseFunds(table_root=b"")
+
+        with pytest.raises(CommandRejectedError) as exc:
+            handle_release(cmd, state, seq=0)
+
+        assert "table_root is required" in str(exc.value)
 
     def test_release_partial_when_multiple_tables(self) -> None:
         """Release only affects the specified table."""

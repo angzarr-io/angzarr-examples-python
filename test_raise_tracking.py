@@ -83,7 +83,6 @@ class TestRaiseTracking:
 
     def test_call_does_not_change_min_raise(self):
         """Calling should not affect min_raise."""
-        big_blind = 10
 
         # After raise TO 30
         current_bet = 30
@@ -102,15 +101,12 @@ class TestRaiseTracking:
         This matches server behavior where min_raise uses max() and
         is only reset at the start of a new HAND, not a new round.
         """
-        big_blind = 10
 
         # After preflop with a raise to 30
-        current_bet = 30
         last_raise_increment = 20  # From the raise
 
         # Flop betting round starts - current_bet resets to 0
         # BUT min_raise (last_raise_increment) should NOT reset
-        current_bet = 0  # New round
         # last_raise_increment stays at 20
 
         # First bet on flop must be at least big_blind
@@ -119,7 +115,6 @@ class TestRaiseTracking:
 
         # Actually, let's check what happens with a fresh bet
         bet_amount = 25
-        current_bet = bet_amount
         raise_increment = bet_amount - 0  # 25 - 0 = 25
         if raise_increment > last_raise_increment:
             last_raise_increment = raise_increment
@@ -128,7 +123,6 @@ class TestRaiseTracking:
 
     def test_smaller_raise_does_not_decrease_min_raise(self):
         """Server uses max(), so smaller raise doesn't decrease min_raise."""
-        big_blind = 10
 
         # Big raise happened: min_raise is 50
         current_bet = 100
@@ -143,7 +137,6 @@ class TestRaiseTracking:
 
     def test_all_in_raise_less_than_min(self):
         """All-in for less than min raise is allowed (but doesn't reopen)."""
-        big_blind = 10
 
         current_bet = 30
         last_raise_increment = 20
@@ -220,7 +213,9 @@ class TestRaiseTrackingWithServer:
             action=types_pb2.RAISE,
             amount=30,
         )
-        resp = game.client.execute("hand", game.hand_root, cmd, sequence=game.hand_sequence)
+        resp = game.client.execute(
+            "hand", game.hand_root, cmd, sequence=game.hand_sequence
+        )
         game.hand_sequence = resp.events_book().next_sequence()
 
         # Update local state
@@ -241,7 +236,9 @@ class TestRaiseTrackingWithServer:
             action=types_pb2.RAISE,
             amount=70,
         )
-        resp = game.client.execute("hand", game.hand_root, cmd, sequence=game.hand_sequence)
+        resp = game.client.execute(
+            "hand", game.hand_root, cmd, sequence=game.hand_sequence
+        )
         game.hand_sequence = resp.events_book().next_sequence()
 
         # Update local state
@@ -249,7 +246,7 @@ class TestRaiseTrackingWithServer:
         if raise_increment > game.last_raise_increment:
             game.last_raise_increment = raise_increment
         game.current_bet = 70
-        sb.stack -= (70 - 5)  # Minus SB already posted
+        sb.stack -= 70 - 5  # Minus SB already posted
         sb.bet = 70
 
         assert game.last_raise_increment == 40
@@ -267,7 +264,9 @@ class TestRaiseTrackingWithServer:
             amount=110,
         )
         # This should NOT raise an exception
-        resp = game.client.execute("hand", game.hand_root, cmd, sequence=game.hand_sequence)
+        resp = game.client.execute(
+            "hand", game.hand_root, cmd, sequence=game.hand_sequence
+        )
         game.hand_sequence = resp.events_book().next_sequence()
 
     def test_replicate_failure_scenario(self, game):
@@ -296,24 +295,42 @@ class TestRaiseTrackingWithServer:
         bb = players_by_seat[seats[2]]
 
         # UTG raises to 30
-        cmd = hand_pb2.PlayerAction(player_root=utg.root, action=types_pb2.RAISE, amount=30)
-        resp = game.client.execute("hand", game.hand_root, cmd, sequence=game.hand_sequence)
+        cmd = hand_pb2.PlayerAction(
+            player_root=utg.root, action=types_pb2.RAISE, amount=30
+        )
+        resp = game.client.execute(
+            "hand", game.hand_root, cmd, sequence=game.hand_sequence
+        )
         game.hand_sequence = resp.events_book().next_sequence()
-        game.last_raise_increment = max(game.last_raise_increment, 30 - game.current_bet)
+        game.last_raise_increment = max(
+            game.last_raise_increment, 30 - game.current_bet
+        )
         game.current_bet = 30
 
         # SB re-raises to 90 (raise of 60)
-        cmd = hand_pb2.PlayerAction(player_root=sb.root, action=types_pb2.RAISE, amount=90)
-        resp = game.client.execute("hand", game.hand_root, cmd, sequence=game.hand_sequence)
+        cmd = hand_pb2.PlayerAction(
+            player_root=sb.root, action=types_pb2.RAISE, amount=90
+        )
+        resp = game.client.execute(
+            "hand", game.hand_root, cmd, sequence=game.hand_sequence
+        )
         game.hand_sequence = resp.events_book().next_sequence()
-        game.last_raise_increment = max(game.last_raise_increment, 90 - game.current_bet)
+        game.last_raise_increment = max(
+            game.last_raise_increment, 90 - game.current_bet
+        )
         game.current_bet = 90
 
         # BB re-raises to 210 (raise of 120)
-        cmd = hand_pb2.PlayerAction(player_root=bb.root, action=types_pb2.RAISE, amount=210)
-        resp = game.client.execute("hand", game.hand_root, cmd, sequence=game.hand_sequence)
+        cmd = hand_pb2.PlayerAction(
+            player_root=bb.root, action=types_pb2.RAISE, amount=210
+        )
+        resp = game.client.execute(
+            "hand", game.hand_root, cmd, sequence=game.hand_sequence
+        )
         game.hand_sequence = resp.events_book().next_sequence()
-        game.last_raise_increment = max(game.last_raise_increment, 210 - game.current_bet)
+        game.last_raise_increment = max(
+            game.last_raise_increment, 210 - game.current_bet
+        )
         game.current_bet = 210
 
         # Now UTG wants to raise again
@@ -326,8 +343,12 @@ class TestRaiseTrackingWithServer:
         assert min_raise_to == 330
 
         # UTG raises to 330 - should succeed
-        cmd = hand_pb2.PlayerAction(player_root=utg.root, action=types_pb2.RAISE, amount=330)
-        resp = game.client.execute("hand", game.hand_root, cmd, sequence=game.hand_sequence)
+        cmd = hand_pb2.PlayerAction(
+            player_root=utg.root, action=types_pb2.RAISE, amount=330
+        )
+        resp = game.client.execute(
+            "hand", game.hand_root, cmd, sequence=game.hand_sequence
+        )
         game.hand_sequence = resp.events_book().next_sequence()
 
         # If we made it here without exception, the state tracking is correct

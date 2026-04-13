@@ -24,7 +24,7 @@ root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root))
 
 from prj_training.schema import Base, TournamentResult
-from run_game import GatewayClient, PokerGame, GameVariant
+from run_game import GameVariant, GatewayClient, PokerGame
 
 logger = structlog.get_logger()
 
@@ -93,7 +93,18 @@ class TournamentRunner:
         )
 
         # Track initial stacks for calculating deltas
-        player_names = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Hank", "Ivan"][:cfg.players]
+        all_names = [
+            "Alice",
+            "Bob",
+            "Carol",
+            "Dave",
+            "Eve",
+            "Frank",
+            "Grace",
+            "Hank",
+            "Ivan",
+        ]
+        player_names = all_names[: cfg.players]
 
         with GatewayClient(cfg.gateway_address) as client:
             game = PokerGame(
@@ -140,29 +151,33 @@ class TournamentRunner:
                 chip_delta = p.stack - initial["stack"]
                 bb_won = chip_delta / cfg.big_blind
 
-                results.append({
-                    "player_name": p.name,
-                    "player_root": p.root,
-                    "final_position": position,
-                    "final_stack": p.stack,
-                    "chip_delta": chip_delta,
-                    "bb_won": bb_won,
-                    "roi": chip_delta / cfg.starting_stack,
-                })
+                results.append(
+                    {
+                        "player_name": p.name,
+                        "player_root": p.root,
+                        "final_position": position,
+                        "final_stack": p.stack,
+                        "chip_delta": chip_delta,
+                        "bb_won": bb_won,
+                        "roi": chip_delta / cfg.starting_stack,
+                    }
+                )
                 position += 1
 
             # Add eliminated players (they're no longer in game.players)
             for name, initial in initial_players.items():
                 if not any(r["player_name"] == name for r in results):
-                    results.append({
-                        "player_name": name,
-                        "player_root": initial["root"],
-                        "final_position": position,
-                        "final_stack": 0,
-                        "chip_delta": -cfg.starting_stack,
-                        "bb_won": -cfg.starting_stack / cfg.big_blind,
-                        "roi": -1.0,
-                    })
+                    results.append(
+                        {
+                            "player_name": name,
+                            "player_root": initial["root"],
+                            "final_position": position,
+                            "final_stack": 0,
+                            "chip_delta": -cfg.starting_stack,
+                            "bb_won": -cfg.starting_stack / cfg.big_blind,
+                            "roi": -1.0,
+                        }
+                    )
                     position += 1
 
         # Record results to database

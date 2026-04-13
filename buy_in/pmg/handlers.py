@@ -66,9 +66,7 @@ class BuyInPM(ProcessManager[BuyInState]):
         state.phase = event.to_phase
 
     @applies(buy_in.BuyInCompleted)
-    def apply_completed(
-        self, state: BuyInState, _event: buy_in.BuyInCompleted
-    ) -> None:
+    def apply_completed(self, state: BuyInState, _event: buy_in.BuyInCompleted) -> None:
         state.phase = orch.BuyInPhase.BUY_IN_COMPLETED
 
     @applies(buy_in.BuyInFailed)
@@ -210,4 +208,3 @@ class BuyInPM(ProcessManager[BuyInState]):
             reservation_id=event.reservation_id,
             reason=event.reason,
         )
-

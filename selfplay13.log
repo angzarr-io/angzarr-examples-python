@@ -1,0 +1,208 @@
+2026-03-24 19:07:15 [debug    ] model_registered               model_id=agent_alice
+2026-03-24 19:07:15 [debug    ] model_registered               model_id=agent_bob
+2026-03-24 19:07:15 [debug    ] model_registered               model_id=agent_carol
+2026-03-24 19:07:15 [debug    ] model_registered               model_id=agent_dave
+2026-03-24 19:07:15 [debug    ] model_registered               model_id=agent_eve
+2026-03-24 19:07:15 [debug    ] model_registered               model_id=agent_frank
+2026-03-24 19:07:15 [debug    ] model_registered               model_id=agent_grace
+2026-03-24 19:07:15 [debug    ] model_registered               model_id=agent_hank
+2026-03-24 19:07:15 [debug    ] model_registered               model_id=agent_ivan
+2026-03-24 19:07:15 [info     ] agents_initialized             count=9
+2026-03-24 19:07:15 [info     ] selfplay_starting              max_iterations=30 num_players=9 tournaments_per_iter=5
+2026-03-24 19:07:15 [info     ] iteration_starting             iteration=1
+2026-03-24 19:07:15 [debug    ] tournament_starting            tournament_id=selfplay-94afa8e6
+/home/babbitt/workspace/angzarr/examples-python/main/ai_player/models/poker_net.py:123: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  x = torch.tensor(state, dtype=torch.float32, device=self._device)
+2026-03-24 19:07:27 [debug    ] tournament_complete            hands=100 tournament_id=selfplay-94afa8e6 winner=Ivan
+2026-03-24 19:07:27 [debug    ] tournament_starting            tournament_id=selfplay-f8046447
+2026-03-24 19:07:27 [debug    ] tournament_complete            hands=2 tournament_id=selfplay-f8046447 winner=Alice
+2026-03-24 19:07:27 [debug    ] tournament_starting            tournament_id=selfplay-66139749
+2026-03-24 19:07:27 [debug    ] tournament_complete            hands=5 tournament_id=selfplay-66139749 winner=Hank
+2026-03-24 19:07:27 [debug    ] tournament_starting            tournament_id=selfplay-4dcbf1cf
+2026-03-24 19:07:28 [debug    ] tournament_complete            hands=7 tournament_id=selfplay-4dcbf1cf winner=Ivan
+2026-03-24 19:07:28 [debug    ] tournament_starting            tournament_id=selfplay-6c6a5075
+2026-03-24 19:07:46 [debug    ] tournament_complete            hands=68 tournament_id=selfplay-6c6a5075 winner=Grace
+2026-03-24 19:07:46 [info     ] training_phase                 iteration=1
+/tmp/whatif_venv/lib/python3.13/site-packages/torch/autograd/graph.py:869: UserWarning: CUDA initialization: The NVIDIA driver on your system is too old (found version 12040). Please update your GPU driver by downloading and installing a new version from the URL: http://www.nvidia.com/Download/index.aspx Alternatively, go to: https://pytorch.org to install a PyTorch version that has been compiled with your version of the CUDA driver. (Triggered internally at /pytorch/c10/cuda/CUDAFunctions.cpp:119.)
+  return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+2026-03-24 19:07:46 [info     ] epoch_complete                 avg_loss=2262.595 epoch=1 num_batches=26 policy_loss=1.1545 value_loss=4522.9028
+2026-03-24 19:07:46 [info     ] epoch_complete                 avg_loss=2258.0253 epoch=2 num_batches=26 policy_loss=1.1524 value_loss=4513.7676
+2026-03-24 19:07:46 [info     ] epoch_complete                 avg_loss=2261.1374 epoch=3 num_batches=26 policy_loss=1.1526 value_loss=4519.9912
+2026-03-24 19:07:46 [debug    ] agent_trained                  agent=Alice avg_loss=2260.5859 epochs=3
+2026-03-24 19:07:46 [info     ] epoch_complete                 avg_loss=2254.1275 epoch=1 num_batches=26 policy_loss=1.0022 value_loss=4506.2724
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2268.8672 epoch=2 num_batches=26 policy_loss=0.9995 value_loss=4535.757
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2262.8048 epoch=3 num_batches=26 policy_loss=1.005 value_loss=4523.6212
+2026-03-24 19:07:47 [debug    ] agent_trained                  agent=Bob avg_loss=2261.9332 epochs=3
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2270.739 epoch=1 num_batches=26 policy_loss=1.0457 value_loss=4539.4084
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2282.8748 epoch=2 num_batches=26 policy_loss=1.0457 value_loss=4563.68
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2260.5765 epoch=3 num_batches=26 policy_loss=1.0425 value_loss=4519.0896
+2026-03-24 19:07:47 [debug    ] agent_trained                  agent=Carol avg_loss=2271.3968 epochs=3
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2244.5709 epoch=1 num_batches=26 policy_loss=1.0279 value_loss=4487.1078
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2280.8291 epoch=2 num_batches=26 policy_loss=1.027 value_loss=4559.626
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2261.9085 epoch=3 num_batches=26 policy_loss=1.0262 value_loss=4521.7863
+2026-03-24 19:07:47 [debug    ] agent_trained                  agent=Dave avg_loss=2262.4362 epochs=3
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2262.6679 epoch=1 num_batches=26 policy_loss=1.0572 value_loss=4523.2432
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2284.8266 epoch=2 num_batches=26 policy_loss=1.058 value_loss=4567.559
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2288.4927 epoch=3 num_batches=26 policy_loss=1.0581 value_loss=4574.8908
+2026-03-24 19:07:47 [debug    ] agent_trained                  agent=Eve avg_loss=2278.6624 epochs=3
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2260.2577 epoch=1 num_batches=26 policy_loss=1.0883 value_loss=4518.3605
+2026-03-24 19:07:47 [info     ] epoch_complete                 avg_loss=2244.8865 epoch=2 num_batches=26 policy_loss=1.0899 value_loss=4487.6148
+2026-03-24 19:07:48 [info     ] epoch_complete                 avg_loss=2251.128 epoch=3 num_batches=26 policy_loss=1.0853 value_loss=4500.1071
+2026-03-24 19:07:48 [debug    ] agent_trained                  agent=Frank avg_loss=2252.0907 epochs=3
+2026-03-24 19:07:48 [info     ] epoch_complete                 avg_loss=2271.6189 epoch=1 num_batches=26 policy_loss=1.1785 value_loss=4540.9025
+2026-03-24 19:07:48 [info     ] epoch_complete                 avg_loss=3438.7751 epoch=2 num_batches=26 policy_loss=1.178 value_loss=6875.2161
+2026-03-24 19:07:48 [info     ] epoch_complete                 avg_loss=2273.1674 epoch=3 num_batches=26 policy_loss=1.1807 value_loss=4543.995
+2026-03-24 19:07:48 [debug    ] agent_trained                  agent=Grace avg_loss=2661.1871 epochs=3
+2026-03-24 19:07:48 [info     ] epoch_complete                 avg_loss=2246.3185 epoch=1 num_batches=26 policy_loss=1.216 value_loss=4490.2267
+2026-03-24 19:07:48 [info     ] epoch_complete                 avg_loss=3407.7677 epoch=2 num_batches=26 policy_loss=1.2182 value_loss=6813.1208
+2026-03-24 19:07:48 [info     ] epoch_complete                 avg_loss=2259.7793 epoch=3 num_batches=26 policy_loss=1.2185 value_loss=4517.1435
+2026-03-24 19:07:48 [debug    ] agent_trained                  agent=Hank avg_loss=2637.9552 epochs=3
+2026-03-24 19:07:48 [info     ] epoch_complete                 avg_loss=2244.1366 epoch=1 num_batches=26 policy_loss=1.2296 value_loss=4485.8358
+2026-03-24 19:07:48 [info     ] epoch_complete                 avg_loss=2263.1365 epoch=2 num_batches=26 policy_loss=1.2289 value_loss=4523.8368
+2026-03-24 19:07:48 [info     ] epoch_complete                 avg_loss=2275.2125 epoch=3 num_batches=26 policy_loss=1.2311 value_loss=4547.9845
+2026-03-24 19:07:48 [debug    ] agent_trained                  agent=Ivan avg_loss=2260.8285 epochs=3
+2026-03-24 19:07:48 [info     ] winner_weights_shared          alpha=0.5 learners=8 winner=agent_ivan
+2026-03-24 19:07:48 [info     ] winner_teaches                 winner=Ivan wins_this_iteration=2
+2026-03-24 19:07:48 [info     ] iteration_complete             best_agent=Ivan best_bb_per_100=648.46 iteration=1
+
+=== Agent Leaderboard ===
+Rank  Agent      BB/100     Win Rate   Tournaments  Hands     
+------------------------------------------------------------
+1     Ivan         648.46    40.0%          5        182
+2     Grace        285.60    20.0%          5        182
+3     Alice        219.78    20.0%          5        182
+4     Hank         219.78    20.0%          5        182
+5     Bob         -274.73     0.0%          5        182
+6     Carol       -274.73     0.0%          5        182
+7     Dave        -274.73     0.0%          5        182
+8     Eve         -274.73     0.0%          5        182
+9     Frank       -274.73     0.0%          5        182
+
+2026-03-24 19:07:48 [info     ] iteration_starting             iteration=2
+2026-03-24 19:07:48 [debug    ] tournament_starting            tournament_id=selfplay-7fde040e
+/home/babbitt/workspace/angzarr/examples-python/main/ai_player/models/poker_net.py:123: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  x = torch.tensor(state, dtype=torch.float32, device=self._device)
+2026-03-24 19:07:51 [debug    ] tournament_complete            hands=22 tournament_id=selfplay-7fde040e winner=Carol
+2026-03-24 19:07:51 [debug    ] tournament_starting            tournament_id=selfplay-bbf126fa
+2026-03-24 19:07:52 [debug    ] tournament_complete            hands=4 tournament_id=selfplay-bbf126fa winner=Eve
+2026-03-24 19:07:52 [debug    ] tournament_starting            tournament_id=selfplay-6d21874c
+2026-03-24 19:08:04 [debug    ] tournament_complete            hands=8 tournament_id=selfplay-6d21874c winner=Bob
+2026-03-24 19:08:04 [debug    ] tournament_starting            tournament_id=selfplay-737e452a
+2026-03-24 19:08:04 [debug    ] tournament_complete            hands=3 tournament_id=selfplay-737e452a winner=Bob
+2026-03-24 19:08:04 [debug    ] tournament_starting            tournament_id=selfplay-c60e61d0
+2026-03-24 19:08:12 [debug    ] tournament_complete            hands=55 tournament_id=selfplay-c60e61d0 winner=Dave
+2026-03-24 19:08:12 [info     ] training_phase                 iteration=2
+2026-03-24 19:08:12 [info     ] epoch_complete                 avg_loss=3386.543 epoch=1 num_batches=41 policy_loss=1.1336 value_loss=6770.8407
+2026-03-24 19:08:12 [info     ] epoch_complete                 avg_loss=3253.3473 epoch=2 num_batches=41 policy_loss=1.1313 value_loss=6504.4539
+2026-03-24 19:08:12 [info     ] epoch_complete                 avg_loss=3241.0277 epoch=3 num_batches=41 policy_loss=1.1313 value_loss=6479.8147
+2026-03-24 19:08:12 [debug    ] agent_trained                  agent=Alice avg_loss=3293.6394 epochs=3
+2026-03-24 19:08:12 [info     ] epoch_complete                 avg_loss=3246.3314 epoch=1 num_batches=41 policy_loss=1.1329 value_loss=6490.4188
+2026-03-24 19:08:13 [info     ] epoch_complete                 avg_loss=3239.194 epoch=2 num_batches=41 policy_loss=1.1343 value_loss=6476.1412
+2026-03-24 19:08:13 [info     ] epoch_complete                 avg_loss=3245.0932 epoch=3 num_batches=41 policy_loss=1.1345 value_loss=6487.9392
+2026-03-24 19:08:13 [debug    ] agent_trained                  agent=Bob avg_loss=3243.5395 epochs=3
+2026-03-24 19:08:13 [info     ] epoch_complete                 avg_loss=3241.5125 epoch=1 num_batches=41 policy_loss=1.1209 value_loss=6480.805
+2026-03-24 19:08:13 [info     ] epoch_complete                 avg_loss=3260.3723 epoch=2 num_batches=41 policy_loss=1.1216 value_loss=6518.5232
+2026-03-24 19:08:13 [info     ] epoch_complete                 avg_loss=3240.9901 epoch=3 num_batches=41 policy_loss=1.1222 value_loss=6479.7575
+2026-03-24 19:08:13 [debug    ] agent_trained                  agent=Carol avg_loss=3247.6249 epochs=3
+2026-03-24 19:08:13 [info     ] epoch_complete                 avg_loss=3249.1941 epoch=1 num_batches=41 policy_loss=1.1258 value_loss=6496.1586
+2026-03-24 19:08:13 [info     ] epoch_complete                 avg_loss=3241.7311 epoch=2 num_batches=41 policy_loss=1.125 value_loss=6481.234
+2026-03-24 19:08:13 [info     ] epoch_complete                 avg_loss=3250.4776 epoch=3 num_batches=41 policy_loss=1.1255 value_loss=6498.726
+2026-03-24 19:08:13 [debug    ] agent_trained                  agent=Dave avg_loss=3247.1343 epochs=3
+2026-03-24 19:08:14 [info     ] epoch_complete                 avg_loss=3235.8879 epoch=1 num_batches=41 policy_loss=1.1119 value_loss=6469.5738
+2026-03-24 19:08:14 [info     ] epoch_complete                 avg_loss=3248.6742 epoch=2 num_batches=41 policy_loss=1.1122 value_loss=6495.146
+2026-03-24 19:08:14 [info     ] epoch_complete                 avg_loss=3245.0027 epoch=3 num_batches=41 policy_loss=1.1119 value_loss=6487.8035
+2026-03-24 19:08:14 [debug    ] agent_trained                  agent=Eve avg_loss=3243.1883 epochs=3
+2026-03-24 19:08:14 [info     ] epoch_complete                 avg_loss=3248.8544 epoch=1 num_batches=41 policy_loss=1.0855 value_loss=6495.5596
+2026-03-24 19:08:14 [info     ] epoch_complete                 avg_loss=3237.4181 epoch=2 num_batches=41 policy_loss=1.0861 value_loss=6472.6857
+2026-03-24 19:08:15 [info     ] epoch_complete                 avg_loss=3240.6234 epoch=3 num_batches=41 policy_loss=1.0843 value_loss=6479.1002
+2026-03-24 19:08:15 [debug    ] agent_trained                  agent=Frank avg_loss=3242.2987 epochs=3
+2026-03-24 19:08:15 [info     ] epoch_complete                 avg_loss=3245.1503 epoch=1 num_batches=41 policy_loss=1.1802 value_loss=6487.9618
+2026-03-24 19:08:15 [info     ] epoch_complete                 avg_loss=3241.7422 epoch=2 num_batches=41 policy_loss=1.1809 value_loss=6481.1444
+2026-03-24 19:08:15 [info     ] epoch_complete                 avg_loss=3243.2511 epoch=3 num_batches=41 policy_loss=1.1788 value_loss=6484.1662
+2026-03-24 19:08:15 [debug    ] agent_trained                  agent=Grace avg_loss=3243.3812 epochs=3
+2026-03-24 19:08:15 [info     ] epoch_complete                 avg_loss=3240.3142 epoch=1 num_batches=41 policy_loss=1.1929 value_loss=6478.2643
+2026-03-24 19:08:15 [info     ] epoch_complete                 avg_loss=3237.87 epoch=2 num_batches=41 policy_loss=1.1939 value_loss=6473.3739
+2026-03-24 19:08:15 [info     ] epoch_complete                 avg_loss=3245.257 epoch=3 num_batches=41 policy_loss=1.1925 value_loss=6488.1506
+2026-03-24 19:08:15 [debug    ] agent_trained                  agent=Hank avg_loss=3241.1471 epochs=3
+2026-03-24 19:08:15 [info     ] epoch_complete                 avg_loss=3460.1158 epoch=1 num_batches=41 policy_loss=1.2275 value_loss=6917.7981
+2026-03-24 19:08:16 [info     ] epoch_complete                 avg_loss=3245.3724 epoch=2 num_batches=41 policy_loss=1.23 value_loss=6488.3063
+2026-03-24 19:08:16 [info     ] epoch_complete                 avg_loss=3249.2105 epoch=3 num_batches=41 policy_loss=1.231 value_loss=6495.9806
+2026-03-24 19:08:16 [debug    ] agent_trained                  agent=Ivan avg_loss=3318.2329 epochs=3
+2026-03-24 19:08:16 [info     ] winner_weights_shared          alpha=0.5 learners=8 winner=agent_bob
+2026-03-24 19:08:16 [info     ] winner_teaches                 winner=Bob wins_this_iteration=2
+2026-03-24 19:08:16 [info     ] iteration_complete             best_agent=Bob best_bb_per_100=291.97 iteration=2
+
+=== Agent Leaderboard ===
+Rank  Agent      BB/100     Win Rate   Tournaments  Hands     
+------------------------------------------------------------
+1     Bob          291.97    20.0%         10        274
+2     Ivan         248.25    20.0%         10        274
+3     Grace          7.23    10.0%         10        274
+4     Alice        -36.50    10.0%         10        274
+5     Carol        -36.50    10.0%         10        274
+6     Dave         -36.50    10.0%         10        274
+7     Eve          -36.50    10.0%         10        274
+8     Hank         -36.50    10.0%         10        274
+9     Frank       -364.96     0.0%         10        274
+
+2026-03-24 19:08:16 [info     ] iteration_starting             iteration=3
+2026-03-24 19:08:16 [debug    ] tournament_starting            tournament_id=selfplay-93d2b091
+2026-03-24 19:08:21 [debug    ] tournament_complete            hands=47 tournament_id=selfplay-93d2b091 winner=Ivan
+2026-03-24 19:08:21 [debug    ] tournament_starting            tournament_id=selfplay-87bfa720
+2026-03-24 19:08:27 [debug    ] tournament_complete            hands=46 tournament_id=selfplay-87bfa720 winner=Hank
+2026-03-24 19:08:27 [debug    ] tournament_starting            tournament_id=selfplay-adb29bc1
+2026-03-24 19:08:29 [debug    ] tournament_complete            hands=15 tournament_id=selfplay-adb29bc1 winner=Grace
+2026-03-24 19:08:29 [debug    ] tournament_starting            tournament_id=selfplay-fd40b43b
+2026-03-24 19:08:39 [debug    ] tournament_complete            hands=16 tournament_id=selfplay-fd40b43b winner=Frank
+2026-03-24 19:08:39 [debug    ] tournament_starting            tournament_id=selfplay-34114968
+Traceback (most recent call last):
+  File "/home/babbitt/workspace/angzarr/client-python/main/angzarr_client/client.py", line 182, in handle_command
+    return self._stub.HandleCommand(request)
+           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/grpc/_channel.py", line 1159, in __call__
+    return _end_unary_response_blocking(state, call, False, None)
+  File "/tmp/whatif_venv/lib/python3.13/site-packages/grpc/_channel.py", line 990, in _end_unary_response_blocking
+    raise _InactiveRpcError(state)  # pytype: disable=not-instantiable
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+grpc._channel._InactiveRpcError: <_InactiveRpcError of RPC that terminated with:
+	status = StatusCode.FAILED_PRECONDITION
+	details = "Raise must be at least 245"
+	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:9, grpc_message:"Raise must be at least 245"}"
+>
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 925, in <module>
+    main()
+    ~~~~^^
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 916, in main
+    best = trainer.run()
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 820, in run
+    results = self.run_tournament()
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 625, in run_tournament
+    game.play_hand()
+    ~~~~~~~~~~~~~~^^
+  File "/home/babbitt/workspace/angzarr/examples-python/main/ai_player/training/self_play.py", line 102, in play_hand
+    result = self._base_game.play_hand()
+  File "/home/babbitt/workspace/angzarr/examples-python/main/run_game.py", line 975, in play_hand
+    self.betting_round(first_preflop, preflop=True)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/babbitt/workspace/angzarr/examples-python/main/run_game.py", line 760, in betting_round
+    resp = self.client.execute(
+        "hand", self.hand_root, cmd, sequence=self.hand_sequence
+    )
+  File "/home/babbitt/workspace/angzarr/examples-python/main/client.py", line 164, in execute
+    response = client.execute_with_mode(cmd_book, sync_mode)
+  File "/home/babbitt/workspace/angzarr/client-python/main/angzarr_client/client.py", line 329, in execute_with_mode
+    return self.command_handler.handle_command(request)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/babbitt/workspace/angzarr/client-python/main/angzarr_client/client.py", line 184, in handle_command
+    raise GRPCError(e) from e
+angzarr_client.errors.GRPCError: grpc error: <_InactiveRpcError of RPC that terminated with:
+	status = StatusCode.FAILED_PRECONDITION
+	details = "Raise must be at least 245"
+	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:9, grpc_message:"Raise must be at least 245"}"
+>

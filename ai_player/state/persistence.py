@@ -7,10 +7,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import structlog
-from sqlalchemy import create_engine, select, func
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
-from ai_player.db.schema import Base, ExperienceReplay, PlayerProfile, HandHistory
+from ai_player.db.schema import Base, ExperienceReplay, HandHistory, PlayerProfile
 
 if TYPE_CHECKING:
     from ai_player.proto.examples import ai_player_pb2
@@ -68,25 +68,29 @@ class ExperienceStore:
         """
         # Convert proto to dict-like structure
         snapshot = context.snapshot
-        return json.dumps({
-            "session_id": context.session_id,
-            "player_root": context.player_root.hex() if context.player_root else None,
-            "hand_id": context.hand_id.hex() if context.hand_id else None,
-            "snapshot": {
-                "model_id": snapshot.model_id,
-                "game_variant": snapshot.game_variant,
-                "phase": snapshot.phase,
-                "pot_size": snapshot.pot_size,
-                "stack_size": snapshot.stack_size,
-                "amount_to_call": snapshot.amount_to_call,
-                "min_raise": snapshot.min_raise,
-                "max_raise": snapshot.max_raise,
-                "position": snapshot.position,
-                "players_remaining": snapshot.players_remaining,
-                "players_to_act": snapshot.players_to_act,
-            },
-            "events_count": len(context.events),
-        })
+        return json.dumps(
+            {
+                "session_id": context.session_id,
+                "player_root": (
+                    context.player_root.hex() if context.player_root else None
+                ),
+                "hand_id": context.hand_id.hex() if context.hand_id else None,
+                "snapshot": {
+                    "model_id": snapshot.model_id,
+                    "game_variant": snapshot.game_variant,
+                    "phase": snapshot.phase,
+                    "pot_size": snapshot.pot_size,
+                    "stack_size": snapshot.stack_size,
+                    "amount_to_call": snapshot.amount_to_call,
+                    "min_raise": snapshot.min_raise,
+                    "max_raise": snapshot.max_raise,
+                    "position": snapshot.position,
+                    "players_remaining": snapshot.players_remaining,
+                    "players_to_act": snapshot.players_to_act,
+                },
+                "events_count": len(context.events),
+            }
+        )
 
     def count(self) -> int:
         """Count total experiences stored.
@@ -108,11 +112,7 @@ class ExperienceStore:
         """
         with Session(self._engine) as session:
             # Use random sampling
-            stmt = (
-                select(ExperienceReplay)
-                .order_by(func.random())
-                .limit(batch_size)
-            )
+            stmt = select(ExperienceReplay).order_by(func.random()).limit(batch_size)
             return list(session.scalars(stmt))
 
 
@@ -193,7 +193,9 @@ class OpponentProfileStore:
 
                     profile.vpip = old_weight * profile.vpip + new_weight * stats.vpip
                     profile.pfr = old_weight * profile.pfr + new_weight * stats.pfr
-                    profile.af = old_weight * profile.af + new_weight * stats.aggression_factor
+                    profile.af = (
+                        old_weight * profile.af + new_weight * stats.aggression_factor
+                    )
                     profile.wtsd = old_weight * profile.wtsd + new_weight * stats.wtsd
                     profile.w_sd = old_weight * profile.w_sd + new_weight * stats.w_sd
 

@@ -13,8 +13,6 @@ Design Philosophy:
 import sys
 from pathlib import Path
 
-import pytest
-
 # Add buy_in/pmg to path for local imports
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -23,7 +21,6 @@ from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import buy_in_pb2 as buy_in
 from angzarr_client.proto.examples import orchestration_pb2 as orch
 from angzarr_client.proto.examples import poker_types_pb2 as poker
-from angzarr_client.proto.examples import table_pb2 as table
 from google.protobuf.any_pb2 import Any as AnyProto
 from handlers import BuyInPM
 

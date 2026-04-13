@@ -8,7 +8,6 @@ import pytest
 
 from angzarr_client.destinations import Destinations
 from angzarr_client.helpers import type_matches
-from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
@@ -252,7 +251,9 @@ class TestSagaRouter:
 
         event_book = make_event_book("table", uuid_for("table-1"), [event])
 
-        commands = router.route(event_book, "table", {"hand": 0, "table": 0, "player": 0})
+        commands = router.route(
+            event_book, "table", {"hand": 0, "table": 0, "player": 0}
+        )
 
         # Only DealCards from TableSyncSaga
         assert len(commands) == 1
@@ -280,7 +281,9 @@ class TestSagaRouter:
 
         event_book = make_event_book("table", uuid_for("table-1"), events)
 
-        commands = router.route(event_book, "table", {"hand": 0, "table": 0, "player": 0})
+        commands = router.route(
+            event_book, "table", {"hand": 0, "table": 0, "player": 0}
+        )
 
         assert len(commands) == 2
         for cmd in commands:
@@ -317,7 +320,9 @@ class TestSagaRouter:
         event_book = make_event_book("table", uuid_for("table-1"), [event])
 
         # Should not raise exception
-        commands = router.route(event_book, "table", {"hand": 0, "table": 0, "player": 0})
+        commands = router.route(
+            event_book, "table", {"hand": 0, "table": 0, "player": 0}
+        )
 
         # TableSyncSaga should still emit its command
         deal_commands = [

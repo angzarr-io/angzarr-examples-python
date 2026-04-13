@@ -3,10 +3,10 @@
 # Build: docker build -t poker-python-player --target agg-player .
 
 ARG PYTHON_VERSION=3.11
-ARG UV_VERSION=0.5.14
+ARG UV_VERSION=0.10.3
 
 # ============================================================================
-# Base - Python with uv and buf
+# Base - Python with uv
 # ============================================================================
 FROM docker.io/library/python:${PYTHON_VERSION}-slim AS base
 
@@ -22,17 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
 ENV PATH=/root/.local/bin:$PATH
 
-# Install buf
-RUN ARCH=$(dpkg --print-architecture) && \
-    case "$ARCH" in \
-        amd64) BUF_ARCH="x86_64" ;; \
-        arm64) BUF_ARCH="aarch64" ;; \
-        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
-    esac && \
-    curl -fLo /usr/local/bin/buf \
-        "https://github.com/bufbuild/buf/releases/download/v1.47.2/buf-Linux-${BUF_ARCH}" && \
-    chmod +x /usr/local/bin/buf
-
 WORKDIR /app
 
 # ============================================================================
@@ -40,16 +29,17 @@ WORKDIR /app
 # ============================================================================
 FROM base AS deps
 
-# Copy project files
+# Copy project files and angzarr-client-python submodule (local path source)
 COPY pyproject.toml uv.lock ./
-COPY buf.gen.yaml ./
+COPY angzarr-client-python ./angzarr-client-python
 
-# Generate protos from buf registry
-RUN mkdir -p angzarr/proto && buf generate
+# Copy pre-generated protos (buf generate runs in CI before docker build)
+COPY proto ./proto
+RUN mkdir -p angzarr/proto
 
-# Install dependencies (using --no-sources to skip local dev overrides)
+# Install dependencies (including angzarr-client from local path source)
 RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
-    uv sync --no-dev --no-install-project --no-sources
+    uv sync --no-dev --no-install-project
 
 # ============================================================================
 # Source - copy application code
@@ -92,6 +82,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 FROM runtime-base AS agg-player
 COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
 COPY --from=deps --chown=angzarr:angzarr /app/angzarr /app/angzarr
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
 COPY --from=source --chown=angzarr:angzarr /app/player /app/player
 COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
 ENV PATH=/app/.venv/bin:$PATH \
@@ -102,6 +93,7 @@ CMD ["python", "-m", "player.agg.main"]
 FROM runtime-base AS agg-table
 COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
 COPY --from=deps --chown=angzarr:angzarr /app/angzarr /app/angzarr
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
 COPY --from=source --chown=angzarr:angzarr /app/table /app/table
 COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
 ENV PATH=/app/.venv/bin:$PATH \
@@ -112,6 +104,7 @@ CMD ["python", "-m", "table.agg.main"]
 FROM runtime-base AS agg-hand
 COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
 COPY --from=deps --chown=angzarr:angzarr /app/angzarr /app/angzarr
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
 COPY --from=source --chown=angzarr:angzarr /app/hand /app/hand
 COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
 ENV PATH=/app/.venv/bin:$PATH \
@@ -125,6 +118,7 @@ CMD ["python", "-m", "hand.agg.main"]
 FROM runtime-base AS prj-training
 COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
 COPY --from=deps --chown=angzarr:angzarr /app/angzarr /app/angzarr
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
 COPY --from=source --chown=angzarr:angzarr /app/prj_training /app/prj_training
 COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
 ENV PATH=/app/.venv/bin:$PATH \

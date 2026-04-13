@@ -99,7 +99,7 @@ NAMESPACE := "angzarr"
 
 # OCI chart references
 CHART_REGISTRY := "oci://ghcr.io/angzarr-io/charts"
-ANGZARR_CHART_VERSION := "0.2.2"
+ANGZARR_CHART_VERSION := "0.5.1"
 
 # Image names
 PLAYER_IMAGE := "ghcr.io/angzarr-io/poker-python-player"

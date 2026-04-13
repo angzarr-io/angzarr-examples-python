@@ -39,7 +39,9 @@ class TrainingState(Base):
     hand_root = Column(String(64), nullable=False)
     sequence = Column(Integer, nullable=False)  # Event sequence within hand
     player_root = Column(LargeBinary(32), nullable=False)
-    edition = Column(String(128), default="angzarr")  # Edition name (main timeline = "angzarr")
+    edition = Column(
+        String(128), default="angzarr"
+    )  # Edition name (main timeline = "angzarr")
 
     # Hole cards (encoded as integers: rank * 4 + suit, 0-51)
     hole_card_1 = Column(Integer)
@@ -80,7 +82,12 @@ class TrainingState(Base):
 
     __table_args__ = (
         # Ensure we don't duplicate projections (edition + hand + sequence)
-        UniqueConstraint("edition", "hand_root", "sequence", name="uq_training_state_edition_hand_seq"),
+        UniqueConstraint(
+            "edition",
+            "hand_root",
+            "sequence",
+            name="uq_training_state_edition_hand_seq",
+        ),
         # Index for loading training batches
         Index("ix_training_states_reward", "reward"),
         Index("ix_training_states_created", "created_at"),

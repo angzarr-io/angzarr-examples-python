@@ -118,7 +118,9 @@ class HandPlayerSaga(Saga):
             )
 
             commands.append(
-                _make_command_book("player", winner.player_root, deposit_funds, context.destinations)
+                _make_command_book(
+                    "player", winner.player_root, deposit_funds, context.destinations
+                )
             )
 
         return commands

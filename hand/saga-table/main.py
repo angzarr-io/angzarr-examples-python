@@ -126,7 +126,11 @@ class HandTableSaga(Saga):
         )
         end_hand.results.extend(results)
 
-        return [_make_command_book("table", event.table_root, end_hand, context.destinations)]
+        return [
+            _make_command_book(
+                "table", event.table_root, end_hand, context.destinations
+            )
+        ]
 
 
 if __name__ == "__main__":

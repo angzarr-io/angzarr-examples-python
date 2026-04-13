@@ -161,9 +161,7 @@ def apply_rebuy_processed(
     state.total_prize_pool += event.rebuy_cost
 
 
-def apply_rebuy_denied(
-    _state: TournamentState, _event: tournament.RebuyDenied
-) -> None:
+def apply_rebuy_denied(_state: TournamentState, _event: tournament.RebuyDenied) -> None:
     """Apply RebuyDenied event to state."""
     # No state change
     pass
@@ -185,23 +183,17 @@ def apply_player_eliminated(
     state.players_remaining = len(state.registered_players)
 
 
-def apply_paused(
-    state: TournamentState, _event: tournament.TournamentPaused
-) -> None:
+def apply_paused(state: TournamentState, _event: tournament.TournamentPaused) -> None:
     """Apply TournamentPaused event to state."""
     state.status = tournament.TournamentStatus.TOURNAMENT_PAUSED
 
 
-def apply_resumed(
-    state: TournamentState, _event: tournament.TournamentResumed
-) -> None:
+def apply_resumed(state: TournamentState, _event: tournament.TournamentResumed) -> None:
     """Apply TournamentResumed event to state."""
     state.status = tournament.TournamentStatus.TOURNAMENT_RUNNING
 
 
-def apply_started(
-    state: TournamentState, _event: tournament.TournamentStarted
-) -> None:
+def apply_started(state: TournamentState, _event: tournament.TournamentStarted) -> None:
     """Apply TournamentStarted event to state."""
     state.status = tournament.TournamentStatus.TOURNAMENT_RUNNING
 

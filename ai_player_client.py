@@ -45,7 +45,10 @@ class AiPlayerClient:
         """Import AI Player proto modules."""
         try:
             # Try importing from angzarr_client proto package
-            from angzarr_client.proto.examples import ai_sidecar_pb2, ai_sidecar_pb2_grpc
+            from angzarr_client.proto.examples import (
+                ai_sidecar_pb2,
+                ai_sidecar_pb2_grpc,
+            )
 
             self._ai_player_pb2 = ai_sidecar_pb2
             self._stub = ai_sidecar_pb2_grpc.AiSidecarStub(self._channel)

@@ -6,7 +6,6 @@ and easy customization.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
 from google.protobuf.message import Message
@@ -14,9 +13,8 @@ from google.protobuf.message import Message
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
 
-from .proto_helpers import make_cover, make_event_page, pack_event, uuid_for
+from .proto_helpers import make_cover, make_event_page, uuid_for
 
 
 class PlayerStateBuilder:
@@ -33,7 +31,9 @@ class PlayerStateBuilder:
         self._table_reservations: dict[str, int] = {}
         self._status = ""
 
-    def registered(self, name: str = "TestPlayer", email: str = "test@example.com") -> PlayerStateBuilder:
+    def registered(
+        self, name: str = "TestPlayer", email: str = "test@example.com"
+    ) -> PlayerStateBuilder:
         """Set player as registered with default values."""
         self._player_id = f"player_{email}"
         self._display_name = name
@@ -88,7 +88,9 @@ class TableStateBuilder:
         self._max_buy_in = 1000
         self._small_blind = 5
         self._big_blind = 10
-        self._seats: dict[int, tuple[bytes, int]] = {}  # position -> (player_root, stack)
+        self._seats: dict[int, tuple[bytes, int]] = (
+            {}
+        )  # position -> (player_root, stack)
         self._status = "waiting"
         self._hand_count = 0
 
@@ -109,7 +111,9 @@ class TableStateBuilder:
         self._big_blind = big
         return self
 
-    def with_player(self, position: int, player_root: bytes, stack: int) -> TableStateBuilder:
+    def with_player(
+        self, position: int, player_root: bytes, stack: int
+    ) -> TableStateBuilder:
         """Add a seated player."""
         self._seats[position] = (player_root, stack)
         return self
@@ -166,15 +170,17 @@ class HandStateBuilder:
         hole_cards: list | None = None,
     ) -> HandStateBuilder:
         """Add a player to the hand."""
-        self._players.append({
-            "player_root": player_root,
-            "position": position,
-            "stack": stack,
-            "hole_cards": hole_cards or [],
-            "has_folded": False,
-            "is_all_in": False,
-            "current_bet": 0,
-        })
+        self._players.append(
+            {
+                "player_root": player_root,
+                "position": position,
+                "stack": stack,
+                "hole_cards": hole_cards or [],
+                "has_folded": False,
+                "is_all_in": False,
+                "current_bet": 0,
+            }
+        )
         return self
 
     def with_pot(self, amount: int) -> HandStateBuilder:
@@ -237,8 +243,7 @@ class EventBookBuilder:
     def build(self) -> types.EventBook:
         """Build the EventBook."""
         pages = [
-            make_event_page(event, sequence=i)
-            for i, event in enumerate(self._events)
+            make_event_page(event, sequence=i) for i, event in enumerate(self._events)
         ]
         return types.EventBook(
             cover=make_cover(self._domain, self._root),

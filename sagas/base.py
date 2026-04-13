@@ -15,13 +15,10 @@ emits DealCards to hand domain.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import structlog
 
-from google.protobuf.any_pb2 import Any as AnyProto
-from google.protobuf.message import Message
 
 from angzarr_client.destinations import Destinations
 from angzarr_client.proto.angzarr import types_pb2 as types

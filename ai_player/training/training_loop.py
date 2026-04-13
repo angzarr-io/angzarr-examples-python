@@ -24,9 +24,9 @@ from sqlalchemy import create_engine
 root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root))
 
+from ai_player.training.fitness_tracker import FitnessMetrics, FitnessTracker
+from ai_player.training.tournament_runner import TournamentConfig, TournamentRunner
 from ai_player.training.trainer import Trainer, TrainerConfig
-from ai_player.training.fitness_tracker import FitnessTracker, FitnessMetrics
-from ai_player.training.tournament_runner import TournamentRunner, TournamentConfig
 
 logger = structlog.get_logger()
 
@@ -224,7 +224,7 @@ def main():
             checkpoint=args.checkpoint,
         )
 
-        print(f"\nFinal Results:")
+        print("\nFinal Results:")
         print(f"  BB/100: {metrics.bb_per_100:.2f}")
         print(f"  ROI: {metrics.avg_roi:.2%}")
         print(f"  Tournaments: {metrics.tournaments_played}")

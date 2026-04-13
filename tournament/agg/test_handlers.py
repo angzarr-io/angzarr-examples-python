@@ -70,7 +70,9 @@ class TestCreateTournament:
             max_players=100,
             min_players=10,
         )
-        with pytest.raises(CommandRejectedError, match="starting_stack must be positive"):
+        with pytest.raises(
+            CommandRejectedError, match="starting_stack must be positive"
+        ):
             create_validate(cmd)
 
     def test_validate_requires_min_players_at_least_2(self) -> None:
@@ -82,7 +84,9 @@ class TestCreateTournament:
             max_players=100,
             min_players=1,
         )
-        with pytest.raises(CommandRejectedError, match="min_players must be at least 2"):
+        with pytest.raises(
+            CommandRejectedError, match="min_players must be at least 2"
+        ):
             create_validate(cmd)
 
     def test_validate_requires_min_not_exceed_max(self) -> None:
