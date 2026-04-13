@@ -282,9 +282,13 @@ class Table(CommandHandler[_TableState]):
         if self.is_full:
             raise CommandRejectedError("Table is full")
         if cmd.buy_in_amount < self.min_buy_in:
-            raise CommandRejectedError.invalid_argument(f"Buy-in must be at least {self.min_buy_in}")
+            raise CommandRejectedError.invalid_argument(
+                f"Buy-in must be at least {self.min_buy_in}"
+            )
         if cmd.buy_in_amount > self.max_buy_in:
-            raise CommandRejectedError.invalid_argument(f"Buy-in cannot exceed {self.max_buy_in}")
+            raise CommandRejectedError.invalid_argument(
+                f"Buy-in cannot exceed {self.max_buy_in}"
+            )
         # preferred_seat >= 0 means specific seat; < 0 means no preference
         if cmd.preferred_seat >= 0 and cmd.preferred_seat < self.max_players:
             if self.get_seat(cmd.preferred_seat) is not None:
