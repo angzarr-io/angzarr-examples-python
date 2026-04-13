@@ -38,7 +38,7 @@ fmt *FLAGS:
 
 # Lint code
 lint:
-    uv run ruff check .
+    uv run ruff check . --exclude angzarr-client-python/angzarr-core
 
 # Type check
 typecheck:
