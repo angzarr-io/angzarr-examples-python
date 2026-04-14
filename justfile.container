@@ -59,3 +59,8 @@ run-hand:
 # Run game with AI Player service
 run-game-ai *ARGS:
     uv run python run_game.py --ai-player localhost:50500 --no-standalone {{ARGS}}
+
+# Auto-format code
+fmt-fix:
+    uv run ruff check --fix . --exclude angzarr-client-python
+    uv run black .
