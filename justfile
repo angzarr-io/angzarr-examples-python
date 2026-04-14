@@ -268,3 +268,7 @@ ai-forward:
 # Run game with AI Player (assumes ai-forward is running in another terminal)
 run-game-ai *ARGS:
     just _container run-game-ai {{ARGS}}
+
+# Auto-format code
+fmt-fix:
+    just _container fmt-fix
