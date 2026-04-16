@@ -28,6 +28,7 @@ ENV/
 proto/**/*.py
 proto/**/*.pyi
 !proto/__init__.py
+mutants/
 .DS_Store
 *.db
 *.sqlite

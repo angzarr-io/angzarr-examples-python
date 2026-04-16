@@ -60,6 +60,29 @@ run-hand:
 run-game-ai *ARGS:
     uv run python run_game.py --ai-player localhost:50500 --no-standalone {{ARGS}}
 
+# Run mutation testing with mutmut (70% kill threshold)
+mutation-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf mutants
+    uv run mutmut run
+    uv run mutmut results
+    uv run mutmut export-cicd-stats
+    # Check survival rate is below 30% (i.e., 70%+ killed)
+    TOTAL=$(python -c "import json; d=json.load(open('mutants/mutmut-cicd-stats.json')); print(d['total'])")
+    SURVIVED=$(python -c "import json; d=json.load(open('mutants/mutmut-cicd-stats.json')); print(d['survived'])")
+    if [ "$TOTAL" -eq 0 ]; then
+        echo "ERROR: No mutants were generated"
+        exit 1
+    fi
+    SURVIVAL_RATE=$((SURVIVED * 100 / TOTAL))
+    echo "Survival rate: ${SURVIVAL_RATE}% (${SURVIVED}/${TOTAL})"
+    if [ "$SURVIVAL_RATE" -gt 30 ]; then
+        echo "FAIL: Survival rate ${SURVIVAL_RATE}% exceeds 30% threshold (need 70%+ killed)"
+        exit 1
+    fi
+    echo "PASS: Mutation testing threshold met"
+
 # Auto-format code
 fmt-fix:
     uv run ruff check --fix . --exclude angzarr-client-python

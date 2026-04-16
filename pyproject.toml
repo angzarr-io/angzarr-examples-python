@@ -26,6 +26,7 @@ dev = [
     "mypy>=1.10.0",
     "pytest-cov>=7.0.0",
     "pytest-timeout>=2.3.0",
+    "mutmut>=3.2.0",
 ]
 
 [tool.uv.sources]
@@ -45,6 +46,15 @@ addopts = "-v --ignore=tests/features --ignore=tests/acceptance"
 
 [tool.black]
 target-version = ["py311"]
+
+[tool.mutmut]
+paths_to_mutate = [
+    "player/agg/handlers.py",
+    "table/agg/handlers/table.py",
+    "hand/agg/handlers/hand.py",
+    "hand/agg/handlers/game_rules.py",
+    "tournament/agg/handlers.py",
+]
 
 [tool.ruff]
 extend-exclude = ["**/*_pb2.py", "**/*_pb2_grpc.py", "**/angzarr-core", "**/angzarr-core/**"]

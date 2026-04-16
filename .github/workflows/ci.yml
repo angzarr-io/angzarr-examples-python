@@ -58,6 +58,9 @@ jobs:
       - name: Test (unit)
         run: just test-unit
 
+      - name: Mutation test
+        run: just mutation-test
+
       - name: Lint
         run: just lint
 
