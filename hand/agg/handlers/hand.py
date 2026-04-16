@@ -312,7 +312,7 @@ class Hand(CommandHandler[_HandState]):
     # --- Command handlers ---
 
     @handles(hand_proto.DealCards)
-    def deal(self, cmd: hand_proto.DealCards) -> hand_proto.CardsDealt:
+    def handle_deal_cards(self, cmd: hand_proto.DealCards) -> hand_proto.CardsDealt:
         """Deal cards to start the hand."""
         if self.exists:
             raise CommandRejectedError("Hand already dealt")
@@ -349,7 +349,7 @@ class Hand(CommandHandler[_HandState]):
         return event
 
     @handles(hand_proto.PostBlind)
-    def post_blind(self, cmd: hand_proto.PostBlind) -> hand_proto.BlindPosted:
+    def handle_post_blind(self, cmd: hand_proto.PostBlind) -> hand_proto.BlindPosted:
         """Post a blind."""
         if not self.exists:
             raise CommandRejectedError("Hand not dealt")
@@ -380,7 +380,7 @@ class Hand(CommandHandler[_HandState]):
         )
 
     @handles(hand_proto.PlayerAction)
-    def action(self, cmd: hand_proto.PlayerAction) -> hand_proto.ActionTaken:
+    def handle_player_action(self, cmd: hand_proto.PlayerAction) -> hand_proto.ActionTaken:
         """Process a player action."""
         if not self.exists:
             raise CommandRejectedError("Hand not dealt")
@@ -472,7 +472,7 @@ class Hand(CommandHandler[_HandState]):
         )
 
     @handles(hand_proto.DealCommunityCards)
-    def deal_community(
+    def handle_deal_community_cards(
         self, cmd: hand_proto.DealCommunityCards
     ) -> hand_proto.CommunityCardsDealt:
         """Deal community cards."""
@@ -514,7 +514,7 @@ class Hand(CommandHandler[_HandState]):
         return event
 
     @handles(hand_proto.RequestDraw)
-    def draw(self, cmd: hand_proto.RequestDraw) -> hand_proto.DrawCompleted:
+    def handle_request_draw(self, cmd: hand_proto.RequestDraw) -> hand_proto.DrawCompleted:
         """Handle draw request for Five Card Draw."""
         if not self.exists:
             raise CommandRejectedError("Hand not dealt")
@@ -562,7 +562,7 @@ class Hand(CommandHandler[_HandState]):
         return event
 
     @handles(hand_proto.RevealCards)
-    def reveal(
+    def handle_reveal_cards(
         self, cmd: hand_proto.RevealCards
     ) -> Union[hand_proto.CardsRevealed, hand_proto.CardsMucked]:
         """Reveal or muck cards at showdown."""
@@ -607,7 +607,7 @@ class Hand(CommandHandler[_HandState]):
         return event
 
     @handles(hand_proto.AwardPot)
-    def award(
+    def handle_award_pot(
         self, cmd: hand_proto.AwardPot
     ) -> Tuple[hand_proto.PotAwarded, hand_proto.HandComplete]:
         """Award pot and complete the hand."""

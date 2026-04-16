@@ -45,7 +45,7 @@ class PlayerTableSaga(Saga):
         return super().dispatch(event_any, root, correlation_id, destination_sequences)
 
     @handles(player.PlayerSittingOut)
-    def handle_sitting_out(
+    def handle_player_sitting_out(
         self,
         event: player.PlayerSittingOut,
         destinations: Destinations = None,
@@ -61,7 +61,7 @@ class PlayerTableSaga(Saga):
         return None
 
     @handles(player.PlayerReturningToPlay)
-    def handle_returning_to_play(
+    def handle_player_returning_to_play(
         self,
         event: player.PlayerReturningToPlay,
         destinations: Destinations = None,

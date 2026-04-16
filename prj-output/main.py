@@ -1,114 +1,130 @@
-"""Output projector gRPC service.
+"""Projector: Output (OO Pattern)
 
-Subscribes to events from player, table, and hand domains and writes
-formatted game logs to hand_log.txt.
+Subscribes to player, table, and hand domain events.
+Writes formatted game logs to a file.
+
+This is the OO-style implementation using Projector base class with
+@handles decorated methods. Contrasts with prj-output/ which uses
+the functional pattern with explicit event type mapping.
 """
 
 import os
-import sys
-from pathlib import Path
+from datetime import datetime
 
-import structlog
-
-# Add paths for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from projector import OutputProjector
-
-from angzarr_client.projector_handler import ProjectorHandler, run_projector_server
+from angzarr_client import Projector, run_projector_server
+from angzarr_client.projector import handles
 from angzarr_client.proto.angzarr import types_pb2 as types
+from angzarr_client.proto.examples import hand_pb2 as hand
+from angzarr_client.proto.examples import player_pb2 as player
+from angzarr_client.proto.examples import table_pb2 as table
 
-structlog.configure(
-    processors=[
-        structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer(),
-    ],
-    wrapper_class=structlog.make_filtering_bound_logger(0),
-    context_class=dict,
-    logger_factory=structlog.PrintLoggerFactory(),
-)
-
-logger = structlog.get_logger()
-
-# Output file path
-LOG_FILE = os.environ.get("HAND_LOG_FILE", "hand_log.txt")
+_log_file = None
 
 
-class FileLogProjector:
-    """Projector that writes events to a log file."""
+def get_log_file():
+    """Get or create log file handle."""
+    global _log_file
+    if _log_file is None:
+        path = os.environ.get("HAND_LOG_FILE", "hand_log_oo.txt")
+        _log_file = open(path, "a")
+    return _log_file
 
-    def __init__(self, log_path: str):
-        self.log_path = log_path
-        self.log_file = None
-        self.projector = OutputProjector(
-            output_fn=self._write_line,
-            show_timestamps=True,
+
+def write_log(msg: str) -> None:
+    """Write timestamped message to log file."""
+    f = get_log_file()
+    timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+    f.write(f"[{timestamp}] {msg}\n")
+    f.flush()
+
+
+def truncate_id(player_root: bytes) -> str:
+    """Truncate player root to first 8 hex chars."""
+    return player_root[:4].hex() if len(player_root) >= 4 else player_root.hex()
+
+
+# docs:start:projector_oo
+class OutputProjector(Projector):
+    """Output projector using OO-style decorators with multi-domain support."""
+
+    name = "output"
+
+    @handles(player.PlayerRegistered, input_domain="player")
+    def project_player_registered(self, event: player.PlayerRegistered) -> types.Projection:
+        write_log(f"PLAYER registered: {event.display_name} ({event.email})")
+        return types.Projection(projector=self.name)
+
+    @handles(player.FundsDeposited, input_domain="player")
+    def project_funds_deposited(self, event: player.FundsDeposited) -> types.Projection:
+        amount = event.amount.amount if event.HasField("amount") else 0
+        new_balance = event.new_balance.amount if event.HasField("new_balance") else 0
+        write_log(f"PLAYER deposited {amount}, balance: {new_balance}")
+        return types.Projection(projector=self.name)
+
+    @handles(table.TableCreated, input_domain="table")
+    def project_table_created(self, event: table.TableCreated) -> types.Projection:
+        write_log(f"TABLE created: {event.table_name} ({event.game_variant})")
+        return types.Projection(projector=self.name)
+
+    @handles(table.PlayerJoined, input_domain="table")
+    def project_player_joined(self, event: table.PlayerJoined) -> types.Projection:
+        player_id = truncate_id(event.player_root)
+        write_log(f"TABLE player {player_id} joined with {event.stack} chips")
+        return types.Projection(projector=self.name)
+
+    @handles(table.HandStarted, input_domain="table")
+    def project_hand_started(self, event: table.HandStarted) -> types.Projection:
+        write_log(
+            f"TABLE hand #{event.hand_number} started, "
+            f"{len(event.active_players)} players, dealer at position {event.dealer_position}"
         )
+        return types.Projection(projector=self.name)
 
-    def _write_line(self, text: str) -> None:
-        """Write a line to the log file."""
-        if self.log_file is None:
-            self.log_file = open(self.log_path, "a", encoding="utf-8")
-        self.log_file.write(text + "\n")
-        self.log_file.flush()
+    @handles(hand.CardsDealt, input_domain="hand")
+    def project_cards_dealt(self, event: hand.CardsDealt) -> types.Projection:
+        write_log(f"HAND cards dealt to {len(event.player_cards)} players")
+        return types.Projection(projector=self.name)
 
-    def handle(self, event_book: types.EventBook) -> types.Projection:
-        """Handle an event book and return a projection."""
-        self.projector.handle_event_book(event_book)
-
-        # Return a projection with the sequence number
-        seq = 0
-        if event_book.pages:
-            page = event_book.pages[-1]
-            if page.WhichOneof("sequence") == "num":
-                seq = page.num
-
-        return types.Projection(
-            cover=event_book.cover,
-            projector="output",
-            sequence=seq,
+    @handles(hand.BlindPosted, input_domain="hand")
+    def project_blind_posted(self, event: hand.BlindPosted) -> types.Projection:
+        player_id = truncate_id(event.player_root)
+        write_log(
+            f"HAND player {player_id} posted {event.blind_type} blind: {event.amount}"
         )
+        return types.Projection(projector=self.name)
 
-    def close(self):
-        """Close the log file."""
-        if self.log_file is not None:
-            self.log_file.close()
-            self.log_file = None
+    @handles(hand.ActionTaken, input_domain="hand")
+    def project_action_taken(self, event: hand.ActionTaken) -> types.Projection:
+        player_id = truncate_id(event.player_root)
+        write_log(f"HAND player {player_id}: {event.action} {event.amount}")
+        return types.Projection(projector=self.name)
+
+    @handles(hand.PotAwarded, input_domain="hand")
+    def project_pot_awarded(self, event: hand.PotAwarded) -> types.Projection:
+        winners = [
+            f"{truncate_id(w.player_root)} wins {w.amount}" for w in event.winners
+        ]
+        write_log(f"HAND pot awarded: {', '.join(winners)}")
+        return types.Projection(projector=self.name)
+
+    @handles(hand.HandComplete, input_domain="hand")
+    def project_hand_complete(self, event: hand.HandComplete) -> types.Projection:
+        write_log(f"HAND #{event.hand_number} complete")
+        return types.Projection(projector=self.name)
+
+
+# docs:end:projector_oo
 
 
 def main():
-    """Run the output projector gRPC service."""
-    # Clear the log file at startup
-    log_path = Path(LOG_FILE)
-    if log_path.exists():
-        log_path.unlink()
+    """Run the output projector server."""
+    # Clear log file at startup
+    path = os.environ.get("HAND_LOG_FILE", "hand_log_oo.txt")
+    if os.path.exists(path):
+        os.remove(path)
 
-    file_projector = FileLogProjector(LOG_FILE)
-
-    # Create handler that subscribes to all poker domains
-    handler = ProjectorHandler(
-        "output",
-        "player",
-        "table",
-        "hand",
-    ).with_handle(file_projector.handle)
-
-    logger.info(
-        "output_projector_starting",
-        log_file=LOG_FILE,
-        domains=["player", "table", "hand"],
-    )
-
-    try:
-        run_projector_server(
-            name="output",
-            default_port="50490",
-            handler=handler,
-            logger=logger,
-        )
-    finally:
-        file_projector.close()
+    print("Starting Output projector (OO pattern)")
+    run_projector_server("output", 50391, OutputProjector.handle)
 
 
 if __name__ == "__main__":

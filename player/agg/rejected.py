@@ -12,7 +12,7 @@ from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
 
 # docs:start:rejected_handler
-def handle_join_rejected(
+def handle_table_join_rejected(
     notification: types.Notification,
     state: PlayerState,
 ) -> types.EventBook | None:

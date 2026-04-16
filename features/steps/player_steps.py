@@ -10,11 +10,12 @@ from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 from player.agg.handlers import (
-    handle_deposit,
-    handle_register,
-    handle_release,
-    handle_reserve,
-    handle_withdraw,
+    handle_deposit_funds,
+    handle_register_player,
+    handle_release_funds,
+    handle_reserve_funds,
+    handle_transfer_funds,
+    handle_withdraw_funds,
 )
 from player.agg.state import PlayerState, build_state
 
@@ -142,11 +143,12 @@ def step_given_funds_reserved(context, amount, table_id):
 
 # Handler lookup by method name
 _HANDLER_MAP = {
-    "register": handle_register,
-    "deposit": handle_deposit,
-    "withdraw": handle_withdraw,
-    "reserve": handle_reserve,
-    "release": handle_release,
+    "register": handle_register_player,
+    "deposit": handle_deposit_funds,
+    "withdraw": handle_withdraw_funds,
+    "reserve": handle_reserve_funds,
+    "release": handle_release_funds,
+    "transfer": handle_transfer_funds,
 }
 
 

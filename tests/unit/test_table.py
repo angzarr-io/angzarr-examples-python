@@ -49,15 +49,15 @@ def _handle_command(ctx: ScenarioContext, command_msg):
         # Call the appropriate handler based on command type
         # The handler returns a raw event, which we wrap in an EventBook
         if isinstance(command_msg, table.CreateTable):
-            event = tbl.create(command_msg)
+            event = tbl.handle_create_table(command_msg)
         elif isinstance(command_msg, table.JoinTable):
-            event = tbl.join(command_msg)
+            event = tbl.handle_join_table(command_msg)
         elif isinstance(command_msg, table.LeaveTable):
-            event = tbl.leave(command_msg)
+            event = tbl.handle_leave_table(command_msg)
         elif isinstance(command_msg, table.StartHand):
-            event = tbl.start_hand(command_msg)
+            event = tbl.handle_start_hand(command_msg)
         elif isinstance(command_msg, table.EndHand):
-            event = tbl.end_hand(command_msg)
+            event = tbl.handle_end_hand(command_msg)
         else:
             raise ValueError(f"Unknown command type: {type(command_msg)}")
 

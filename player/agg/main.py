@@ -24,11 +24,12 @@ from .state import (
 from angzarr_client import CommandRouter, StateRouter, run_command_handler_server
 from angzarr_client.proto.examples import player_pb2 as player
 from .handlers import (
-    handle_deposit,
-    handle_register,
-    handle_release,
-    handle_reserve,
-    handle_withdraw,
+    handle_deposit_funds,
+    handle_register_player,
+    handle_release_funds,
+    handle_reserve_funds,
+    handle_transfer_funds,
+    handle_withdraw_funds,
 )
 
 structlog.configure(
@@ -60,11 +61,12 @@ state_router = (
 router = (
     CommandRouter[PlayerState]("player")
     .with_state(state_router)
-    .on(player.RegisterPlayer, handle_register)
-    .on(player.DepositFunds, handle_deposit)
-    .on(player.WithdrawFunds, handle_withdraw)
-    .on(player.ReserveFunds, handle_reserve)
-    .on(player.ReleaseFunds, handle_release)
+    .on(player.RegisterPlayer, handle_register_player)
+    .on(player.DepositFunds, handle_deposit_funds)
+    .on(player.WithdrawFunds, handle_withdraw_funds)
+    .on(player.ReserveFunds, handle_reserve_funds)
+    .on(player.ReleaseFunds, handle_release_funds)
+    .on(player.TransferFunds, handle_transfer_funds)
 )
 # docs:end:command_router
 

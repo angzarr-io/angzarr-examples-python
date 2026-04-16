@@ -10,11 +10,12 @@ from google.protobuf.any_pb2 import Any as ProtoAny
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from player.agg.handlers import (
-    handle_deposit,
-    handle_register,
-    handle_release,
-    handle_reserve,
-    handle_withdraw,
+    handle_deposit_funds,
+    handle_register_player,
+    handle_release_funds,
+    handle_reserve_funds,
+    handle_transfer_funds,
+    handle_withdraw_funds,
 )
 from player.agg.state import PlayerState, build_state
 
@@ -179,7 +180,7 @@ def handle_register_player_cmd(ctx, name, email):
         email=email,
         player_type=poker_types.HUMAN,
     )
-    _handle_command(ctx, cmd, handle_register)
+    _handle_command(ctx, cmd, handle_register_player)
 
 
 # docs:end:when_step
@@ -197,7 +198,7 @@ def handle_register_player_ai_cmd(ctx, name, email):
         email=email,
         player_type=poker_types.AI,
     )
-    _handle_command(ctx, cmd, handle_register)
+    _handle_command(ctx, cmd, handle_register_player)
 
 
 @when(parsers.parse("I handle a DepositFunds command with amount {amount:d}"))
@@ -206,7 +207,7 @@ def handle_deposit_funds_cmd(ctx, amount):
     cmd = player.DepositFunds(
         amount=poker_types.Currency(amount=amount),
     )
-    _handle_command(ctx, cmd, handle_deposit)
+    _handle_command(ctx, cmd, handle_deposit_funds)
 
 
 @when(parsers.parse("I handle a WithdrawFunds command with amount {amount:d}"))
@@ -215,7 +216,7 @@ def handle_withdraw_funds_cmd(ctx, amount):
     cmd = player.WithdrawFunds(
         amount=poker_types.Currency(amount=amount),
     )
-    _handle_command(ctx, cmd, handle_withdraw)
+    _handle_command(ctx, cmd, handle_withdraw_funds)
 
 
 @when(
@@ -229,7 +230,7 @@ def handle_reserve_funds_cmd(ctx, amount, table_id):
         amount=poker_types.Currency(amount=amount),
         table_root=table_id.encode(),
     )
-    _handle_command(ctx, cmd, handle_reserve)
+    _handle_command(ctx, cmd, handle_reserve_funds)
 
 
 @when(parsers.parse('I handle a ReleaseFunds command for table "{table_id}"'))
@@ -238,7 +239,7 @@ def handle_release_funds_cmd(ctx, table_id):
     cmd = player.ReleaseFunds(
         table_root=table_id.encode(),
     )
-    _handle_command(ctx, cmd, handle_release)
+    _handle_command(ctx, cmd, handle_release_funds)
 
 
 @when("I rebuild the player state")

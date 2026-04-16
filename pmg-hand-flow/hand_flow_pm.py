@@ -90,14 +90,14 @@ class HandFlowPM(ProcessManager[HandFlowState]):
 
     @output_domain("hand")
     @handles(hand.CardsDealt, input_domain="hand")
-    def on_cards_dealt(self, event: hand.CardsDealt) -> Optional[hand.PostBlinds]:
+    def handle_cards_dealt(self, event: hand.CardsDealt) -> Optional[hand.PostBlinds]:
         """Cards dealt -> post blinds."""
         self.state.phase = HandPhase.BLINDS
         return hand.PostBlinds(hand_id=self.state.hand_id)
 
     @output_domain("table")
     @handles(hand.HandComplete, input_domain="hand")
-    def on_hand_complete(self, event: hand.HandComplete) -> Optional[table.EndHand]:
+    def handle_hand_complete(self, event: hand.HandComplete) -> Optional[table.EndHand]:
         """Hand complete -> end hand on table."""
         self.state.phase = HandPhase.COMPLETE
         return table.EndHand(

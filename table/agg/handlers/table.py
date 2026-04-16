@@ -239,7 +239,7 @@ class Table(CommandHandler[_TableState]):
 
     # docs:start:oo_handlers
     @handles(table_proto.CreateTable)
-    def create(self, cmd: table_proto.CreateTable) -> table_proto.TableCreated:
+    def handle_create_table(self, cmd: table_proto.CreateTable) -> table_proto.TableCreated:
         """Create a new table."""
         if self.exists:
             raise CommandRejectedError("Table already exists")
@@ -271,7 +271,7 @@ class Table(CommandHandler[_TableState]):
     # docs:end:oo_handlers
 
     @handles(table_proto.JoinTable)
-    def join(self, cmd: table_proto.JoinTable) -> table_proto.PlayerJoined:
+    def handle_join_table(self, cmd: table_proto.JoinTable) -> table_proto.PlayerJoined:
         """Add a player to the table."""
         if not self.exists:
             raise CommandRejectedError("Table does not exist")
@@ -306,7 +306,7 @@ class Table(CommandHandler[_TableState]):
         )
 
     @handles(table_proto.LeaveTable)
-    def leave(self, cmd: table_proto.LeaveTable) -> table_proto.PlayerLeft:
+    def handle_leave_table(self, cmd: table_proto.LeaveTable) -> table_proto.PlayerLeft:
         """Remove a player from the table."""
         if not self.exists:
             raise CommandRejectedError("Table does not exist")
@@ -327,7 +327,7 @@ class Table(CommandHandler[_TableState]):
         )
 
     @handles(table_proto.StartHand)
-    def start_hand(self, cmd: table_proto.StartHand) -> table_proto.HandStarted:
+    def handle_start_hand(self, cmd: table_proto.StartHand) -> table_proto.HandStarted:
         """Start a new hand."""
         if not self.exists:
             raise CommandRejectedError("Table does not exist")
@@ -394,7 +394,7 @@ class Table(CommandHandler[_TableState]):
         return event
 
     @handles(table_proto.EndHand)
-    def end_hand(self, cmd: table_proto.EndHand) -> table_proto.HandEnded:
+    def handle_end_hand(self, cmd: table_proto.EndHand) -> table_proto.HandEnded:
         """End the current hand."""
         if not self.exists:
             raise CommandRejectedError("Table does not exist")

@@ -22,7 +22,7 @@ def make_players(count=2, stack=1000):
 
 
 class TestDeal:
-    """Test Hand.deal()."""
+    """Test Hand.handle_deal_cards()."""
 
     def test_deal_creates_hand(self):
         h = Hand()
@@ -36,7 +36,7 @@ class TestDeal:
             dealer_position=0,
             players=players,
         )
-        event = h.deal(cmd)
+        event = h.handle_deal_cards(cmd)
 
         assert h.exists
         assert h.status == "betting"
@@ -54,7 +54,7 @@ class TestDeal:
             dealer_position=0,
             players=players,
         )
-        h.deal(cmd)
+        h.handle_deal_cards(cmd)
 
         for player in h.players.values():
             assert len(player.hole_cards) == 2
@@ -69,10 +69,10 @@ class TestDeal:
             dealer_position=0,
             players=players,
         )
-        h.deal(cmd)
+        h.handle_deal_cards(cmd)
 
         with pytest.raises(CommandRejectedError, match="already dealt"):
-            h.deal(cmd)
+            h.handle_deal_cards(cmd)
 
     def test_deal_requires_two_players(self):
         h = Hand()
@@ -85,7 +85,7 @@ class TestDeal:
         )
 
         with pytest.raises(CommandRejectedError, match="at least 2"):
-            h.deal(cmd)
+            h.handle_deal_cards(cmd)
 
 
 class TestPostBlind:
@@ -94,7 +94,7 @@ class TestPostBlind:
     def test_post_blind_updates_pot(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -104,7 +104,7 @@ class TestPostBlind:
             )
         )
 
-        event = h.post_blind(
+        event = h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
@@ -118,7 +118,7 @@ class TestPostBlind:
     def test_post_blinds_sequence(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -128,14 +128,14 @@ class TestPostBlind:
             )
         )
 
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        event = h.post_blind(
+        event = h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -153,7 +153,7 @@ class TestAction:
     def _setup_hand(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -162,14 +162,14 @@ class TestAction:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -181,7 +181,7 @@ class TestAction:
     def test_call_action(self):
         h, players = self._setup_hand()
 
-        event = h.action(
+        event = h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.CALL,
@@ -195,7 +195,7 @@ class TestAction:
     def test_fold_action(self):
         h, players = self._setup_hand()
 
-        event = h.action(
+        event = h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.FOLD,
@@ -209,7 +209,7 @@ class TestAction:
     def test_raise_action(self):
         h, players = self._setup_hand()
 
-        event = h.action(
+        event = h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.RAISE,
@@ -223,7 +223,7 @@ class TestAction:
         h, players = self._setup_hand()
 
         with pytest.raises(CommandRejectedError, match="Cannot check"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=poker_types.CHECK,
@@ -232,7 +232,7 @@ class TestAction:
 
     def test_action_rejects_folded_player(self):
         h, players = self._setup_hand()
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.FOLD,
@@ -240,7 +240,7 @@ class TestAction:
         )
 
         with pytest.raises(CommandRejectedError, match="has folded"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=poker_types.CHECK,
@@ -254,7 +254,7 @@ class TestDealCommunity:
     def _setup_hand_with_betting(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -263,14 +263,14 @@ class TestDealCommunity:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -278,14 +278,14 @@ class TestDealCommunity:
             )
         )
         # Complete preflop betting
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.CALL,
                 amount=5,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[1].player_root,
                 action=poker_types.CHECK,
@@ -296,7 +296,7 @@ class TestDealCommunity:
     def test_deal_flop(self):
         h, players = self._setup_hand_with_betting()
 
-        event = h.deal_community(hand.DealCommunityCards(count=3))
+        event = h.handle_deal_community_cards(hand.DealCommunityCards(count=3))
 
         assert len(event.cards) == 3
         assert h.current_phase == poker_types.FLOP
@@ -304,9 +304,9 @@ class TestDealCommunity:
 
     def test_deal_turn(self):
         h, players = self._setup_hand_with_betting()
-        h.deal_community(hand.DealCommunityCards(count=3))  # Flop
+        h.handle_deal_community_cards(hand.DealCommunityCards(count=3))  # Flop
 
-        event = h.deal_community(hand.DealCommunityCards(count=1))
+        event = h.handle_deal_community_cards(hand.DealCommunityCards(count=1))
 
         assert len(event.cards) == 1
         assert h.current_phase == poker_types.TURN
@@ -314,10 +314,10 @@ class TestDealCommunity:
 
     def test_deal_river(self):
         h, players = self._setup_hand_with_betting()
-        h.deal_community(hand.DealCommunityCards(count=3))  # Flop
-        h.deal_community(hand.DealCommunityCards(count=1))  # Turn
+        h.handle_deal_community_cards(hand.DealCommunityCards(count=3))  # Flop
+        h.handle_deal_community_cards(hand.DealCommunityCards(count=1))  # Turn
 
-        event = h.deal_community(hand.DealCommunityCards(count=1))
+        event = h.handle_deal_community_cards(hand.DealCommunityCards(count=1))
 
         assert len(event.cards) == 1
         assert h.current_phase == poker_types.RIVER
@@ -330,7 +330,7 @@ class TestAward:
     def test_award_completes_hand(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -339,14 +339,14 @@ class TestAward:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -354,14 +354,14 @@ class TestAward:
             )
         )
         # Player 0 folds
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.FOLD,
             )
         )
 
-        pot_event, complete_event = h.award(
+        pot_event, complete_event = h.handle_award_pot(
             hand.AwardPot(
                 awards=[
                     hand.PotAward(
@@ -380,7 +380,7 @@ class TestAward:
     def test_award_rejects_folded_winner(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -389,21 +389,21 @@ class TestAward:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
                 amount=10,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.FOLD,
@@ -411,7 +411,7 @@ class TestAward:
         )
 
         with pytest.raises(CommandRejectedError, match="Folded player"):
-            h.award(
+            h.handle_award_pot(
                 hand.AwardPot(
                     awards=[
                         hand.PotAward(
@@ -430,7 +430,7 @@ class TestEventBook:
     def test_event_book_has_all_events(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -439,14 +439,14 @@ class TestEventBook:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -460,7 +460,7 @@ class TestEventBook:
     def test_award_adds_two_events(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -469,27 +469,27 @@ class TestEventBook:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
                 amount=10,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.FOLD,
             )
         )
-        h.award(
+        h.handle_award_pot(
             hand.AwardPot(
                 awards=[
                     hand.PotAward(
@@ -512,7 +512,7 @@ class TestStateAccessors:
     def test_hand_id_format(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa\xbb\xcc\xdd",
                 hand_number=5,
@@ -526,7 +526,7 @@ class TestStateAccessors:
     def test_table_root_accessor(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\x01\x02\x03\x04",
                 hand_number=1,
@@ -540,7 +540,7 @@ class TestStateAccessors:
     def test_game_variant_accessor(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -554,7 +554,7 @@ class TestStateAccessors:
     def test_min_raise_accessor(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -563,14 +563,14 @@ class TestStateAccessors:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -582,7 +582,7 @@ class TestStateAccessors:
     def test_small_blind_accessor(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -591,7 +591,7 @@ class TestStateAccessors:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
@@ -603,7 +603,7 @@ class TestStateAccessors:
     def test_big_blind_accessor(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -612,14 +612,14 @@ class TestStateAccessors:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -631,7 +631,7 @@ class TestStateAccessors:
     def test_remaining_deck_accessor(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -646,7 +646,7 @@ class TestStateAccessors:
     def test_get_pot_total(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -655,14 +655,14 @@ class TestStateAccessors:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -674,7 +674,7 @@ class TestStateAccessors:
     def test_get_player_found(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -690,7 +690,7 @@ class TestStateAccessors:
     def test_get_player_not_found(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -704,7 +704,7 @@ class TestStateAccessors:
     def test_get_active_players(self):
         h = Hand()
         players = make_players(3)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -713,14 +713,14 @@ class TestStateAccessors:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -731,7 +731,7 @@ class TestStateAccessors:
         assert len(h.get_active_players()) == 3
 
         # One folds
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[2].player_root,
                 action=poker_types.FOLD,
@@ -742,7 +742,7 @@ class TestStateAccessors:
     def test_get_players_in_hand(self):
         h = Hand()
         players = make_players(3)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -751,14 +751,14 @@ class TestStateAccessors:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -767,7 +767,7 @@ class TestStateAccessors:
         )
         assert len(h.get_players_in_hand()) == 3
 
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[2].player_root,
                 action=poker_types.FOLD,
@@ -782,7 +782,7 @@ class TestPostBlindEdgeCases:
     def test_post_blind_requires_hand_dealt(self):
         h = Hand()
         with pytest.raises(CommandRejectedError, match="Hand not dealt"):
-            h.post_blind(
+            h.handle_post_blind(
                 hand.PostBlind(
                     player_root=b"\x01",
                     blind_type="small",
@@ -793,7 +793,7 @@ class TestPostBlindEdgeCases:
     def test_post_blind_requires_player_root(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -803,12 +803,12 @@ class TestPostBlindEdgeCases:
             )
         )
         with pytest.raises(CommandRejectedError, match="player_root"):
-            h.post_blind(hand.PostBlind(blind_type="small", amount=5))
+            h.handle_post_blind(hand.PostBlind(blind_type="small", amount=5))
 
     def test_post_blind_requires_player_in_hand(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -818,7 +818,7 @@ class TestPostBlindEdgeCases:
             )
         )
         with pytest.raises(CommandRejectedError, match="not in hand"):
-            h.post_blind(
+            h.handle_post_blind(
                 hand.PostBlind(
                     player_root=b"\x99\x99\x99\x99",
                     blind_type="small",
@@ -829,7 +829,7 @@ class TestPostBlindEdgeCases:
     def test_post_blind_requires_positive_amount(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -839,7 +839,7 @@ class TestPostBlindEdgeCases:
             )
         )
         with pytest.raises(CommandRejectedError, match="positive"):
-            h.post_blind(
+            h.handle_post_blind(
                 hand.PostBlind(
                     player_root=players[0].player_root,
                     blind_type="small",
@@ -854,7 +854,7 @@ class TestActionEdgeCases:
     def _setup_hand(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -863,14 +863,14 @@ class TestActionEdgeCases:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -882,7 +882,7 @@ class TestActionEdgeCases:
     def test_action_requires_hand_dealt(self):
         h = Hand()
         with pytest.raises(CommandRejectedError, match="Hand not dealt"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=b"\x01",
                     action=poker_types.FOLD,
@@ -892,12 +892,12 @@ class TestActionEdgeCases:
     def test_action_requires_player_root(self):
         h, players = self._setup_hand()
         with pytest.raises(CommandRejectedError, match="player_root"):
-            h.action(hand.PlayerAction(action=poker_types.FOLD))
+            h.handle_player_action(hand.PlayerAction(action=poker_types.FOLD))
 
     def test_action_requires_player_in_hand(self):
         h, players = self._setup_hand()
         with pytest.raises(CommandRejectedError, match="not in hand"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=b"\x99\x99\x99\x99",
                     action=poker_types.FOLD,
@@ -907,7 +907,7 @@ class TestActionEdgeCases:
     def test_call_nothing_to_call(self):
         h, players = self._setup_hand()
         # After small blind calls, big blind can check (nothing to call)
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.CALL,
@@ -915,7 +915,7 @@ class TestActionEdgeCases:
             )
         )
         with pytest.raises(CommandRejectedError, match="Nothing to call"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[1].player_root,
                     action=poker_types.CALL,
@@ -925,14 +925,14 @@ class TestActionEdgeCases:
     def test_check_allowed_when_no_bet(self):
         h, players = self._setup_hand()
         # SB calls, BB can check
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.CALL,
                 amount=5,
             )
         )
-        event = h.action(
+        event = h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[1].player_root,
                 action=poker_types.CHECK,
@@ -946,7 +946,7 @@ class TestActionEdgeCases:
         with pytest.raises(
             CommandRejectedError, match="Cannot bet when there is already a bet"
         ):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=poker_types.BET,
@@ -957,24 +957,24 @@ class TestActionEdgeCases:
     def test_bet_minimum_enforced(self):
         h, players = self._setup_hand()
         # SB calls, BB checks, then SB can bet
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.CALL,
                 amount=5,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[1].player_root,
                 action=poker_types.CHECK,
             )
         )
         # Deal flop
-        h.deal_community(hand.DealCommunityCards(count=3))
+        h.handle_deal_community_cards(hand.DealCommunityCards(count=3))
         # Now try to bet less than big blind
         with pytest.raises(CommandRejectedError, match="at least"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=poker_types.BET,
@@ -984,22 +984,22 @@ class TestActionEdgeCases:
 
     def test_bet_exceeds_stack(self):
         h, players = self._setup_hand()
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.CALL,
                 amount=5,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[1].player_root,
                 action=poker_types.CHECK,
             )
         )
-        h.deal_community(hand.DealCommunityCards(count=3))
+        h.handle_deal_community_cards(hand.DealCommunityCards(count=3))
         with pytest.raises(CommandRejectedError, match="exceeds stack"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=poker_types.BET,
@@ -1009,24 +1009,24 @@ class TestActionEdgeCases:
 
     def test_raise_when_no_bet(self):
         h, players = self._setup_hand()
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.CALL,
                 amount=5,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[1].player_root,
                 action=poker_types.CHECK,
             )
         )
-        h.deal_community(hand.DealCommunityCards(count=3))
+        h.handle_deal_community_cards(hand.DealCommunityCards(count=3))
         with pytest.raises(
             CommandRejectedError, match="Cannot raise when there is no bet"
         ):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=poker_types.RAISE,
@@ -1037,7 +1037,7 @@ class TestActionEdgeCases:
     def test_raise_exceeds_stack(self):
         h, players = self._setup_hand()
         with pytest.raises(CommandRejectedError, match="exceeds stack"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=poker_types.RAISE,
@@ -1049,7 +1049,7 @@ class TestActionEdgeCases:
         h, players = self._setup_hand()
         # Min raise is big blind (10)
         with pytest.raises(CommandRejectedError, match="at least"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=poker_types.RAISE,
@@ -1059,7 +1059,7 @@ class TestActionEdgeCases:
 
     def test_all_in_action(self):
         h, players = self._setup_hand()
-        event = h.action(
+        event = h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.ALL_IN,
@@ -1070,14 +1070,14 @@ class TestActionEdgeCases:
 
     def test_all_in_player_cannot_act(self):
         h, players = self._setup_hand()
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.ALL_IN,
             )
         )
         with pytest.raises(CommandRejectedError, match="all-in"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=poker_types.CHECK,
@@ -1087,7 +1087,7 @@ class TestActionEdgeCases:
     def test_invalid_action(self):
         h, players = self._setup_hand()
         with pytest.raises(CommandRejectedError, match="Invalid action"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=999,  # Invalid action type
@@ -1101,12 +1101,12 @@ class TestDealCommunityEdgeCases:
     def test_deal_community_requires_hand(self):
         h = Hand()
         with pytest.raises(CommandRejectedError, match="Hand not dealt"):
-            h.deal_community(hand.DealCommunityCards(count=3))
+            h.handle_deal_community_cards(hand.DealCommunityCards(count=3))
 
     def test_deal_community_wrong_count(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1115,28 +1115,28 @@ class TestDealCommunityEdgeCases:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
                 amount=10,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.CALL,
                 amount=5,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[1].player_root,
                 action=poker_types.CHECK,
@@ -1144,12 +1144,12 @@ class TestDealCommunityEdgeCases:
         )
         # Flop should be 3 cards, not 1
         with pytest.raises(CommandRejectedError, match="Expected"):
-            h.deal_community(hand.DealCommunityCards(count=1))
+            h.handle_deal_community_cards(hand.DealCommunityCards(count=1))
 
     def test_deal_community_zero_cards(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1159,7 +1159,7 @@ class TestDealCommunityEdgeCases:
             )
         )
         with pytest.raises(CommandRejectedError, match="at least 1"):
-            h.deal_community(hand.DealCommunityCards(count=0))
+            h.handle_deal_community_cards(hand.DealCommunityCards(count=0))
 
 
 class TestReveal:
@@ -1214,7 +1214,7 @@ class TestReveal:
         h, players = self._setup_showdown()
         assert h.status == "showdown"
 
-        event = h.reveal(
+        event = h.handle_reveal_cards(
             hand.RevealCards(
                 player_root=players[0].player_root,
                 muck=False,
@@ -1228,7 +1228,7 @@ class TestReveal:
     def test_muck_cards(self):
         h, players = self._setup_showdown()
 
-        event = h.reveal(
+        event = h.handle_reveal_cards(
             hand.RevealCards(
                 player_root=players[1].player_root,
                 muck=True,
@@ -1241,7 +1241,7 @@ class TestReveal:
     def test_reveal_requires_showdown(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1251,7 +1251,7 @@ class TestReveal:
             )
         )
         with pytest.raises(CommandRejectedError, match="Not in showdown"):
-            h.reveal(
+            h.handle_reveal_cards(
                 hand.RevealCards(
                     player_root=players[0].player_root,
                 )
@@ -1260,12 +1260,12 @@ class TestReveal:
     def test_reveal_requires_player_root(self):
         h, players = self._setup_showdown()
         with pytest.raises(CommandRejectedError, match="player_root"):
-            h.reveal(hand.RevealCards())
+            h.handle_reveal_cards(hand.RevealCards())
 
     def test_reveal_requires_player_in_hand(self):
         h, players = self._setup_showdown()
         with pytest.raises(CommandRejectedError, match="not in hand"):
-            h.reveal(
+            h.handle_reveal_cards(
                 hand.RevealCards(
                     player_root=b"\x99\x99\x99\x99",
                 )
@@ -1278,7 +1278,7 @@ class TestAwardEdgeCases:
     def test_award_requires_hand(self):
         h = Hand()
         with pytest.raises(CommandRejectedError, match="Hand not dealt"):
-            h.award(
+            h.handle_award_pot(
                 hand.AwardPot(
                     awards=[
                         hand.PotAward(
@@ -1293,7 +1293,7 @@ class TestAwardEdgeCases:
     def test_award_requires_awards(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1302,33 +1302,33 @@ class TestAwardEdgeCases:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
                 amount=10,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.FOLD,
             )
         )
         with pytest.raises(CommandRejectedError, match="No awards"):
-            h.award(hand.AwardPot(awards=[]))
+            h.handle_award_pot(hand.AwardPot(awards=[]))
 
     def test_award_requires_winner_in_hand(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1337,28 +1337,28 @@ class TestAwardEdgeCases:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
                 amount=10,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.FOLD,
             )
         )
         with pytest.raises(CommandRejectedError, match="not in hand"):
-            h.award(
+            h.handle_award_pot(
                 hand.AwardPot(
                     awards=[
                         hand.PotAward(
@@ -1373,7 +1373,7 @@ class TestAwardEdgeCases:
     def test_award_cannot_double_complete(self):
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1382,27 +1382,27 @@ class TestAwardEdgeCases:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
                 amount=10,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.FOLD,
             )
         )
-        h.award(
+        h.handle_award_pot(
             hand.AwardPot(
                 awards=[
                     hand.PotAward(
@@ -1414,7 +1414,7 @@ class TestAwardEdgeCases:
             )
         )
         with pytest.raises(CommandRejectedError, match="already complete"):
-            h.award(
+            h.handle_award_pot(
                 hand.AwardPot(
                     awards=[
                         hand.PotAward(
@@ -1531,7 +1531,7 @@ class TestDealEdgeCases:
     def test_deal_requires_players(self):
         h = Hand()
         with pytest.raises(CommandRejectedError, match="No players"):
-            h.deal(
+            h.handle_deal_cards(
                 hand.DealCards(
                     table_root=b"\xaa",
                     hand_number=1,
@@ -1547,7 +1547,7 @@ class TestDealEdgeCases:
         h2 = Hand()
         players = make_players(2)
 
-        h1.deal(
+        h1.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1557,7 +1557,7 @@ class TestDealEdgeCases:
                 deck_seed=b"seed123",
             )
         )
-        h2.deal(
+        h2.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1609,7 +1609,7 @@ class TestMoreEdgeCases:
 
         h = Hand(event_book)
         with pytest.raises(CommandRejectedError, match="complete"):
-            h.post_blind(
+            h.handle_post_blind(
                 hand.PostBlind(
                     player_root=players[0].player_root,
                     blind_type="small",
@@ -1656,7 +1656,7 @@ class TestMoreEdgeCases:
 
         h = Hand(event_book)
         with pytest.raises(CommandRejectedError, match="folded"):
-            h.post_blind(
+            h.handle_post_blind(
                 hand.PostBlind(
                     player_root=players[0].player_root,
                     blind_type="small",
@@ -1697,7 +1697,7 @@ class TestMoreEdgeCases:
 
         h = Hand(event_book)
         with pytest.raises(CommandRejectedError, match="Not in betting"):
-            h.action(
+            h.handle_player_action(
                 hand.PlayerAction(
                     player_root=players[0].player_root,
                     action=poker_types.FOLD,
@@ -1708,7 +1708,7 @@ class TestMoreEdgeCases:
         """Bet for entire stack becomes ALL_IN."""
         h = Hand()
         players = make_players(2, stack=100)  # Small stack
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1717,37 +1717,37 @@ class TestMoreEdgeCases:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
                 amount=10,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.CALL,
                 amount=5,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[1].player_root,
                 action=poker_types.CHECK,
             )
         )
-        h.deal_community(hand.DealCommunityCards(count=3))
+        h.handle_deal_community_cards(hand.DealCommunityCards(count=3))
 
         # Bet entire remaining stack
-        event = h.action(
+        event = h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.BET,
@@ -1763,7 +1763,7 @@ class TestMoreEdgeCases:
             hand.PlayerInHand(player_root=b"\x01\x01\x01\x01", position=0, stack=20),
             hand.PlayerInHand(player_root=b"\x02\x02\x02\x02", position=1, stack=1000),
         ]
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1772,14 +1772,14 @@ class TestMoreEdgeCases:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -1787,7 +1787,7 @@ class TestMoreEdgeCases:
             )
         )
         # Player 1 raises big
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[1].player_root,
                 action=poker_types.RAISE,
@@ -1795,7 +1795,7 @@ class TestMoreEdgeCases:
             )
         )
         # Player 0 calls but can only afford 15 more (20 total - 5 SB = 15 left)
-        event = h.action(
+        event = h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.CALL,
@@ -1836,7 +1836,7 @@ class TestMoreEdgeCases:
 
         h = Hand(event_book)
         with pytest.raises(CommandRejectedError, match="complete"):
-            h.deal_community(hand.DealCommunityCards(count=3))
+            h.handle_deal_community_cards(hand.DealCommunityCards(count=3))
 
     def test_reveal_by_folded_player(self):
         """Folded player cannot reveal cards."""
@@ -1885,7 +1885,7 @@ class TestMoreEdgeCases:
 
         h = Hand(event_book)
         with pytest.raises(CommandRejectedError, match="folded"):
-            h.reveal(
+            h.handle_reveal_cards(
                 hand.RevealCards(
                     player_root=players[0].player_root,
                 )
@@ -1895,13 +1895,13 @@ class TestMoreEdgeCases:
         """Cannot reveal without a hand."""
         h = Hand()
         with pytest.raises(CommandRejectedError, match="Hand not dealt"):
-            h.reveal(hand.RevealCards(player_root=b"\x01"))
+            h.handle_reveal_cards(hand.RevealCards(player_root=b"\x01"))
 
     def test_raise_converts_to_all_in(self):
         """Raise for entire stack becomes ALL_IN."""
         h = Hand()
         players = make_players(2, stack=100)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1910,14 +1910,14 @@ class TestMoreEdgeCases:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
@@ -1926,7 +1926,7 @@ class TestMoreEdgeCases:
         )
         # Raise to total bet level that uses entire remaining stack
         # Player has 95 chips left and 5 already bet, so raising to 100 uses all chips
-        event = h.action(
+        event = h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.RAISE,
@@ -1939,7 +1939,7 @@ class TestMoreEdgeCases:
         """Five card draw variant doesn't have community cards."""
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -1949,7 +1949,7 @@ class TestMoreEdgeCases:
             )
         )
         with pytest.raises(CommandRejectedError, match="Five card draw"):
-            h.deal_community(hand.DealCommunityCards(count=3))
+            h.handle_deal_community_cards(hand.DealCommunityCards(count=3))
 
     def test_no_more_phases_after_showdown(self):
         """Cannot deal community cards in showdown phase."""
@@ -1989,7 +1989,7 @@ class TestMoreEdgeCases:
         h._get_state().current_phase = poker_types.SHOWDOWN
 
         with pytest.raises(CommandRejectedError, match="No more phases"):
-            h.deal_community(hand.DealCommunityCards(count=1))
+            h.handle_deal_community_cards(hand.DealCommunityCards(count=1))
 
     def test_not_enough_cards_in_deck(self):
         """Cannot deal if deck is exhausted."""
@@ -2020,13 +2020,13 @@ class TestMoreEdgeCases:
         h._get_state().remaining_deck = [(poker_types.SPADES, 2)]
 
         with pytest.raises(CommandRejectedError, match="Not enough cards"):
-            h.deal_community(hand.DealCommunityCards(count=3))
+            h.handle_deal_community_cards(hand.DealCommunityCards(count=3))
 
     def test_award_adjusts_pot_total(self):
         """Award adjusts first winner's amount to match pot."""
         h = Hand()
         players = make_players(2)
-        h.deal(
+        h.handle_deal_cards(
             hand.DealCards(
                 table_root=b"\xaa",
                 hand_number=1,
@@ -2035,21 +2035,21 @@ class TestMoreEdgeCases:
                 players=players,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[0].player_root,
                 blind_type="small",
                 amount=5,
             )
         )
-        h.post_blind(
+        h.handle_post_blind(
             hand.PostBlind(
                 player_root=players[1].player_root,
                 blind_type="big",
                 amount=10,
             )
         )
-        h.action(
+        h.handle_player_action(
             hand.PlayerAction(
                 player_root=players[0].player_root,
                 action=poker_types.FOLD,
@@ -2057,7 +2057,7 @@ class TestMoreEdgeCases:
         )
 
         # Award with wrong amount - should be adjusted to pot total (15)
-        pot_event, complete_event = h.award(
+        pot_event, complete_event = h.handle_award_pot(
             hand.AwardPot(
                 awards=[
                     hand.PotAward(
