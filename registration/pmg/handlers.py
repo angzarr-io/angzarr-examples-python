@@ -115,22 +115,22 @@ class RegistrationPM:
 
     # --- Event handlers ---
 
-    # TODO(pm-source-context): new Router API doesn't expose source cover root
-    # to handlers. Callers must seed state.player_root (or include player_root
-    # in the event payload).
     @handles(registration.RegistrationRequested)
     def handle_registration_requested(
         self,
         event: registration.RegistrationRequested,
         state: RegistrationState,
         destinations: Destinations,
+        source_cover: types.Cover = None,
     ) -> ProcessManagerResponse:
         """Handle RegistrationRequested from Player domain.
 
         Emits EnrollPlayer to Tournament - Tournament aggregate validates
         registration-open, tournament-full, and already-registered checks.
         """
-        player_root = state.player_root
+        player_root = (
+            source_cover.root.value if source_cover is not None else state.player_root
+        )
         fee = event.fee.amount if event.HasField("fee") else 0
 
         initiated = registration.RegistrationInitiated(

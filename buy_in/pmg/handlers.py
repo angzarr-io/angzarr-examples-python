@@ -103,20 +103,18 @@ class BuyInPM:
 
     # --- Event handlers ---
 
-    # TODO(pm-source-context): new Router API does not expose source cover root
-    # to handlers. Callers must ensure state.player_root is seeded when invoking
-    # handle_buy_in_requested, or rely on an upstream layer to stamp player_root
-    # into the event payload. The BuyInRequested proto currently lacks a
-    # player_root field.
     @handles(buy_in.BuyInRequested)
     def handle_buy_in_requested(
         self,
         event: buy_in.BuyInRequested,
         state: BuyInState,
         destinations: Destinations,
+        source_cover: types.Cover = None,
     ) -> ProcessManagerResponse:
         """Handle BuyInRequested from Player domain."""
-        player_root = state.player_root
+        player_root = (
+            source_cover.root.value if source_cover is not None else state.player_root
+        )
         amount = event.amount.amount if event.HasField("amount") else 0
 
         initiated = buy_in.BuyInInitiated(

@@ -39,7 +39,10 @@ class HandTableSaga:
 
     @handles(hand.HandComplete)
     def handle_hand_complete(
-        self, event: hand.HandComplete, destinations: Destinations
+        self,
+        event: hand.HandComplete,
+        destinations: Destinations,
+        source_cover: types.Cover = None,
     ) -> types.CommandBook:
         results = [
             table.PotResult(
@@ -51,14 +54,8 @@ class HandTableSaga:
             for winner in event.winners
         ]
 
-        # TODO(saga-source-context): the unified saga dispatch does not expose
-        # the source event book's cover root. ``event.table_root`` is present
-        # on HandComplete, so we use it here as the target root; previously
-        # this saga stamped ``self._current_root`` (the source root), which
-        # equalled the hand aggregate root. EndHand.hand_root below preserves
-        # the hand_root via the event itself — EndHand expects it as the
-        # source hand identifier.
-        end_hand = table.EndHand()
+        hand_root = source_cover.root.value if source_cover is not None else b""
+        end_hand = table.EndHand(hand_root=hand_root)
         end_hand.results.extend(results)
 
         seq = destinations.sequence_for("table") if destinations else 0

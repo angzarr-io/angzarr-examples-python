@@ -104,18 +104,18 @@ class RebuyPM:
 
     # --- Event handlers ---
 
-    # TODO(pm-source-context): new Router API doesn't expose source cover root
-    # to handlers. Callers must seed state.player_root (or include player_root
-    # in the event payload) when testing handle_rebuy_requested.
     @handles(rebuy.RebuyRequested)
     def handle_rebuy_requested(
         self,
         event: rebuy.RebuyRequested,
         state: RebuyState,
         destinations: Destinations,
+        source_cover: types.Cover = None,
     ) -> ProcessManagerResponse:
         """Handle RebuyRequested from Player domain."""
-        player_root = state.player_root
+        player_root = (
+            source_cover.root.value if source_cover is not None else state.player_root
+        )
         fee = event.fee.amount if event.HasField("fee") else 0
 
         initiated = rebuy.RebuyInitiated(
