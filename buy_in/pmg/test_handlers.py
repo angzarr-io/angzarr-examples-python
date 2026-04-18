@@ -52,7 +52,9 @@ class TestBuyInPMHandlers:
         state = BuyInState(player_root=player_root)
         destinations = _make_destinations({"table": 5})
 
-        result = pm.handle_buy_in_requested(event, state=state, destinations=destinations)
+        result = pm.handle_buy_in_requested(
+            event, state=state, destinations=destinations
+        )
 
         assert result is not None
         assert len(result.commands) == 1
@@ -78,7 +80,9 @@ class TestBuyInPMHandlers:
         state = BuyInState(player_root=player_root)
         destinations = _make_destinations({"table": 5})
 
-        result = pm.handle_buy_in_requested(event, state=state, destinations=destinations)
+        result = pm.handle_buy_in_requested(
+            event, state=state, destinations=destinations
+        )
 
         assert result.process_events is not None
         assert len(result.process_events.pages) == 1
@@ -139,7 +143,9 @@ class TestBuyInPMHandlers:
         state = BuyInState()
         destinations = _make_destinations({"player": 3})
 
-        result = pm.handle_seating_rejected(event, state=state, destinations=destinations)
+        result = pm.handle_seating_rejected(
+            event, state=state, destinations=destinations
+        )
 
         assert len(result.commands) == 1
         release = buy_in.ReleaseBuyIn()
@@ -158,7 +164,9 @@ class TestBuyInPMHandlers:
         state = BuyInState()
         destinations = _make_destinations({"player": 3})
 
-        result = pm.handle_seating_rejected(event, state=state, destinations=destinations)
+        result = pm.handle_seating_rejected(
+            event, state=state, destinations=destinations
+        )
 
         assert result.process_events is not None
         assert len(result.process_events.pages) == 1

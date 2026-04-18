@@ -37,7 +37,9 @@ def make_event_page(event_msg, seq: int = 0) -> types.EventPage:
     )
 
 
-def _build_command_book(cmd_msg, target_domain: str, root: bytes = b"") -> types.CommandBook:
+def _build_command_book(
+    cmd_msg, target_domain: str, root: bytes = b""
+) -> types.CommandBook:
     cmd_any = ProtoAny()
     cmd_any.Pack(cmd_msg, type_url_prefix="type.googleapis.com/")
     cover = types.Cover(domain=target_domain)
@@ -115,7 +117,9 @@ class HandResultsSaga:
                 ),
             )
             commands.append(
-                _build_command_book(cmd, target_domain="player", root=winner.player_root)
+                _build_command_book(
+                    cmd, target_domain="player", root=winner.player_root
+                )
             )
         return tuple(commands) if commands else None
 
@@ -132,9 +136,7 @@ class TableHandEndedSaga:
                 table_root=event.hand_root,
             )
             root = bytes.fromhex(player_hex)
-            commands.append(
-                _build_command_book(cmd, target_domain="player", root=root)
-            )
+            commands.append(_build_command_book(cmd, target_domain="player", root=root))
         return tuple(commands) if commands else None
 
 

@@ -51,7 +51,9 @@ class HandFlowState:
     state in the module-level ``HandProcessManager`` instance."""
 
 
-def _single_command_response(cmd: Optional[types.CommandBook]) -> ProcessManagerResponse:
+def _single_command_response(
+    cmd: Optional[types.CommandBook],
+) -> ProcessManagerResponse:
     if cmd is None:
         return ProcessManagerResponse()
     return ProcessManagerResponse(commands=[cmd])
@@ -105,7 +107,11 @@ class HandFlowPM:
         state: HandFlowState,
         destinations: Destinations,
     ) -> ProcessManagerResponse:
-        key = f"{event.hand_root.hex()}_{event.hand_number}" if hasattr(event, "hand_root") else ""
+        key = (
+            f"{event.hand_root.hex()}_{event.hand_number}"
+            if hasattr(event, "hand_root")
+            else ""
+        )
         cmd = self._manager.handle_cards_dealt(key, event)
         return _single_command_response(cmd)
 

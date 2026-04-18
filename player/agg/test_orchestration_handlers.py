@@ -39,7 +39,6 @@ from .state import (
     apply_registration_requested,
 )
 
-
 TABLE_ROOT = b"\x10" * 16
 TOURNAMENT_ROOT = b"\x11" * 16
 RESERVATION_ID = b"\x12" * 16

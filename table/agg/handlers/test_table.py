@@ -138,7 +138,9 @@ class TestJoin:
         )
 
         player_root = b"\x01\x02\x03\x04"
-        event = t.handle_join_table(table.JoinTable(player_root=player_root, buy_in_amount=500))
+        event = t.handle_join_table(
+            table.JoinTable(player_root=player_root, buy_in_amount=500)
+        )
 
         assert t.player_count == 1
         seat = t.find_player_seat(player_root)
@@ -188,7 +190,9 @@ class TestJoin:
         t.handle_join_table(table.JoinTable(player_root=player_root, buy_in_amount=500))
 
         with pytest.raises(CommandRejectedError, match="already seated"):
-            t.handle_join_table(table.JoinTable(player_root=player_root, buy_in_amount=500))
+            t.handle_join_table(
+                table.JoinTable(player_root=player_root, buy_in_amount=500)
+            )
 
     def test_join_validates_buy_in(self):
         t = Table()
@@ -207,7 +211,9 @@ class TestJoin:
             t.handle_join_table(table.JoinTable(player_root=b"\x01", buy_in_amount=50))
 
         with pytest.raises(CommandRejectedError, match="cannot exceed"):
-            t.handle_join_table(table.JoinTable(player_root=b"\x02", buy_in_amount=2000))
+            t.handle_join_table(
+                table.JoinTable(player_root=b"\x02", buy_in_amount=2000)
+            )
 
 
 class TestLeave:

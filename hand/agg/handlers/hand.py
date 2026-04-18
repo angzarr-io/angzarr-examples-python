@@ -534,9 +534,7 @@ class Hand:
                     action = poker_types.ALL_IN
             elif action == poker_types.BET:
                 if self.current_bet > 0:
-                    raise CommandRejectedError(
-                        "Cannot bet when there is already a bet"
-                    )
+                    raise CommandRejectedError("Cannot bet when there is already a bet")
                 if amount < self.big_blind:
                     raise CommandRejectedError.invalid_argument(
                         f"Bet must be at least {self.big_blind}"
@@ -612,7 +610,9 @@ class Hand:
             rules = get_game_rules(s.game_variant)
 
             if rules.variant == poker_types.FIVE_CARD_DRAW:
-                raise CommandRejectedError("Five card draw doesn't have community cards")
+                raise CommandRejectedError(
+                    "Five card draw doesn't have community cards"
+                )
 
             transition = rules.get_next_phase(s.current_phase)
             if not transition:
@@ -634,9 +634,7 @@ class Hand:
             for suit, rank in new_cards:
                 event.cards.append(poker_types.Card(suit=suit, rank=rank))
             for suit, rank in all_community:
-                event.all_community_cards.append(
-                    poker_types.Card(suit=suit, rank=rank)
-                )
+                event.all_community_cards.append(poker_types.Card(suit=suit, rank=rank))
 
             if not router_mode:
                 self._emit(event)

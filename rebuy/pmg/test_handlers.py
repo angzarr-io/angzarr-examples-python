@@ -36,7 +36,9 @@ class TestRebuyPMHandlers:
         state = RebuyState(player_root=player_root)
         destinations = _make_destinations({"tournament": 5, "table": 3})
 
-        result = pm.handle_rebuy_requested(event, state=state, destinations=destinations)
+        result = pm.handle_rebuy_requested(
+            event, state=state, destinations=destinations
+        )
 
         assert result is not None
         assert len(result.commands) == 1
@@ -59,7 +61,9 @@ class TestRebuyPMHandlers:
         state = RebuyState(player_root=player_root)
         destinations = _make_destinations({"tournament": 5})
 
-        result = pm.handle_rebuy_requested(event, state=state, destinations=destinations)
+        result = pm.handle_rebuy_requested(
+            event, state=state, destinations=destinations
+        )
 
         assert result.process_events is not None
         assert len(result.process_events.pages) == 1
@@ -82,7 +86,9 @@ class TestRebuyPMHandlers:
         )
         destinations = _make_destinations({"table": 3})
 
-        result = pm.handle_rebuy_processed(event, state=state, destinations=destinations)
+        result = pm.handle_rebuy_processed(
+            event, state=state, destinations=destinations
+        )
 
         assert len(result.commands) == 1
         add_chips = rebuy.AddRebuyChips()

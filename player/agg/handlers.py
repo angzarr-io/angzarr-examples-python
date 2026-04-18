@@ -22,7 +22,6 @@ from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import rebuy_pb2 as rebuy
 from angzarr_client.proto.examples import registration_pb2 as registration
 
-
 # =============================================================================
 # RegisterPlayer
 # =============================================================================
@@ -173,9 +172,7 @@ def reserve_funds_guard(state: PlayerState) -> None:
         raise CommandRejectedError("Player does not exist")
 
 
-def reserve_funds_validate(
-    cmd: player.ReserveFunds, state: PlayerState
-) -> int:
+def reserve_funds_validate(cmd: player.ReserveFunds, state: PlayerState) -> int:
     """Validate reserve command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
@@ -231,9 +228,7 @@ def release_funds_guard(state: PlayerState) -> None:
         raise CommandRejectedError("Player does not exist")
 
 
-def release_funds_validate(
-    cmd: player.ReleaseFunds, state: PlayerState
-) -> int:
+def release_funds_validate(cmd: player.ReleaseFunds, state: PlayerState) -> int:
     """Validate release command and return reserved amount."""
     if not cmd.table_root:
         raise CommandRejectedError("table_root is required")

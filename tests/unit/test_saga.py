@@ -35,9 +35,7 @@ except ImportError:
 from tests.helpers import uuid_for
 
 
-def make_event_book(
-    domain: str, root: bytes, events: list
-) -> types.EventBook:
+def make_event_book(domain: str, root: bytes, events: list) -> types.EventBook:
     """Build an EventBook with the type URL prefix expected by the unified
     Router (no domain segment in the prefix)."""
     pages = []
@@ -58,6 +56,7 @@ def make_event_book(
         pages=pages,
         next_sequence=len(pages),
     )
+
 
 pytestmark = pytest.mark.skipif(
     not SAGAS_AVAILABLE, reason="sagas package not importable"
@@ -89,14 +88,10 @@ class TestTableSyncStartSaga:
             big_blind=200,
         )
         event.active_players.append(
-            table.SeatSnapshot(
-                player_root=uuid_for("player-1"), position=0, stack=500
-            )
+            table.SeatSnapshot(player_root=uuid_for("player-1"), position=0, stack=500)
         )
         event.active_players.append(
-            table.SeatSnapshot(
-                player_root=uuid_for("player-2"), position=1, stack=500
-            )
+            table.SeatSnapshot(player_root=uuid_for("player-2"), position=1, stack=500)
         )
 
         event_book = make_event_book("table", uuid_for("table-1"), [event])
@@ -211,9 +206,7 @@ class TestMultiSagaRouter:
             game_variant=poker_types.TEXAS_HOLDEM,
         )
         event.active_players.append(
-            table.SeatSnapshot(
-                player_root=uuid_for("player-1"), position=0, stack=500
-            )
+            table.SeatSnapshot(player_root=uuid_for("player-1"), position=0, stack=500)
         )
 
         event_book = make_event_book("table", uuid_for("table-1"), [event])

@@ -39,7 +39,9 @@ def _build_query_client() -> QueryClient | None:
 
 if __name__ == "__main__":
     query_client = _build_query_client()
-    router = Router("pmg-buy-in").with_handler(BuyInPM(query_client=query_client)).build()
+    router = (
+        Router("pmg-buy-in").with_handler(BuyInPM(query_client=query_client)).build()
+    )
     servicer = ProcessManagerGrpc(router)
     run_server(
         process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,

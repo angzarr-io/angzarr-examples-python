@@ -10,7 +10,6 @@ from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
 from .hand import Hand
 
-
 TABLE_ROOT = b"\x10" * 16
 P1 = b"\x01" * 16
 P2 = b"\x02" * 16
@@ -33,12 +32,8 @@ def _hand_with_cards_dealt(variant: int = poker_types.TEXAS_HOLDEM) -> Hand:
                     game_variant=variant,
                     dealer_position=0,
                     players=[
-                        hand_proto.PlayerInHand(
-                            player_root=P1, position=0, stack=1000
-                        ),
-                        hand_proto.PlayerInHand(
-                            player_root=P2, position=1, stack=1000
-                        ),
+                        hand_proto.PlayerInHand(player_root=P1, position=0, stack=1000),
+                        hand_proto.PlayerInHand(player_root=P2, position=1, stack=1000),
                     ],
                 )
             ),

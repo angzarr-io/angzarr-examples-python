@@ -16,7 +16,6 @@ from angzarr_client import rejected as _router_rejected
 from angzarr_client.helpers import type_name_from_url
 from angzarr_client.proto.angzarr import types_pb2 as types
 
-
 # ----------------------------------------------------------------------------
 # Local compatibility shims for BDD scaffolding only (see features/steps/
 # compensation_steps.py for rationale).
@@ -134,6 +133,7 @@ class CommandRouter:
         response = types.BusinessResponse()
         response.events.CopyFrom(types.EventBook())
         return response
+
 
 # Use regex matchers for flexibility
 use_step_matcher("re")

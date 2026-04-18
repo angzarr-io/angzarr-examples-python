@@ -65,13 +65,17 @@ class TestCreateTournament:
     def test_requires_positive_starting_stack(self) -> None:
         """starting_stack must be positive."""
         t = Tournament()
-        with pytest.raises(CommandRejectedError, match="starting_stack must be positive"):
+        with pytest.raises(
+            CommandRejectedError, match="starting_stack must be positive"
+        ):
             t.handle_create_tournament(_make_valid_create_cmd(starting_stack=0))
 
     def test_requires_min_players_at_least_2(self) -> None:
         """min_players must be at least 2."""
         t = Tournament()
-        with pytest.raises(CommandRejectedError, match="min_players must be at least 2"):
+        with pytest.raises(
+            CommandRejectedError, match="min_players must be at least 2"
+        ):
             t.handle_create_tournament(_make_valid_create_cmd(min_players=1))
 
     def test_min_players_cannot_exceed_max(self) -> None:
@@ -146,9 +150,7 @@ class TestEnrollPlayer:
         """Rejects if registration is not open."""
         t = Tournament()
         t.handle_create_tournament(_make_valid_create_cmd())
-        event = t.handle_enroll_player(
-            tournament.EnrollPlayer(player_root=b"player1")
-        )
+        event = t.handle_enroll_player(tournament.EnrollPlayer(player_root=b"player1"))
         assert isinstance(event, tournament.TournamentEnrollmentRejected)
         assert "not open" in event.reason
 
@@ -167,9 +169,7 @@ class TestEnrollPlayer:
         """Rejects duplicate player registration."""
         t = _make_tournament_with_registration()
         t.handle_enroll_player(tournament.EnrollPlayer(player_root=b"player1"))
-        event = t.handle_enroll_player(
-            tournament.EnrollPlayer(player_root=b"player1")
-        )
+        event = t.handle_enroll_player(tournament.EnrollPlayer(player_root=b"player1"))
         assert isinstance(event, tournament.TournamentEnrollmentRejected)
         assert "already registered" in event.reason
 
@@ -191,9 +191,7 @@ class TestProcessRebuy:
                 tournament.EnrollPlayer(player_root=f"p{i}".encode())
             )
         t.handle_start_tournament(tournament.StartTournament())
-        event = t.handle_process_rebuy(
-            tournament.ProcessRebuy(player_root=b"unknown")
-        )
+        event = t.handle_process_rebuy(tournament.ProcessRebuy(player_root=b"unknown"))
         assert isinstance(event, tournament.RebuyDenied)
         assert "not registered" in event.reason
 
@@ -205,9 +203,7 @@ class TestEliminatePlayer:
         """Cannot eliminate if tournament not running."""
         t = _make_tournament_with_registration()
         with pytest.raises(CommandRejectedError, match="not running"):
-            t.handle_eliminate_player(
-                tournament.EliminatePlayer(player_root=b"p1")
-            )
+            t.handle_eliminate_player(tournament.EliminatePlayer(player_root=b"p1"))
 
 
 class TestPauseResume:
@@ -232,7 +228,9 @@ class TestStartTournament:
     def test_start_tournament(self) -> None:
         """Start a tournament with enough players."""
         t = Tournament()
-        t.handle_create_tournament(_make_valid_create_cmd(min_players=2, max_players=10))
+        t.handle_create_tournament(
+            _make_valid_create_cmd(min_players=2, max_players=10)
+        )
         t.handle_open_registration(tournament.OpenRegistration())
         t.handle_enroll_player(tournament.EnrollPlayer(player_root=b"p1"))
         t.handle_enroll_player(tournament.EnrollPlayer(player_root=b"p2"))
@@ -243,7 +241,9 @@ class TestStartTournament:
     def test_rejects_not_enough_players(self) -> None:
         """Cannot start without enough players."""
         t = Tournament()
-        t.handle_create_tournament(_make_valid_create_cmd(min_players=2, max_players=10))
+        t.handle_create_tournament(
+            _make_valid_create_cmd(min_players=2, max_players=10)
+        )
         t.handle_open_registration(tournament.OpenRegistration())
         t.handle_enroll_player(tournament.EnrollPlayer(player_root=b"p1"))
         with pytest.raises(CommandRejectedError, match="Not enough players"):

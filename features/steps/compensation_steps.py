@@ -16,7 +16,6 @@ from angzarr_client import rejected as _router_rejected
 from angzarr_client.helpers import type_name_from_url
 from angzarr_client.proto.angzarr import types_pb2 as types
 
-
 # ----------------------------------------------------------------------------
 # Local compatibility shims for BDD scaffolding only
 #
@@ -33,7 +32,9 @@ from angzarr_client.proto.angzarr import types_pb2 as types
 def rejected(*args, **kwargs):
     """Compatibility wrapper: accept both positional and keyword forms."""
     if args:
-        source_domain, command = args[0], args[1] if len(args) > 1 else kwargs.get("command", "")
+        source_domain, command = args[0], (
+            args[1] if len(args) > 1 else kwargs.get("command", "")
+        )
     else:
         source_domain = kwargs.get("domain") or kwargs.get("source_domain", "")
         command = kwargs.get("command", "")
@@ -195,6 +196,7 @@ class SingleFluentRouter:
                 if out:
                     commands.extend(out)
         return commands
+
 
 # Use regex matchers for flexibility
 use_step_matcher("re")

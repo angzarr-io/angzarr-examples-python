@@ -656,9 +656,7 @@ class Table:
             if not cmd.player_root:
                 raise CommandRejectedError("player_root is required")
             if cmd.amount <= 0:
-                raise CommandRejectedError.invalid_argument(
-                    "amount must be positive"
-                )
+                raise CommandRejectedError.invalid_argument("amount must be positive")
             seat = self.find_player_seat(cmd.player_root)
             if seat is None:
                 raise CommandRejectedError("Player is not seated at this table")

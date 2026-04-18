@@ -44,7 +44,9 @@ def _pack(msg) -> ProtoAny:
     return any_msg
 
 
-def _command_book(domain: str, root: bytes, cmd, sequence: int = 0) -> types.CommandBook:
+def _command_book(
+    domain: str, root: bytes, cmd, sequence: int = 0
+) -> types.CommandBook:
     return types.CommandBook(
         cover=types.Cover(
             domain=domain,

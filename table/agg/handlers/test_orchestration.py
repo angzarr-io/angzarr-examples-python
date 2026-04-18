@@ -14,7 +14,6 @@ from angzarr_client.proto.examples import table_pb2 as table_proto
 
 from .table import Table
 
-
 PLAYER_ROOT = b"\x01" * 16
 OTHER_PLAYER = b"\x02" * 16
 RESERVATION = b"\x03" * 16

@@ -195,15 +195,11 @@ class PlayerAggregate:
         apply_withdrawn(state, event)
 
     @applies(player.FundsReserved)
-    def _apply_reserved(
-        self, state: PlayerState, event: player.FundsReserved
-    ) -> None:
+    def _apply_reserved(self, state: PlayerState, event: player.FundsReserved) -> None:
         apply_reserved(state, event)
 
     @applies(player.FundsReleased)
-    def _apply_released(
-        self, state: PlayerState, event: player.FundsReleased
-    ) -> None:
+    def _apply_released(self, state: PlayerState, event: player.FundsReleased) -> None:
         apply_released(state, event)
 
     @applies(player.FundsTransferred)

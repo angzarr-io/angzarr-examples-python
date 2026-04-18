@@ -125,9 +125,7 @@ def apply_transferred(state: PlayerState, event: player.FundsTransferred) -> Non
 # --- Buy-in orchestration appliers ---
 
 
-def apply_buy_in_requested(
-    state: PlayerState, event: buy_in.BuyInRequested
-) -> None:
+def apply_buy_in_requested(state: PlayerState, event: buy_in.BuyInRequested) -> None:
     """Reserve funds for a pending buy-in."""
     reservation_hex = event.reservation_id.hex()
     amount = event.amount.amount if event.HasField("amount") else 0
@@ -139,9 +137,7 @@ def apply_buy_in_requested(
     )
 
 
-def apply_buy_in_confirmed(
-    state: PlayerState, event: buy_in.BuyInConfirmed
-) -> None:
+def apply_buy_in_confirmed(state: PlayerState, event: buy_in.BuyInConfirmed) -> None:
     """Move reserved funds out of the bankroll into the table."""
     reservation_hex = event.reservation_id.hex()
     pending = state.pending_buy_ins.pop(reservation_hex, None)
@@ -206,9 +202,7 @@ def apply_registration_released(
 # --- Rebuy orchestration appliers ---
 
 
-def apply_rebuy_requested(
-    state: PlayerState, event: rebuy.RebuyRequested
-) -> None:
+def apply_rebuy_requested(state: PlayerState, event: rebuy.RebuyRequested) -> None:
     """Reserve the rebuy fee."""
     reservation_hex = event.reservation_id.hex()
     fee = event.fee.amount if event.HasField("fee") else 0
@@ -222,9 +216,7 @@ def apply_rebuy_requested(
     )
 
 
-def apply_rebuy_confirmed(
-    state: PlayerState, event: rebuy.RebuyFeeConfirmed
-) -> None:
+def apply_rebuy_confirmed(state: PlayerState, event: rebuy.RebuyFeeConfirmed) -> None:
     """Deduct the rebuy fee from bankroll + reserved."""
     reservation_hex = event.reservation_id.hex()
     pending = state.pending_rebuys.pop(reservation_hex, None)
@@ -234,9 +226,7 @@ def apply_rebuy_confirmed(
     state.bankroll -= pending.fee
 
 
-def apply_rebuy_released(
-    state: PlayerState, event: rebuy.RebuyFeeReleased
-) -> None:
+def apply_rebuy_released(state: PlayerState, event: rebuy.RebuyFeeReleased) -> None:
     """Return the reserved rebuy fee."""
     reservation_hex = event.reservation_id.hex()
     pending = state.pending_rebuys.pop(reservation_hex, None)

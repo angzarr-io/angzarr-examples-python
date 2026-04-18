@@ -16,7 +16,9 @@ class PlayerState:
 @command_handler(domain="player", state=PlayerState)
 class TestPlayerAggregate:
     @rejected("payment", "ProcessPayment")
-    def handle_payment_rejected(self, notification: types.Notification, state: PlayerState):
+    def handle_payment_rejected(
+        self, notification: types.Notification, state: PlayerState
+    ):
         return None
 
 

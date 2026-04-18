@@ -46,7 +46,9 @@ def _pack(msg) -> ProtoAny:
     return any_msg
 
 
-def _command_book(domain: str, root: bytes, cmd, sequence: int = 0) -> types.CommandBook:
+def _command_book(
+    domain: str, root: bytes, cmd, sequence: int = 0
+) -> types.CommandBook:
     return types.CommandBook(
         cover=types.Cover(
             domain=domain,
@@ -221,8 +223,7 @@ class RebuyPM:
 
         if table_loaded:
             seated = (
-                player_root
-                and tbl_state.find_seat_by_player(player_root) == event.seat
+                player_root and tbl_state.find_seat_by_player(player_root) == event.seat
             )
             if not seated:
                 return _fail(

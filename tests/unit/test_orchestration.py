@@ -207,7 +207,9 @@ def _first_process_event(response, proto_cls):
 # ==========================================================================
 
 
-@given(parsers.parse("a table with seat {seat:d} available and buy-in range {lo:d}-{hi:d}"))
+@given(
+    parsers.parse("a table with seat {seat:d} available and buy-in range {lo:d}-{hi:d}")
+)
 def _buyin_table_available(world: OrchWorld, seat: int, lo: int, hi: int):
     created = table.TableCreated(
         table_name="Test Table",
@@ -222,7 +224,11 @@ def _buyin_table_available(world: OrchWorld, seat: int, lo: int, hi: int):
     world.query.seed("table", TABLE_ROOT, [created])
 
 
-@given(parsers.parse("a player with a BuyInRequested event for seat {seat:d} with amount {amount:d}"))
+@given(
+    parsers.parse(
+        "a player with a BuyInRequested event for seat {seat:d} with amount {amount:d}"
+    )
+)
 def _buyin_player_event(world: OrchWorld, seat: int, amount: int):
     world.source_cover = types.Cover(
         domain="player", root=types.UUID(value=PLAYER_ROOT)
@@ -235,7 +241,11 @@ def _buyin_player_event(world: OrchWorld, seat: int, amount: int):
     )
 
 
-@given(parsers.parse("a player with a BuyInRequested event for any seat with amount {amount:d}"))
+@given(
+    parsers.parse(
+        "a player with a BuyInRequested event for any seat with amount {amount:d}"
+    )
+)
 def _buyin_player_event_any_seat(world: OrchWorld, amount: int):
     # Seat 0 is the canonical "any available seat" — tests for TABLE_FULL
     # seed every seat so no position succeeds.
@@ -292,9 +302,7 @@ def _buyin_table_full(world: OrchWorld):
 def _buyin_pending(world: OrchWorld):
     # No query lookup needed — PlayerSeated / SeatingRejected handlers are
     # pure translators that don't re-query the aggregates.
-    world.source_cover = types.Cover(
-        domain="table", root=types.UUID(value=TABLE_ROOT)
-    )
+    world.source_cover = types.Cover(domain="table", root=types.UUID(value=TABLE_ROOT))
 
 
 # ==========================================================================
@@ -588,9 +596,7 @@ def _rebuy_pending(world: OrchWorld):
 
 @given("a player, tournament, and table with chips added")
 def _rebuy_chips_added_state(world: OrchWorld):
-    world.source_cover = types.Cover(
-        domain="table", root=types.UUID(value=TABLE_ROOT)
-    )
+    world.source_cover = types.Cover(domain="table", root=types.UUID(value=TABLE_ROOT))
 
 
 # ==========================================================================
@@ -764,19 +770,17 @@ def _then_buyin_failed(world: OrchWorld, code: str):
 
 @then("the PM emits a RegistrationInitiated process event")
 def _then_registration_initiated(world: OrchWorld):
-    assert "examples.RegistrationInitiated" in _response_event_types(
-        world.pm_response
-    )
+    assert "examples.RegistrationInitiated" in _response_event_types(world.pm_response)
 
 
 @then("the PM emits a RegistrationCompleted process event")
 def _then_registration_completed(world: OrchWorld):
-    assert "examples.RegistrationCompleted" in _response_event_types(
-        world.pm_response
-    )
+    assert "examples.RegistrationCompleted" in _response_event_types(world.pm_response)
 
 
-@then(parsers.parse('the PM emits a RegistrationFailed process event with code "{code}"'))
+@then(
+    parsers.parse('the PM emits a RegistrationFailed process event with code "{code}"')
+)
 def _then_registration_failed(world: OrchWorld, code: str):
     failed = _first_process_event(world.pm_response, registration.RegistrationFailed)
     assert failed is not None, "no RegistrationFailed event emitted"

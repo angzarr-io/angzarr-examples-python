@@ -51,9 +51,7 @@ class TestTournamentStateRebuild:
             buy_in=50,
             starting_stack=1500,
         )
-        event_book = _make_event_book(
-            [_pack_event(created)], domain="tournament"
-        )
+        event_book = _make_event_book([_pack_event(created)], domain="tournament")
 
         state = tournament_state_from_event_book(event_book)
 
@@ -152,7 +150,9 @@ class TestRegistrationPMHandlers:
         )
         destinations = _make_destinations({"player": 3})
 
-        result = pm.handle_player_enrolled(event, state=state, destinations=destinations)
+        result = pm.handle_player_enrolled(
+            event, state=state, destinations=destinations
+        )
 
         assert len(result.commands) == 1
         confirm = registration.ConfirmRegistrationFee()
