@@ -11,6 +11,7 @@ from typing import NoReturn
 import grpc
 import structlog
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
+from grpc_reflection.v1alpha import reflection
 
 from ai_player.service import AiPlayerServicer, ServiceConfig
 
@@ -53,23 +54,28 @@ def create_server(config: ServiceConfig, port: int, max_workers: int) -> grpc.Se
     Returns:
         Configured gRPC server (not yet started).
     """
-    # Import proto modules (generated from buf)
-    # Using ai_sidecar proto until ai_player.proto is created
-    from ai_player.proto.examples import ai_sidecar_pb2_grpc
+    from ai_player.proto.examples import ai_sidecar_pb2, ai_sidecar_pb2_grpc
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
 
-    # Register AI Player service (using ai_sidecar service definition)
     servicer = AiPlayerServicer(config)
     ai_sidecar_pb2_grpc.add_AiSidecarServicer_to_server(servicer, server)
 
-    # Register health service
     health_servicer = health.HealthServicer()
     health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
     health_servicer.set("", health_pb2.HealthCheckResponse.SERVING)
-    health_servicer.set("AiPlayer", health_pb2.HealthCheckResponse.SERVING)
+    health_servicer.set("examples.AiSidecar", health_pb2.HealthCheckResponse.SERVING)
 
-    # Add insecure port
+    # gRPC reflection lets grpcurl / Postman / language-native tooling introspect
+    # the service without access to the .proto files. Required for clean
+    # cross-language client development against this container.
+    service_names = (
+        ai_sidecar_pb2.DESCRIPTOR.services_by_name["AiSidecar"].full_name,
+        health_pb2.DESCRIPTOR.services_by_name["Health"].full_name,
+        reflection.SERVICE_NAME,
+    )
+    reflection.enable_server_reflection(service_names, server)
+
     server.add_insecure_port(f"[::]:{port}")
 
     return server

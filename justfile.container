@@ -12,8 +12,13 @@ proto-gen:
     buf generate
     find poker/proto -name "*.py" -exec sed -i 's/from poker import/from poker.proto.poker import/g' {} \;
 
-# Install dependencies (use --no-sources in CI to skip local paths)
-install *FLAGS:
+# Generate AI Player protos (runs buf inside ai_player/). Generated files are
+# gitignored; regenerate here whenever the ai_sidecar.proto contract changes.
+ai-proto:
+    cd ai_player && buf generate
+
+# Install dependencies AND regenerate protos (generated code is not committed).
+install *FLAGS: proto-gen ai-proto
     uv sync {{FLAGS}}
 
 # Run unit tests (uses testpaths from pyproject.toml)
