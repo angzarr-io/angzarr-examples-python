@@ -255,6 +255,17 @@ ai-build tag="latest":
 ai-proto:
     cd {{ROOT}}/ai_player && buf generate
 
+# Integration tests against the running AiSidecar container image.
+# Prereq: `just ai-build` (or `docker pull` the published image).
+# --confcutdir isolates these from the outer tests/conftest.py, which imports
+# angzarr_client's older ai_sidecar proto and would collide in the protobuf
+# descriptor pool with the ai_player-local generated pb2.
+ai-test-integration:
+    cd {{ROOT}} && AI_IMAGE={{AI_IMAGE}}:latest uv run --frozen pytest \
+        tests/integration/ai_player/ -v --no-cov -p no:cacheprovider \
+        --confcutdir=tests/integration/ai_player \
+        --rootdir=tests/integration/ai_player
+
 # Show AI Player status
 ai-status:
     kubectl get pods -n {{NAMESPACE}} -l app.kubernetes.io/name=poker-ai-player

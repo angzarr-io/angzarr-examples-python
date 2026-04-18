@@ -42,7 +42,13 @@ packages = ["angzarr", "agg-player", "agg-table", "agg-hand"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-v --ignore=tests/features --ignore=tests/acceptance"
+# Integration tests need a running container and are opt-in via `just test-integration-ai`
+# (which sets -p no:cacheprovider and points pytest at tests/integration/ explicitly).
+# The default suite excludes them alongside the Gherkin suites.
+addopts = "-v --ignore=tests/features --ignore=tests/acceptance --ignore=tests/integration"
+markers = [
+    "integration: requires a running sidecar container (see tests/integration/)",
+]
 
 [tool.black]
 target-version = ["py311"]
