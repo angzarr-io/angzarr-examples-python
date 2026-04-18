@@ -55,6 +55,24 @@ paths_to_mutate = [
     "hand/agg/handlers/game_rules.py",
     "tournament/agg/handlers.py",
 ]
+# Copy sibling source files that tests/unit/test_*.py import alongside
+# the mutated handlers — without these, mutmut's ``mutants/`` workdir
+# can't resolve ``from player.agg.state import ...`` etc. at collection.
+also_copy = [
+    "player/",
+    "table/",
+    "hand/",
+    "tournament/",
+    "tests/",
+    "sagas/",
+    "hand-flow/",
+    "hand-flow-oo/",
+    "prj-output/",
+    "prj_training/",
+    "buy_in/",
+    "rebuy/",
+    "registration/",
+]
 # Orchestration-feature BDD tests import PM source via filesystem paths
 # that resolve outside the ``mutants/`` workdir; they don't exercise the
 # aggregates under mutation, so exclude them from mutmut's pytest run.
