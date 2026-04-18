@@ -83,3 +83,29 @@ def table_state_rebuild(prior_state: TableStateHelper, event) -> TableStateHelpe
     elif isinstance(event, table.PlayerLeft):
         apply_player_left(prior_state, event)
     return prior_state
+
+
+def table_state_from_event_book(event_book) -> TableStateHelper:
+    """Rebuild a ``TableStateHelper`` from an ``EventBook`` proto.
+
+    Unpacks each event page into its proto message based on the type URL
+    suffix and folds it into the state.
+    """
+    state = TableStateHelper()
+    _type_map = {
+        "examples.TableCreated": table.TableCreated,
+        "examples.PlayerJoined": table.PlayerJoined,
+        "examples.PlayerSeated": buy_in.PlayerSeated,
+        "examples.PlayerLeft": table.PlayerLeft,
+    }
+    for page in event_book.pages:
+        if not page.HasField("event"):
+            continue
+        type_name = page.event.type_url.split("/")[-1]
+        proto_cls = _type_map.get(type_name)
+        if proto_cls is None:
+            continue
+        evt = proto_cls()
+        page.event.Unpack(evt)
+        table_state_rebuild(state, evt)
+    return state

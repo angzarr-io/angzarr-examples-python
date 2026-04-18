@@ -24,6 +24,9 @@ class TournamentStateHelper:
     buy_in: int = 0
     starting_stack: int = 0
     registered_players: set[str] = field(default_factory=set)  # hex player roots
+    rebuy_allowed: bool = False
+    rebuy_cost: int = 0
+    rebuy_chips: int = 0
 
 
 # --- State appliers (pure functions) ---
@@ -38,13 +41,17 @@ def apply_tournament_created(
     state.buy_in = event.buy_in
     state.starting_stack = event.starting_stack
     state.registration_open = True
+    if event.HasField("rebuy_config"):
+        state.rebuy_allowed = event.rebuy_config.enabled
+        state.rebuy_cost = event.rebuy_config.rebuy_cost
+        state.rebuy_chips = event.rebuy_config.rebuy_chips
 
 
 def apply_registration_opened(
     state: TournamentStateHelper, event: tournament.RegistrationOpened
 ) -> None:
     """Apply RegistrationOpened event."""
-    state.status = tournament.TournamentStatus.TOURNAMENT_REGISTERING
+    state.status = tournament.TournamentStatus.TOURNAMENT_REGISTRATION_OPEN
     state.registration_open = True
 
 

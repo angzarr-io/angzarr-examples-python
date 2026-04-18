@@ -1,10 +1,21 @@
 """Registration PM handlers.
 
 Coordinates registration flows across Player <-> Tournament:
-1. Player emits RegistrationRequested
-2. PM emits EnrollPlayer to Tournament (aggregate validates)
-3. Tournament emits TournamentPlayerEnrolled or TournamentEnrollmentRejected
-4. PM emits ConfirmRegistrationFee or ReleaseRegistrationFee to Player
+
+1. Player emits ``RegistrationRequested``
+2. PM synchronously queries Tournament state via ``QueryClient`` and
+   validates: registration open, tournament not full, player not already
+   registered.
+3. If validation fails: emit ``RegistrationFailed`` with a failure code and
+   no outbound commands.
+4. If validation passes: emit ``EnrollPlayer`` command to Tournament and
+   ``RegistrationInitiated`` process event. The emitted command is
+   dispatched under ``SYNC_MODE_DECISION`` so a downstream reject surfaces
+   synchronously and the PM can compensate on the next event cycle.
+5. Later, Tournament emits ``TournamentPlayerEnrolled`` → PM emits
+   ``ConfirmRegistrationFee`` / ``RegistrationCompleted``; or
+   ``TournamentEnrollmentRejected`` → PM emits ``ReleaseRegistrationFee`` /
+   ``RegistrationFailed``.
 """
 
 from google.protobuf.any_pb2 import Any as ProtoAny
@@ -24,6 +35,7 @@ from angzarr_client.proto.examples import registration_pb2 as registration
 from angzarr_client.proto.examples import tournament_pb2 as tournament
 
 from state import RegistrationState
+from tournament_state import TournamentStateHelper, tournament_state_from_event_book
 
 
 def _pack(msg) -> ProtoAny:
@@ -66,6 +78,42 @@ def _seq(destinations: Destinations | None, domain: str) -> int:
     return seq if seq is not None else 0
 
 
+def _fetch_tournament_state(
+    query_client, tournament_root: bytes
+) -> TournamentStateHelper:
+    if query_client is None or not tournament_root:
+        return TournamentStateHelper()
+    try:
+        book = query_client.query("tournament", tournament_root).get_event_book()
+    except Exception:
+        return TournamentStateHelper()
+    return tournament_state_from_event_book(book)
+
+
+def _fail(
+    reservation_id: bytes,
+    player_root: bytes,
+    tournament_root: bytes,
+    code: str,
+    message: str,
+    phase: str,
+) -> ProcessManagerResponse:
+    failed = registration.RegistrationFailed(
+        player_root=player_root,
+        tournament_root=tournament_root,
+        reservation_id=reservation_id,
+        failure=orch.OrchestrationFailure(
+            code=code,
+            message=message,
+            failed_at_phase=phase,
+            failed_at=now(),
+        ),
+    )
+    return ProcessManagerResponse(
+        process_events=_event_book("registration", reservation_id, failed),
+    )
+
+
 @process_manager(
     name="pmg-registration",
     pm_domain="registration",
@@ -76,11 +124,14 @@ def _seq(destinations: Destinations | None, domain: str) -> int:
 class RegistrationPM:
     """Registration process manager.
 
-    Coordinates the registration flow between Player and Tournament aggregates.
-    Validation (registration open, tournament full, player already registered)
-    belongs in the Tournament aggregate — this PM just translates events to
-    commands and handles rejection via Tournament's reject events.
+    Coordinates registration between Player and Tournament aggregates. The
+    PM pre-validates against queried Tournament state (``registration_open``,
+    capacity, already-registered) and emits ``EnrollPlayer`` for dispatch
+    under ``SYNC_MODE_DECISION`` on pass or ``RegistrationFailed`` on fail.
     """
+
+    def __init__(self, query_client=None):
+        self.query = query_client
 
     # --- State appliers ---
 
@@ -125,18 +176,53 @@ class RegistrationPM:
     ) -> ProcessManagerResponse:
         """Handle RegistrationRequested from Player domain.
 
-        Emits EnrollPlayer to Tournament - Tournament aggregate validates
-        registration-open, tournament-full, and already-registered checks.
+        Pre-validates against live Tournament state queried synchronously;
+        emits ``EnrollPlayer`` on pass or ``RegistrationFailed`` on fail.
         """
         player_root = (
             source_cover.root.value if source_cover is not None else state.player_root
         )
         fee = event.fee.amount if event.HasField("fee") else 0
+        reservation_id = event.reservation_id
+        tournament_root = event.tournament_root
+
+        tour_state = _fetch_tournament_state(self.query, tournament_root)
+
+        # Only enforce state-based validation when the helper was seeded
+        # from an actual TournamentCreated event.
+        if tour_state.max_players > 0:
+            if not tour_state.registration_open:
+                return _fail(
+                    reservation_id,
+                    player_root,
+                    tournament_root,
+                    "REGISTRATION_CLOSED",
+                    "tournament is not accepting registrations",
+                    "VALIDATING",
+                )
+            if tour_state.registered_count >= tour_state.max_players:
+                return _fail(
+                    reservation_id,
+                    player_root,
+                    tournament_root,
+                    "REGISTRATION_CLOSED",
+                    "tournament is full",
+                    "VALIDATING",
+                )
+            if player_root and player_root.hex() in tour_state.registered_players:
+                return _fail(
+                    reservation_id,
+                    player_root,
+                    tournament_root,
+                    "ALREADY_REGISTERED",
+                    "player is already registered",
+                    "VALIDATING",
+                )
 
         initiated = registration.RegistrationInitiated(
             player_root=player_root,
-            tournament_root=event.tournament_root,
-            reservation_id=event.reservation_id,
+            tournament_root=tournament_root,
+            reservation_id=reservation_id,
             fee=poker.Currency(amount=fee, currency_code="USD"),
             phase=orch.RegistrationPhase.REGISTRATION_ENROLLING,
             initiated_at=now(),
@@ -144,17 +230,17 @@ class RegistrationPM:
 
         enroll = tournament.EnrollPlayer(
             player_root=player_root,
-            reservation_id=event.reservation_id,
+            reservation_id=reservation_id,
         )
 
         cmd_book = _command_book(
             "tournament",
-            event.tournament_root,
+            tournament_root,
             enroll,
             _seq(destinations, "tournament"),
         )
 
-        pe_book = _event_book("registration", event.reservation_id, initiated)
+        pe_book = _event_book("registration", reservation_id, initiated)
 
         return ProcessManagerResponse(
             commands=[cmd_book],

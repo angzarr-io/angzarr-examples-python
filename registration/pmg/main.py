@@ -1,11 +1,14 @@
 """Registration process manager gRPC server.
 
-This module runs the registration PM that coordinates Player <-> Tournament registrations.
+This module runs the registration PM that coordinates Player <-> Tournament
+registrations.
 """
+
+import os
 
 import structlog
 
-from angzarr_client import ProcessManagerGrpc, Router, run_server
+from angzarr_client import ProcessManagerGrpc, QueryClient, Router, run_server
 from angzarr_client.proto.angzarr import process_manager_pb2_grpc
 from handlers import RegistrationPM
 
@@ -23,8 +26,20 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
+def _build_query_client() -> QueryClient | None:
+    endpoint = os.environ.get("QUERY_ENDPOINT")
+    if not endpoint:
+        return None
+    return QueryClient.connect(endpoint)
+
+
 if __name__ == "__main__":
-    router = Router("pmg-registration").with_handler(RegistrationPM()).build()
+    query_client = _build_query_client()
+    router = (
+        Router("pmg-registration")
+        .with_handler(RegistrationPM(query_client=query_client))
+        .build()
+    )
     servicer = ProcessManagerGrpc(router)
     run_server(
         process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,

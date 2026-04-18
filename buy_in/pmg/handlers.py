@@ -1,15 +1,22 @@
 """Buy-in PM handlers.
 
 Coordinates buy-in flows across Player <-> Table:
-1. Player emits BuyInRequested
-2. PM emits SeatPlayer command to Table (aggregate validates)
-3. Table emits PlayerSeated or SeatingRejected
-4. PM emits ConfirmBuyIn or ReleaseBuyIn to Player
 
-Design Philosophy:
-    PMs are coordinators, NOT decision makers. Business logic (seat validation,
-    buy-in range checks) belongs in the Table aggregate. PM just translates
-    events to commands and handles rejection via @rejected decorators.
+1. Player emits ``BuyInRequested``
+2. PM synchronously queries Table state via ``QueryClient`` and validates:
+   amount within [min_buy_in, max_buy_in], seat available, table not full.
+3. If validation fails: emit ``BuyInFailed`` with a failure code and no
+   outbound commands.
+4. If validation passes: emit ``SeatPlayer`` command to Table and
+   ``BuyInInitiated`` process event.
+5. Later, Table emits ``PlayerSeated`` → PM emits ``ConfirmBuyIn`` to Player
+   and ``BuyInCompleted`` process event; or Table emits ``SeatingRejected``
+   → PM emits ``ReleaseBuyIn`` to Player and ``BuyInFailed``.
+
+The destination-state query is a read; downstream command dispatch remains
+the framework's responsibility. For a downstream command that needs
+synchronous accept/reject decisioning, the caller uses the new
+``SYNC_MODE_DECISION`` on the framework-side dispatch.
 """
 
 from google.protobuf.any_pb2 import Any as ProtoAny
@@ -28,6 +35,7 @@ from angzarr_client.proto.examples import orchestration_pb2 as orch
 from angzarr_client.proto.examples import poker_types_pb2 as poker
 
 from state import BuyInState
+from table_state import TableStateHelper, table_state_from_event_book
 
 
 def _pack(msg) -> ProtoAny:
@@ -63,6 +71,45 @@ def _event_book(domain: str, root: bytes, event) -> types.EventBook:
     )
 
 
+def _fetch_table_state(query_client, table_root: bytes) -> TableStateHelper:
+    """Query the table domain and rebuild its state for pre-validation.
+
+    Returns an empty helper if no query client is wired (tests that don't
+    need validation still function) or the query fails.
+    """
+    if query_client is None or not table_root:
+        return TableStateHelper()
+    try:
+        book = query_client.query("table", table_root).get_event_book()
+    except Exception:
+        return TableStateHelper()
+    return table_state_from_event_book(book)
+
+
+def _fail(
+    reservation_id: bytes,
+    player_root: bytes,
+    table_root: bytes,
+    code: str,
+    message: str,
+    phase: str,
+) -> ProcessManagerResponse:
+    failed = buy_in.BuyInFailed(
+        player_root=player_root,
+        table_root=table_root,
+        reservation_id=reservation_id,
+        failure=orch.OrchestrationFailure(
+            code=code,
+            message=message,
+            failed_at_phase=phase,
+            failed_at=now(),
+        ),
+    )
+    return ProcessManagerResponse(
+        process_events=_event_book("buyin", reservation_id, failed),
+    )
+
+
 @process_manager(
     name="pmg-buy-in",
     pm_domain="buyin",
@@ -75,6 +122,9 @@ class BuyInPM:
 
     Coordinates the buy-in flow between Player and Table aggregates.
     """
+
+    def __init__(self, query_client=None):
+        self.query = query_client
 
     # --- State appliers ---
 
@@ -111,16 +161,66 @@ class BuyInPM:
         destinations: Destinations,
         source_cover: types.Cover = None,
     ) -> ProcessManagerResponse:
-        """Handle BuyInRequested from Player domain."""
+        """Handle BuyInRequested from Player domain.
+
+        Pre-validates against live Table state queried synchronously; emits
+        SeatPlayer on pass or BuyInFailed on fail.
+        """
         player_root = (
             source_cover.root.value if source_cover is not None else state.player_root
         )
         amount = event.amount.amount if event.HasField("amount") else 0
+        reservation_id = event.reservation_id
+        table_root = event.table_root
+
+        table_state = _fetch_table_state(self.query, table_root)
+
+        # Only enforce state-based validation when the helper was seeded
+        # from an actual TableCreated event. This keeps tests without a
+        # query client ergonomic while still exercising the real path via
+        # the pytest-bdd orchestration fixtures.
+        if table_state.max_players > 0:
+            if amount < table_state.min_buy_in:
+                return _fail(
+                    reservation_id,
+                    player_root,
+                    table_root,
+                    "INVALID_AMOUNT",
+                    f"amount {amount} below minimum {table_state.min_buy_in}",
+                    "VALIDATING",
+                )
+            if amount > table_state.max_buy_in:
+                return _fail(
+                    reservation_id,
+                    player_root,
+                    table_root,
+                    "INVALID_AMOUNT",
+                    f"amount {amount} exceeds maximum {table_state.max_buy_in}",
+                    "VALIDATING",
+                )
+            if len(table_state.seats) >= table_state.max_players:
+                return _fail(
+                    reservation_id,
+                    player_root,
+                    table_root,
+                    "TABLE_FULL",
+                    "table has no available seats",
+                    "VALIDATING",
+                )
+            if event.seat in table_state.seats:
+                return _fail(
+                    reservation_id,
+                    player_root,
+                    table_root,
+                    "SEAT_OCCUPIED",
+                    f"seat {event.seat} is occupied",
+                    "VALIDATING",
+                )
 
         initiated = buy_in.BuyInInitiated(
             player_root=player_root,
-            table_root=event.table_root,
-            reservation_id=event.reservation_id,
+            table_root=table_root,
+            reservation_id=reservation_id,
             seat=event.seat,
             amount=poker.Currency(amount=amount, currency_code="USD"),
             phase=orch.BuyInPhase.BUY_IN_SEATING,
@@ -129,7 +229,7 @@ class BuyInPM:
 
         seat_cmd = buy_in.SeatPlayer(
             player_root=player_root,
-            reservation_id=event.reservation_id,
+            reservation_id=reservation_id,
             seat=event.seat,
             amount=amount,
         )
@@ -137,9 +237,8 @@ class BuyInPM:
         dest_seq = 0
         if destinations and destinations.sequence_for("table") is not None:
             dest_seq = destinations.sequence_for("table") or 0
-        cmd_book = _command_book("table", event.table_root, seat_cmd, dest_seq)
-
-        pe_book = _event_book("buyin", event.reservation_id, initiated)
+        cmd_book = _command_book("table", table_root, seat_cmd, dest_seq)
+        pe_book = _event_book("buyin", reservation_id, initiated)
 
         return ProcessManagerResponse(
             commands=[cmd_book],

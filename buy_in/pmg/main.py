@@ -3,9 +3,11 @@
 This module runs the buy-in PM that coordinates Player <-> Table buy-ins.
 """
 
+import os
+
 import structlog
 
-from angzarr_client import ProcessManagerGrpc, Router, run_server
+from angzarr_client import ProcessManagerGrpc, QueryClient, Router, run_server
 from angzarr_client.proto.angzarr import process_manager_pb2_grpc
 from handlers import BuyInPM
 
@@ -23,8 +25,21 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
+def _build_query_client() -> QueryClient | None:
+    """Connect to the coordinator for synchronous cross-domain reads.
+
+    The endpoint is taken from ``QUERY_ENDPOINT``; returns ``None`` when
+    unset so the PM still bootstraps in standalone smoke-test contexts.
+    """
+    endpoint = os.environ.get("QUERY_ENDPOINT")
+    if not endpoint:
+        return None
+    return QueryClient.connect(endpoint)
+
+
 if __name__ == "__main__":
-    router = Router("pmg-buy-in").with_handler(BuyInPM()).build()
+    query_client = _build_query_client()
+    router = Router("pmg-buy-in").with_handler(BuyInPM(query_client=query_client)).build()
     servicer = ProcessManagerGrpc(router)
     run_server(
         process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,
