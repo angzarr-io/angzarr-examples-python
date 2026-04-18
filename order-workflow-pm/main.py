@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import structlog
-from google.protobuf.any_pb2 import Any as ProtoAny
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "client" / "python"))
@@ -25,7 +24,6 @@ from angzarr_client import (
     rejected,
     run_server,
 )
-from angzarr_client.helpers import type_name_from_url
 from angzarr_client.proto.angzarr import process_manager_pb2_grpc
 from angzarr_client.proto.angzarr import types_pb2 as types
 

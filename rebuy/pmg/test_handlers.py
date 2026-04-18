@@ -7,12 +7,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from angzarr_client import Destinations
-from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import orchestration_pb2 as orch
 from angzarr_client.proto.examples import poker_types_pb2 as poker
 from angzarr_client.proto.examples import rebuy_pb2 as rebuy
 from angzarr_client.proto.examples import tournament_pb2 as tourn
-from google.protobuf.any_pb2 import Any as AnyProto
 from handlers import RebuyPM
 from state import RebuyState
 

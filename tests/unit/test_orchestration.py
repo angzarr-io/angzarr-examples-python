@@ -33,10 +33,8 @@ for rel in (
     sys.path.insert(0, str(_REPO / rel))
 
 from angzarr_client import Destinations
-from angzarr_client.helpers import TYPE_URL_PREFIX
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import buy_in_pb2 as buy_in
-from angzarr_client.proto.examples import orchestration_pb2 as orch
 from angzarr_client.proto.examples import poker_types_pb2 as poker
 from angzarr_client.proto.examples import rebuy_pb2 as rebuy
 from angzarr_client.proto.examples import registration_pb2 as registration

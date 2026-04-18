@@ -14,7 +14,6 @@ from player.agg.handlers import (
     handle_register_player,
     handle_release_funds,
     handle_reserve_funds,
-    handle_transfer_funds,
     handle_withdraw_funds,
 )
 from player.agg.state import PlayerState, build_state
