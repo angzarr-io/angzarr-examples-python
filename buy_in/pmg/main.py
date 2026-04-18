@@ -5,10 +5,8 @@ This module runs the buy-in PM that coordinates Player <-> Table buy-ins.
 
 import structlog
 
-from angzarr_client.process_manager_handler import (
-    ProcessManagerHandler,
-    run_process_manager_server,
-)
+from angzarr_client import ProcessManagerGrpc, Router, run_server
+from angzarr_client.proto.angzarr import process_manager_pb2_grpc
 from handlers import BuyInPM
 
 structlog.configure(
@@ -26,5 +24,13 @@ logger = structlog.get_logger()
 
 
 if __name__ == "__main__":
-    handler = ProcessManagerHandler(BuyInPM)
-    run_process_manager_server(handler, "50392", logger=logger)
+    router = Router("pmg-buy-in").with_handler(BuyInPM()).build()
+    servicer = ProcessManagerGrpc(router)
+    run_server(
+        process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,
+        servicer,
+        service_name="pmg-buy-in",
+        domain="buyin",
+        default_port="50392",
+        logger=logger,
+    )

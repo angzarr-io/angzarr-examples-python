@@ -1,8 +1,10 @@
-"""Player state - functional pattern using StateRouter.
+"""Player state dataclass and pure-function event appliers.
 
-This file defines the player state and event appliers as pure functions.
-Contrasts with the OO pattern in player/agg/handlers/player.py which
-uses decorators on class methods.
+The live aggregate wiring (``@command_handler`` class + ``@handles`` /
+``@applies`` / ``@rejected`` methods) lives in ``player/agg/main.py``.
+This module keeps the state + appliers in pure-function form so they can
+be reused from tests, projections, or docs snippets without going through
+the router.
 """
 
 from dataclasses import dataclass, field

@@ -1,168 +1,89 @@
 """Hand Results Saga - bridges Hand/Table and Player domains.
 
-Handles:
-- HandEnded (from table) → ReleaseFunds (to player)
-- PotAwarded (from hand) → DepositFunds (to player)
+Two sagas are defined here:
 
-Design Philosophy:
-    Sagas translate events to commands without making business decisions.
-    Use destinations.stamp_command() for sequence stamping. The Player
-    aggregate validates fund operations.
+- ``HandResultsSaga``: HandEnded (table) -> ReleaseFunds commands (player)
+- ``HandPayoutSaga``: PotAwarded (hand) -> DepositFunds commands (player)
+
+Each saga is a single source -> single target (the unified Router restricts
+a saga to one ``source`` / ``target`` pair). The original monolithic
+``HandResultsSaga`` class has been split into two classes that together
+cover the same behaviour.
 """
 
-from google.protobuf.any_pb2 import Any as AnyProto
+from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.message import Message
 
-from angzarr_client.destinations import Destinations
+from angzarr_client import Destinations, handles, saga
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import table_pb2 as table
 
-# Note: poker_types is used for DepositFunds Currency
 
-from .base import Saga, SagaContext
-
-
-def _pack_command(cmd: Message, type_prefix: str = "examples") -> AnyProto:
-    """Pack a command message into Any."""
-    type_name = type(cmd).DESCRIPTOR.full_name
-    return AnyProto(
-        type_url=f"type.googleapis.com/{type_name}",
-        value=cmd.SerializeToString(),
-    )
+def _pack_command(cmd: Message) -> ProtoAny:
+    any_msg = ProtoAny()
+    any_msg.Pack(cmd, type_url_prefix="type.googleapis.com/")
+    return any_msg
 
 
-def _make_command_book(
-    domain: str,
-    root: bytes,
-    command: Message,
-    destinations: Destinations | None = None,
+def _command_book(
+    domain: str, root: bytes, command: Message, sequence: int = 0
 ) -> types.CommandBook:
-    """Create a CommandBook with a single command.
-
-    Args:
-        domain: Target domain for the command.
-        root: Target aggregate root ID.
-        command: Command message to pack.
-        destinations: Optional Destinations for sequence stamping.
-
-    Returns:
-        CommandBook ready for dispatch.
-    """
-    book = types.CommandBook(
+    return types.CommandBook(
         cover=types.Cover(
             domain=domain,
             root=types.UUID(value=root),
         ),
         pages=[
             types.CommandPage(
+                header=types.PageHeader(sequence=sequence),
                 command=_pack_command(command),
             )
         ],
     )
 
-    # Stamp with sequence if destinations provided
-    if destinations is not None:
-        destinations.stamp_command(book, domain)
 
-    return book
+@saga(name="hand-results-release", source="table", target="player")
+class HandResultsSaga:
+    """Saga: HandEnded -> ReleaseFunds for each player in stack_changes."""
 
-
-class HandResultsSaga(Saga):
-    """Saga that handles hand results and updates player balances.
-
-    Handles:
-    - HandEnded: Release reserved funds back to players
-    - PotAwarded: Deposit winnings to players
-
-    Design Philosophy:
-        This saga translates events to commands. The Player aggregate
-        validates fund operations and ensures consistency.
-    """
-
-    @property
-    def name(self) -> str:
-        return "HandResultsSaga"
-
-    @property
-    def subscribed_events(self) -> list[str]:
-        return ["HandEnded", "PotAwarded"]
-
-    def handle(self, context: SagaContext) -> list[types.CommandBook]:
-        """Handle events and emit commands."""
-        if context.event_type == "HandEnded":
-            return self._handle_hand_ended(context)
-        elif context.event_type == "PotAwarded":
-            return self._handle_pot_awarded(context)
-        return []
-
-    def _handle_hand_ended(self, context: SagaContext) -> list[types.CommandBook]:
-        """Translate HandEnded → ReleaseFunds commands.
-
-        When a hand ends at the table, we need to release the reserved funds
-        for each player that participated.
-        """
-        # Extract the event from the event book
-        event = table.HandEnded()
-        for page in context.event_book.pages:
-            if page.HasField("event") and page.event.type_url.endswith("HandEnded"):
-                page.event.Unpack(event)
-                break
-
-        commands = []
-
-        # Emit ReleaseFunds for each player in stack_changes
-        # Player aggregate validates the release operation
-        for player_root_hex, change in event.stack_changes.items():
-            # Convert hex string back to bytes
-            player_root = bytes.fromhex(player_root_hex)
-
-            # Create ReleaseFunds command
-            # ReleaseFunds only needs the table_root - the aggregate knows the reserved amount
-            release_funds = player.ReleaseFunds(
-                table_root=context.aggregate_root,
+    @handles(table.HandEnded)
+    def handle_hand_ended(
+        self, event: table.HandEnded, destinations: Destinations
+    ) -> list[types.CommandBook]:
+        dest_seq = destinations.sequence_for("player") if destinations else 0
+        dest_seq = dest_seq if dest_seq is not None else 0
+        commands: list[types.CommandBook] = []
+        for player_hex in event.stack_changes:
+            player_root = bytes.fromhex(player_hex)
+            release = player.ReleaseFunds(
+                table_root=event.hand_root,
             )
-
-            commands.append(
-                _make_command_book(
-                    "player", player_root, release_funds, context.destinations
-                )
-            )
-
+            commands.append(_command_book("player", player_root, release, dest_seq))
         return commands
 
-    def _handle_pot_awarded(self, context: SagaContext) -> list[types.CommandBook]:
-        """Translate PotAwarded → DepositFunds commands.
 
-        When a pot is awarded, we need to deposit the winnings to each
-        winning player's bankroll.
-        """
-        # Extract the event from the event book
-        event = hand.PotAwarded()
-        for page in context.event_book.pages:
-            if page.HasField("event") and page.event.type_url.endswith("PotAwarded"):
-                page.event.Unpack(event)
-                break
+@saga(name="hand-results-payout", source="hand", target="player")
+class HandPayoutSaga:
+    """Saga: PotAwarded -> DepositFunds for each winner."""
 
-        commands = []
-
-        # Emit DepositFunds for each winner
-        # Player aggregate validates the deposit operation
+    @handles(hand.PotAwarded)
+    def handle_pot_awarded(
+        self, event: hand.PotAwarded, destinations: Destinations
+    ) -> list[types.CommandBook]:
+        dest_seq = destinations.sequence_for("player") if destinations else 0
+        dest_seq = dest_seq if dest_seq is not None else 0
+        commands: list[types.CommandBook] = []
         for winner in event.winners:
-            # Create DepositFunds command
-            deposit_funds = player.DepositFunds(
+            deposit = player.DepositFunds(
                 amount=poker_types.Currency(
                     amount=winner.amount,
                     currency_code="CHIPS",
                 ),
             )
-
             commands.append(
-                _make_command_book(
-                    "player", winner.player_root, deposit_funds, context.destinations
-                )
+                _command_book("player", winner.player_root, deposit, dest_seq)
             )
-
         return commands

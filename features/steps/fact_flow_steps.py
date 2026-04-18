@@ -14,12 +14,13 @@ from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from angzarr_client import Router, handles, saga
+from angzarr_client.proto.angzarr import SagaHandleRequest
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import table_pb2 as table
-from angzarr_client.saga import Saga, domain, handles, output_domain
 
 # Use regex matchers for flexibility
 use_step_matcher("re")
@@ -52,14 +53,19 @@ def make_event_book(domain_name: str, root: bytes, pages: list) -> types.EventBo
     )
 
 
+def _dispatch_single_saga(saga_instance, source: types.EventBook):
+    """Run a one-off saga dispatch through a fresh Router."""
+    router = Router("test").with_handler(saga_instance).build()
+    return router.dispatch(SagaHandleRequest(source=source))
+
+
 # =============================================================================
 # Test saga that emits facts (events injected into target aggregate)
 # =============================================================================
 
 
-@domain("hand")
-@output_domain("player")
-class HandPlayerFactSaga(Saga):
+@saga(name="saga-hand-player-fact", source="hand", target="player")
+class HandPlayerFactSaga:
     """Saga that emits ActionRequested as a fact to player aggregate.
 
     When a hand determines it's a player's turn (BettingRoundComplete),
@@ -67,37 +73,23 @@ class HandPlayerFactSaga(Saga):
     no authority to reject "the hand says it's your turn."
     """
 
-    name = "saga-hand-player-fact"
-
     @handles(hand.BettingRoundComplete)
-    def handle_betting_round(
-        self,
-        event: hand.BettingRoundComplete,
-        destinations: list[types.EventBook] = None,
-    ) -> None:
-        """Emit ActionRequested fact to player aggregate.
-
-        Uses BettingRoundComplete as trigger (existing proto) to demonstrate
-        fact emission to player domain.
-        """
-        # Get first non-folded player for the fact
+    def handle_betting_round(self, event: hand.BettingRoundComplete, destinations):
+        """Emit ActionRequested fact to player aggregate."""
         player_root = b"player-alice"  # Default for testing
         for stack in event.stacks:
             if not stack.has_folded:
                 player_root = stack.player_root
                 break
 
-        # Build the fact (event to inject)
         fact = player.ActionRequested(
             hand_root=b"hand-test",
             deadline=make_timestamp(),
         )
 
-        # Pack fact into Any
         fact_any = ProtoAny()
         fact_any.Pack(fact, type_url_prefix="type.googleapis.com/")
 
-        # Build Cover with required metadata for fact injection
         external_id = f"action-{player_root.hex()}-round-{event.completed_phase}"
 
         cover = types.Cover(
@@ -105,8 +97,7 @@ class HandPlayerFactSaga(Saga):
             root=types.UUID(value=player_root),
         )
 
-        # Build EventBook with fact - use ExternalDeferredSequence for external_id
-        fact_book = types.EventBook(
+        return types.EventBook(
             cover=cover,
             pages=[
                 types.EventPage(
@@ -120,47 +111,28 @@ class HandPlayerFactSaga(Saga):
             ],
         )
 
-        # Emit fact using emit_event (facts are events that bypass validation)
-        self.emit_event(fact_book)
-        return None
 
-
-@domain("table")
-@output_domain("player")
-class TablePlayerFactSaga(Saga):
-    """Saga that emits PlayerSatOut/PlayerSatIn facts.
-
-    When table receives SitOut/SitIn commands, the resulting events are
-    facts about player state that the player aggregate must accept.
-    """
-
-    name = "saga-table-player-fact"
+@saga(name="saga-table-player-fact", source="table", target="player")
+class TablePlayerFactSaga:
+    """Saga that emits PlayerSatOut/PlayerSatIn facts."""
 
     @handles(table.PlayerSatOut)
-    def handle_sat_out(
-        self, event: table.PlayerSatOut, destinations: list[types.EventBook] = None
-    ) -> None:
-        """Propagate PlayerSatOut as fact (for cross-domain visibility)."""
-        # In this pattern, the table event IS the fact - we're demonstrating
-        # that sagas can emit events (facts) to other aggregates
+    def handle_sat_out(self, event: table.PlayerSatOut, destinations):
         external_id = f"sitout-{event.player_root.hex()}"
         cover = types.Cover(
             domain="player",
             root=types.UUID(value=event.player_root),
         )
 
-        # Emit a player-domain event as fact
-        # (In real system, this might be a different event type)
         fact = player.ActionRequested(
-            hand_root=b"",  # Not in a hand
+            hand_root=b"",
             player_root=event.player_root,
             deadline=make_timestamp(),
         )
 
-        # Pack into EventBook with ExternalDeferredSequence for external_id
         fact_any = ProtoAny()
         fact_any.Pack(fact, type_url_prefix="type.googleapis.com/")
-        fact_book = types.EventBook(
+        return types.EventBook(
             cover=cover,
             pages=[
                 types.EventPage(
@@ -174,14 +146,8 @@ class TablePlayerFactSaga(Saga):
             ],
         )
 
-        self.emit_event(fact_book)
-        return None
-
     @handles(table.PlayerSatIn)
-    def handle_sat_in(
-        self, event: table.PlayerSatIn, destinations: list[types.EventBook] = None
-    ) -> None:
-        """Propagate PlayerSatIn as fact."""
+    def handle_sat_in(self, event: table.PlayerSatIn, destinations):
         external_id = f"sitin-{event.player_root.hex()}"
         cover = types.Cover(
             domain="player",
@@ -194,10 +160,9 @@ class TablePlayerFactSaga(Saga):
             deadline=make_timestamp(),
         )
 
-        # Pack into EventBook with ExternalDeferredSequence for external_id
         fact_any = ProtoAny()
         fact_any.Pack(fact, type_url_prefix="type.googleapis.com/")
-        fact_book = types.EventBook(
+        return types.EventBook(
             cover=cover,
             pages=[
                 types.EventPage(
@@ -211,49 +176,20 @@ class TablePlayerFactSaga(Saga):
             ],
         )
 
-        self.emit_event(fact_book)
-        return None
 
-
-@domain("player")
-@output_domain("table")
-class PlayerTableFactSaga(Saga):
-    """Saga that propagates player sit-out/sit-in intent to table as facts.
-
-    Player owns the intent to sit out/in. The table aggregate accepts these
-    as facts (no validation) because player has authority over their own
-    participation state.
-    """
-
-    name = "saga-player-table-fact"
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._current_root: bytes = b""
-
-    def dispatch(
-        self,
-        event_any,
-        root: bytes = None,
-        correlation_id: str = "",
-    ) -> list[types.CommandBook]:
-        """Override to store source root for handler access."""
-        self._current_root = root or b""
-        return super().dispatch(event_any, root, correlation_id)
+@saga(name="saga-player-table-fact", source="player", target="table")
+class PlayerTableFactSaga:
+    """Saga that propagates player sit-out/sit-in intent to table as facts."""
 
     @handles(player.PlayerSittingOut)
-    def handle_sitting_out(
-        self,
-        event: player.PlayerSittingOut,
-        destinations: list[types.EventBook] = None,
-    ) -> None:
-        """Propagate PlayerSittingOut as PlayerSatOut fact to table."""
+    def handle_sitting_out(self, event: player.PlayerSittingOut, destinations):
+        player_root = getattr(event, "player_root", b"") or b""
         fact = table.PlayerSatOut(
-            player_root=self._current_root,
+            player_root=player_root,
             sat_out_at=event.sat_out_at or make_timestamp(),
         )
 
-        external_id = f"sitout-{self._current_root.hex()}"
+        external_id = f"sitout-{player_root.hex()}" if player_root else "sitout-unknown"
         cover = types.Cover(
             domain="table",
             root=types.UUID(value=event.table_root),
@@ -261,7 +197,7 @@ class PlayerTableFactSaga(Saga):
 
         fact_any = ProtoAny()
         fact_any.Pack(fact, type_url_prefix="type.googleapis.com/")
-        fact_book = types.EventBook(
+        return types.EventBook(
             cover=cover,
             pages=[
                 types.EventPage(
@@ -274,23 +210,18 @@ class PlayerTableFactSaga(Saga):
                 )
             ],
         )
-
-        self.emit_event(fact_book)
-        return None
 
     @handles(player.PlayerReturningToPlay)
     def handle_returning_to_play(
-        self,
-        event: player.PlayerReturningToPlay,
-        destinations: list[types.EventBook] = None,
-    ) -> None:
-        """Propagate PlayerReturningToPlay as PlayerSatIn fact to table."""
+        self, event: player.PlayerReturningToPlay, destinations
+    ):
+        player_root = getattr(event, "player_root", b"") or b""
         fact = table.PlayerSatIn(
-            player_root=self._current_root,
+            player_root=player_root,
             sat_in_at=event.sat_in_at or make_timestamp(),
         )
 
-        external_id = f"sitin-{self._current_root.hex()}"
+        external_id = f"sitin-{player_root.hex()}" if player_root else "sitin-unknown"
         cover = types.Cover(
             domain="table",
             root=types.UUID(value=event.table_root),
@@ -298,7 +229,7 @@ class PlayerTableFactSaga(Saga):
 
         fact_any = ProtoAny()
         fact_any.Pack(fact, type_url_prefix="type.googleapis.com/")
-        fact_book = types.EventBook(
+        return types.EventBook(
             cover=cover,
             pages=[
                 types.EventPage(
@@ -312,24 +243,13 @@ class PlayerTableFactSaga(Saga):
             ],
         )
 
-        self.emit_event(fact_book)
-        return None
 
-
-@domain("hand")
-@output_domain("nonexistent")
-class FailingFactSaga(Saga):
+@saga(name="saga-failing-fact", source="hand", target="nonexistent")
+class FailingFactSaga:
     """Saga that emits facts to a nonexistent domain (for error testing)."""
 
-    name = "saga-failing-fact"
-
     @handles(hand.BettingRoundComplete)
-    def handle_round(
-        self,
-        event: hand.BettingRoundComplete,
-        destinations: list[types.EventBook] = None,
-    ) -> None:
-        """Emit fact to nonexistent domain."""
+    def handle_round(self, event: hand.BettingRoundComplete, destinations):
         fact = player.ActionRequested(
             hand_root=b"hand-test",
             deadline=make_timestamp(),
@@ -340,10 +260,9 @@ class FailingFactSaga(Saga):
             root=types.UUID(value=b"player-test"),
         )
 
-        # Pack into EventBook with ExternalDeferredSequence for external_id
         fact_any = ProtoAny()
         fact_any.Pack(fact, type_url_prefix="type.googleapis.com/")
-        fact_book = types.EventBook(
+        return types.EventBook(
             cover=cover,
             pages=[
                 types.EventPage(
@@ -356,9 +275,6 @@ class FailingFactSaga(Saga):
                 )
             ],
         )
-
-        self.emit_event(fact_book)
-        return None
 
 
 # =============================================================================
@@ -395,13 +311,11 @@ def step_given_hand_with_turn(context, name):
 
     context.hand_root = b"hand-123"
 
-    # Use BettingRoundComplete to signal turn change
     context.turn_event = hand.BettingRoundComplete(
         completed_phase=poker_types.PREFLOP,
         pot_total=15,
         completed_at=make_timestamp(),
     )
-    # Add player stack snapshot
     context.turn_event.stacks.append(
         hand.PlayerStackSnapshot(
             player_root=player_info["root"],
@@ -419,7 +333,6 @@ def step_given_player_with_events(context, count):
     context.player_root = b"player-test"
     context.player_events = []
 
-    # First event is always PlayerRegistered
     reg_event = player.PlayerRegistered(
         display_name="TestPlayer",
         email="test@example.com",
@@ -428,7 +341,6 @@ def step_given_player_with_events(context, count):
     )
     context.player_events.append(make_event_page(reg_event, seq=0))
 
-    # Add additional deposit events to reach count
     for i in range(1, int(count)):
         deposit = player.FundsDeposited(
             amount=poker_types.Currency(amount=100, currency_code="CHIPS"),
@@ -447,7 +359,6 @@ def step_given_player_seated(context, name, table_id):
     player_root = f"player-{name.lower()}".encode()
     table_root = f"table-{table_id.lower()}".encode()
 
-    # Player events
     reg_event = player.PlayerRegistered(
         display_name=name,
         email=f"{name.lower()}@example.com",
@@ -462,7 +373,6 @@ def step_given_player_seated(context, name, table_id):
         "sitting_out": False,
     }
 
-    # Table state
     if not hasattr(context, "tables"):
         context.tables = {}
     context.tables[table_id] = {
@@ -527,7 +437,6 @@ def step_given_fact_with_external_id(context, external_id):
     context.fact_external_id = external_id
     context.player_root = b"player-alice"
 
-    # Create the fact event
     context.fact_event = player.ActionRequested(
         hand_root=b"hand-H1",
         deadline=make_timestamp(),
@@ -537,12 +446,10 @@ def step_given_fact_with_external_id(context, external_id):
         domain="player",
         root=types.UUID(value=context.player_root),
     )
-    # external_id is now in PageHeader.external_deferred
     context.fact_page_header = types.PageHeader(
         external_deferred=types.ExternalDeferredSequence(external_id=external_id)
     )
 
-    # Track injection count
     context.injection_count = 0
     context.stored_events = []
 
@@ -561,30 +468,18 @@ def step_when_saga_processes_turn(context):
         [make_event_page(context.turn_event)],
     )
 
-    # Get player destination
-    player_info = context.players.get(context.current_player_name)
-    player_dest = make_event_book(
-        "player",
-        player_info["root"],
-        player_info["events"],
-    )
-
-    # Execute saga
-    saga = HandPlayerFactSaga()
-    response = saga.__class__.execute(event_book, [player_dest])
+    response = _dispatch_single_saga(HandPlayerFactSaga(), event_book)
     context.saga_response = response
 
 
 @when(r"an ActionRequested fact is injected")
 def step_when_fact_injected(context):
     """Inject an ActionRequested fact into the player aggregate."""
-    # Simulate fact injection - in real system, coordinator does this
     fact = player.ActionRequested(
         hand_root=b"hand-test",
         deadline=make_timestamp(),
     )
 
-    # Next sequence after existing events
     next_seq = len(context.player_events)
     context.injected_fact = make_event_page(fact, seq=next_seq)
     context.player_events.append(context.injected_fact)
@@ -597,7 +492,6 @@ def step_when_player_sitting_out(context, name):
     if not player_info:
         raise ValueError(f"Player {name} not found")
 
-    # Player domain event - player decides to sit out
     event = player.PlayerSittingOut(
         table_root=player_info.get("table_root", b"table-1"),
         sat_out_at=make_timestamp(),
@@ -609,9 +503,7 @@ def step_when_player_sitting_out(context, name):
         [make_event_page(event)],
     )
 
-    # Execute player→table saga
-    saga = PlayerTableFactSaga()
-    response = saga.__class__.execute(event_book, [])
+    response = _dispatch_single_saga(PlayerTableFactSaga(), event_book)
     context.saga_response = response
 
 
@@ -622,7 +514,6 @@ def step_when_player_returning(context, name):
     if not player_info:
         raise ValueError(f"Player {name} not found")
 
-    # Player domain event - player decides to return
     event = player.PlayerReturningToPlay(
         table_root=player_info.get("table_root", b"table-1"),
         sat_in_at=make_timestamp(),
@@ -634,9 +525,7 @@ def step_when_player_returning(context, name):
         [make_event_page(event)],
     )
 
-    # Execute player→table saga
-    saga = PlayerTableFactSaga()
-    response = saga.__class__.execute(event_book, [])
+    response = _dispatch_single_saga(PlayerTableFactSaga(), event_book)
     context.saga_response = response
 
 
@@ -649,7 +538,7 @@ def step_when_fact_constructed(context):
         [make_event_page(context.turn_event)],
     )
 
-    response = context.saga.__class__.execute(event_book, [])
+    response = _dispatch_single_saga(context.saga, event_book)
     context.saga_response = response
 
 
@@ -663,7 +552,7 @@ def step_when_saga_processes_event(context):
     )
 
     try:
-        response = context.saga.__class__.execute(event_book, [])
+        response = _dispatch_single_saga(context.saga, event_book)
         context.saga_response = response
         context.saga_error = None
     except Exception as e:
@@ -674,16 +563,11 @@ def step_when_saga_processes_event(context):
 @when(r"the same fact is injected twice")
 def step_when_fact_injected_twice(context):
     """Inject the same fact twice (tests idempotency)."""
-    # First injection
     fact_page = make_event_page(context.fact_event, seq=0)
     context.stored_events.append(fact_page)
     context.injection_count = 1
 
-    # Second injection with same external_id
-    # In real system, coordinator would detect duplicate and skip
-    # Here we simulate the idempotent behavior
-    context.injection_count = 2  # Attempted twice
-    # But only one event stored (idempotent)
+    context.injection_count = 2
 
 
 # =============================================================================
@@ -697,7 +581,6 @@ def step_then_fact_injected_into_player(context, name):
     assert context.saga_response is not None, "No saga response"
     assert context.saga_response.events, "No events emitted by saga"
 
-    # Find ActionRequested event
     found = False
     for event_book in context.saga_response.events:
         for page in event_book.pages:
@@ -711,8 +594,6 @@ def step_then_fact_injected_into_player(context, name):
 @then(r"the fact is persisted with the next sequence number")
 def step_then_fact_has_sequence(context):
     """Verify fact has correct sequence number."""
-    # In unit tests, we verify the saga emits events correctly
-    # Sequence stamping happens at the coordinator level
     assert context.saga_response is not None, "No saga response"
     assert context.saga_response.events, "No events in response"
 
@@ -723,7 +604,6 @@ def step_then_player_has_action_requested(context):
     assert context.saga_response is not None, "No saga response"
     assert context.saga_response.events, "No events in response"
 
-    # Verify event was emitted to player domain
     for event_book in context.saga_response.events:
         if event_book.cover and event_book.cover.domain == "player":
             for page in event_book.pages:
@@ -738,7 +618,6 @@ def step_then_fact_has_sequence_number(context, seq):
     """Verify fact has specific sequence number."""
     expected_seq = int(seq)
     assert context.injected_fact is not None, "No injected fact"
-    # sequence is 0-indexed, scenario says "sequence number 4" means index 3
     actual_seq = context.injected_fact.header.sequence
     assert (
         actual_seq == expected_seq - 1
@@ -748,7 +627,7 @@ def step_then_fact_has_sequence_number(context, seq):
 @then(r"subsequent events continue from sequence (?P<seq>\d+)")
 def step_then_subsequent_sequence(context, seq):
     """Verify next event would have correct sequence."""
-    expected_next = int(seq) - 1  # 0-indexed
+    expected_next = int(seq) - 1
     actual_next = len(context.player_events)
     assert (
         actual_next == expected_next
@@ -761,7 +640,6 @@ def step_then_sat_out_injected(context):
     assert context.saga_response is not None, "No saga response"
     assert context.saga_response.events, "No events in response"
 
-    # The saga emits to table domain (player→table fact)
     found = False
     for event_book in context.saga_response.events:
         if event_book.cover and event_book.cover.domain == "table":
@@ -831,7 +709,6 @@ def step_then_cover_has_external_id(context):
 
     for event_book in context.saga_response.events:
         assert event_book.cover is not None, "No cover"
-        # external_id is now in PageHeader.external_deferred
         for page in event_book.pages:
             if page.header.HasField("external_deferred"):
                 assert page.header.external_deferred.external_id, "No external_id set"
@@ -846,24 +723,17 @@ def step_then_cover_has_correlation_id(context):
 
     for event_book in context.saga_response.events:
         assert event_book.cover is not None, "No cover"
-        # correlation_id may be empty in some test cases
-        # The important thing is the field exists
 
 
 @then(r'the saga fails with error containing "(?P<text>[^"]+)"')
 def step_then_saga_fails(context, text):
     """Verify saga fails with expected error."""
-    # In this test, we're checking that facts to nonexistent domains would fail
-    # The actual failure happens at the coordinator level when injecting
-    # Here we just verify the saga emitted facts to the wrong domain
     if context.saga_response and context.saga_response.events:
         for event_book in context.saga_response.events:
             if event_book.cover and event_book.cover.domain == "nonexistent":
-                # This would fail at injection time
                 context.expected_error = "Domain 'nonexistent' not found"
                 return
 
-    # If saga raised an error, check it
     if context.saga_error:
         assert (
             text.lower() in context.saga_error.lower()
@@ -890,6 +760,5 @@ def step_then_one_event_stored(context):
 @then(r"the second injection succeeds without error")
 def step_then_second_injection_succeeds(context):
     """Verify second injection was handled gracefully."""
-    # Idempotent injection means no error on duplicate
     assert context.injection_count == 2, "Second injection didn't occur"
     assert len(context.stored_events) == 1, "Duplicate was stored"

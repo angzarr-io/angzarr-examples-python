@@ -1,22 +1,17 @@
-"""Table state router for BuyIn PM destination state rebuilding.
+"""Table state rebuild helper for BuyIn PM destination state rebuilding.
 
-This module defines a StateRouter that automatically rebuilds TableStateHelper
-from EventBooks, eliminating manual rebuild_table_state() boilerplate.
+Replaces the former StateRouter-based builder with a plain rebuild function.
 
-Usage in PM:
-    class BuyInPM(ProcessManager[BuyInState]):
-        _destination_routers = {
-            "table": table_state_router,
-        }
-
-        @handles(BuyInRequested, input_domain="player")
-        def handle_buy_in(self, event, destinations: dict[str, TableStateHelper], root):
-            table_state = destinations["table"]  # Already rebuilt!
+Usage:
+    state = table_state_rebuild(prior_state, event)
+    # or fold over events:
+    state = TableStateHelper()
+    for event in events:
+        state = table_state_rebuild(state, event)
 """
 
 from dataclasses import dataclass, field
 
-from angzarr_client import StateRouter
 from angzarr_client.proto.examples import buy_in_pb2 as buy_in
 from angzarr_client.proto.examples import table_pb2 as table
 
@@ -74,12 +69,17 @@ def apply_player_left(state: TableStateHelper, event: table.PlayerLeft) -> None:
     state.seats.pop(event.seat_position, None)
 
 
-# --- StateRouter configuration ---
+def table_state_rebuild(prior_state: TableStateHelper, event) -> TableStateHelper:
+    """Rebuild TableStateHelper by applying ``event`` to ``prior_state`` in place.
 
-table_state_router: StateRouter[TableStateHelper] = (
-    StateRouter(TableStateHelper)
-    .on(table.TableCreated, apply_table_created)
-    .on(table.PlayerJoined, apply_player_joined)
-    .on(buy_in.PlayerSeated, apply_player_seated)
-    .on(table.PlayerLeft, apply_player_left)
-)
+    Returns the same state instance for chaining.
+    """
+    if isinstance(event, table.TableCreated):
+        apply_table_created(prior_state, event)
+    elif isinstance(event, table.PlayerJoined):
+        apply_player_joined(prior_state, event)
+    elif isinstance(event, buy_in.PlayerSeated):
+        apply_player_seated(prior_state, event)
+    elif isinstance(event, table.PlayerLeft):
+        apply_player_left(prior_state, event)
+    return prior_state

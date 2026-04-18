@@ -5,10 +5,8 @@ This module runs the rebuy PM that coordinates Player <-> Tournament <-> Table r
 
 import structlog
 
-from angzarr_client.process_manager_handler import (
-    ProcessManagerHandler,
-    run_process_manager_server,
-)
+from angzarr_client import ProcessManagerGrpc, Router, run_server
+from angzarr_client.proto.angzarr import process_manager_pb2_grpc
 from handlers import RebuyPM
 
 structlog.configure(
@@ -26,5 +24,13 @@ logger = structlog.get_logger()
 
 
 if __name__ == "__main__":
-    handler = ProcessManagerHandler(RebuyPM)
-    run_process_manager_server(handler, "50393", logger=logger)
+    router = Router("pmg-rebuy").with_handler(RebuyPM()).build()
+    servicer = ProcessManagerGrpc(router)
+    run_server(
+        process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,
+        servicer,
+        service_name="pmg-rebuy",
+        domain="rebuy",
+        default_port="50393",
+        logger=logger,
+    )

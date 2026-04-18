@@ -1,21 +1,18 @@
-"""Saga: Hand -> Player
+"""Saga: Hand -> Player (unified Router API).
 
-Reacts to PotAwarded events from Hand domain.
-Sends DepositFunds commands to Player domain.
-
-Uses the OO-style Saga pattern with @handles decorators.
+Reacts to PotAwarded events from Hand domain and emits DepositFunds commands
+to the Player domain (one command per winner).
 """
 
 import structlog
+from google.protobuf.any_pb2 import Any as ProtoAny
 
-from angzarr_client import Destinations, now
+from angzarr_client import Destinations, Router, SagaGrpc, handles, run_server, saga
+from angzarr_client.proto.angzarr import saga_pb2_grpc
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.saga import Saga, domain, handles, output_domain, run_saga_server
-
-from google.protobuf.any_pb2 import Any as ProtoAny
 
 structlog.configure(
     processors=[
@@ -31,33 +28,55 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
-@domain("hand")
-@output_domain("player")
-class HandPlayerSaga(Saga):
-    """Saga that translates PotAwarded events to DepositFunds commands.
+def _pack(msg) -> ProtoAny:
+    any_msg = ProtoAny()
+    any_msg.Pack(msg, type_url_prefix="type.googleapis.com/")
+    return any_msg
 
-    Produces multiple commands (one per winner). The Player aggregate
-    validates deposit operations.
-    """
 
-    name = "saga-hand-player"
+@saga(name="saga-hand-player", source="hand", target="player")
+class HandPlayerSaga:
+    """Saga that translates PotAwarded events to DepositFunds commands."""
 
     @handles(hand.PotAwarded)
     def handle_pot_awarded(
-        self,
-        event: hand.PotAwarded,
-        destinations: Destinations = None,
-    ) -> None:
-        """Translate PotAwarded -> DepositFunds for each winner."""
+        self, event: hand.PotAwarded, destinations: Destinations
+    ) -> list[types.CommandBook]:
+        seq = destinations.sequence_for("player") if destinations else 0
+        seq = seq if seq is not None else 0
+        books: list[types.CommandBook] = []
         for winner in event.winners:
-            deposit_funds = player.DepositFunds(
+            deposit = player.DepositFunds(
                 amount=poker_types.Currency(
                     amount=winner.amount,
                     currency_code="CHIPS",
                 ),
             )
-            self.emit_command("player", winner.player_root, deposit_funds)
+            books.append(
+                types.CommandBook(
+                    cover=types.Cover(
+                        domain="player",
+                        root=types.UUID(value=winner.player_root),
+                    ),
+                    pages=[
+                        types.CommandPage(
+                            header=types.PageHeader(sequence=seq),
+                            command=_pack(deposit),
+                        )
+                    ],
+                )
+            )
+        return books
 
 
 if __name__ == "__main__":
-    run_saga_server(HandPlayerSaga, "50414", logger=logger)
+    router = Router("saga-hand-player").with_handler(HandPlayerSaga()).build()
+    servicer = SagaGrpc(router)
+    run_server(
+        saga_pb2_grpc.add_SagaServiceServicer_to_server,
+        servicer,
+        service_name="saga-hand-player",
+        domain="hand",
+        default_port="50414",
+        logger=logger,
+    )

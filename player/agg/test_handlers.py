@@ -1,6 +1,7 @@
 """Unit tests for player aggregate handlers.
 
-Tests the guard/validate/compute functions and full handler flows.
+Tests the guard/validate/compute helper functions and full handler flows
+(both through the helpers and through ``PlayerAggregate`` methods).
 """
 
 import pytest
@@ -43,6 +44,7 @@ from .handlers import (
     transfer_funds_validate,
     transfer_funds_compute,
 )
+from .main import PlayerAggregate
 
 
 def currency(amount: int) -> poker_types.Currency:
@@ -78,7 +80,7 @@ class TestRegisterPlayer:
             player_type=poker_types.PlayerType.HUMAN,
         )
 
-        event = handle_register_player(cmd, state, seq=0)
+        event = handle_register_player(cmd, state)
 
         assert event.display_name == "Alice"
         assert event.email == "alice@example.com"
@@ -95,7 +97,7 @@ class TestRegisterPlayer:
             ai_model_id="gpt-4",
         )
 
-        event = handle_register_player(cmd, state, seq=0)
+        event = handle_register_player(cmd, state)
 
         assert event.player_type == poker_types.PlayerType.AI
         assert event.ai_model_id == "gpt-4"
@@ -109,7 +111,7 @@ class TestRegisterPlayer:
         )
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_register_player(cmd, state, seq=0)
+            handle_register_player(cmd, state)
 
         assert "already exists" in str(exc.value)
 
@@ -122,7 +124,7 @@ class TestRegisterPlayer:
         )
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_register_player(cmd, state, seq=0)
+            handle_register_player(cmd, state)
 
         assert "display_name" in str(exc.value)
 
@@ -135,7 +137,7 @@ class TestRegisterPlayer:
         )
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_register_player(cmd, state, seq=0)
+            handle_register_player(cmd, state)
 
         assert "email" in str(exc.value)
 
@@ -162,6 +164,18 @@ class TestRegisterPlayer:
         event = register_player_compute(cmd, state)
         assert event.display_name == "Alice"
         assert event.email == "alice@example.com"
+
+    def test_aggregate_method_dispatch(self) -> None:
+        """PlayerAggregate method runs the helper and returns the event."""
+        agg = PlayerAggregate()
+        state = PlayerState()
+        cmd = player.RegisterPlayer(
+            display_name="Alice",
+            email="alice@example.com",
+            player_type=poker_types.PlayerType.HUMAN,
+        )
+        event = agg.on_register_player(cmd, state, seq=0)
+        assert event.display_name == "Alice"
 
 
 # =============================================================================
@@ -213,7 +227,7 @@ class TestDepositFunds:
         state = make_registered_state(bankroll=1000)
         cmd = player.DepositFunds(amount=currency(500))
 
-        event = handle_deposit_funds(cmd, state, seq=1)
+        event = handle_deposit_funds(cmd, state)
 
         assert event.amount.amount == 500
         assert event.new_balance.amount == 1500
@@ -233,7 +247,7 @@ class TestWithdrawFunds:
         state = make_registered_state(bankroll=1000)
         cmd = player.WithdrawFunds(amount=currency(400))
 
-        event = handle_withdraw_funds(cmd, state, seq=1)
+        event = handle_withdraw_funds(cmd, state)
 
         assert event.amount.amount == 400
         assert event.new_balance.amount == 600
@@ -244,7 +258,7 @@ class TestWithdrawFunds:
         cmd = player.WithdrawFunds(amount=currency(100))
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_withdraw_funds(cmd, state, seq=0)
+            handle_withdraw_funds(cmd, state)
 
         assert "does not exist" in str(exc.value)
 
@@ -254,7 +268,7 @@ class TestWithdrawFunds:
         cmd = player.WithdrawFunds(amount=currency(0))
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_withdraw_funds(cmd, state, seq=0)
+            handle_withdraw_funds(cmd, state)
 
         assert "positive" in str(exc.value)
 
@@ -264,7 +278,7 @@ class TestWithdrawFunds:
         cmd = player.WithdrawFunds(amount=currency(500))
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_withdraw_funds(cmd, state, seq=0)
+            handle_withdraw_funds(cmd, state)
 
         assert "insufficient available balance" in str(exc.value)
 
@@ -275,7 +289,7 @@ class TestWithdrawFunds:
         cmd = player.WithdrawFunds(amount=currency(500))
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_withdraw_funds(cmd, state, seq=0)
+            handle_withdraw_funds(cmd, state)
 
         assert "insufficient available balance" in str(exc.value)
 
@@ -284,7 +298,7 @@ class TestWithdrawFunds:
         state = make_registered_state(bankroll=1000, reserved=600)
         cmd = player.WithdrawFunds(amount=currency(400))  # Available is 400
 
-        event = handle_withdraw_funds(cmd, state, seq=1)
+        event = handle_withdraw_funds(cmd, state)
 
         assert event.new_balance.amount == 600
 
@@ -325,7 +339,7 @@ class TestReserveFunds:
             amount=currency(500),
         )
 
-        event = handle_reserve_funds(cmd, state, seq=1)
+        event = handle_reserve_funds(cmd, state)
 
         assert event.amount.amount == 500
         assert event.table_root == table_root
@@ -341,7 +355,7 @@ class TestReserveFunds:
         )
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_reserve_funds(cmd, state, seq=0)
+            handle_reserve_funds(cmd, state)
 
         assert "does not exist" in str(exc.value)
 
@@ -354,7 +368,7 @@ class TestReserveFunds:
         )
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_reserve_funds(cmd, state, seq=0)
+            handle_reserve_funds(cmd, state)
 
         assert "positive" in str(exc.value)
 
@@ -371,7 +385,7 @@ class TestReserveFunds:
         )
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_reserve_funds(cmd, state, seq=0)
+            handle_reserve_funds(cmd, state)
 
         assert "already reserved" in str(exc.value)
 
@@ -384,7 +398,7 @@ class TestReserveFunds:
         )
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_reserve_funds(cmd, state, seq=0)
+            handle_reserve_funds(cmd, state)
 
         assert "Insufficient" in str(exc.value)
 
@@ -406,7 +420,7 @@ class TestReserveFunds:
         )
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_reserve_funds(cmd, state, seq=0)
+            handle_reserve_funds(cmd, state)
 
         # Should fail on insufficient funds FIRST, not duplicate reservation
         assert "Insufficient" in str(exc.value)
@@ -420,7 +434,7 @@ class TestReserveFunds:
             table_root=b"table_1",
             amount=currency(300),
         )
-        event1 = handle_reserve_funds(cmd1, state, seq=1)
+        event1 = handle_reserve_funds(cmd1, state)
 
         # Apply event to state
         apply_reserved(state, event1)
@@ -430,7 +444,7 @@ class TestReserveFunds:
             table_root=b"table_2",
             amount=currency(400),
         )
-        event2 = handle_reserve_funds(cmd2, state, seq=2)
+        event2 = handle_reserve_funds(cmd2, state)
 
         assert event2.new_reserved_balance.amount == 700
         assert event2.new_available_balance.amount == 300
@@ -464,7 +478,7 @@ class TestReleaseFunds:
 
         cmd = player.ReleaseFunds(table_root=table_root)
 
-        event = handle_release_funds(cmd, state, seq=1)
+        event = handle_release_funds(cmd, state)
 
         assert event.amount.amount == 500
         assert event.table_root == table_root
@@ -477,7 +491,7 @@ class TestReleaseFunds:
         cmd = player.ReleaseFunds(table_root=b"table_123")
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_release_funds(cmd, state, seq=0)
+            handle_release_funds(cmd, state)
 
         assert "does not exist" in str(exc.value)
 
@@ -487,7 +501,7 @@ class TestReleaseFunds:
         cmd = player.ReleaseFunds(table_root=b"table_123")
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_release_funds(cmd, state, seq=0)
+            handle_release_funds(cmd, state)
 
         assert "No funds reserved" in str(exc.value)
 
@@ -497,7 +511,7 @@ class TestReleaseFunds:
         cmd = player.ReleaseFunds(table_root=b"")
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_release_funds(cmd, state, seq=0)
+            handle_release_funds(cmd, state)
 
         assert "table_root is required" in str(exc.value)
 
@@ -508,7 +522,7 @@ class TestReleaseFunds:
         state.table_reservations[b"table_2".hex()] = 400
 
         cmd = player.ReleaseFunds(table_root=b"table_1")
-        event = handle_release_funds(cmd, state, seq=1)
+        event = handle_release_funds(cmd, state)
 
         assert event.amount.amount == 300
         assert event.new_reserved_balance.amount == 400
@@ -544,7 +558,7 @@ class TestTransferFunds:
             reason="pot_win",
         )
 
-        event = handle_transfer_funds(cmd, state, seq=1)
+        event = handle_transfer_funds(cmd, state)
 
         assert event.amount.amount == 500
         assert event.new_balance.amount == 1500
@@ -562,7 +576,7 @@ class TestTransferFunds:
         )
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_transfer_funds(cmd, state, seq=0)
+            handle_transfer_funds(cmd, state)
 
         assert "does not exist" in str(exc.value)
 
@@ -575,7 +589,7 @@ class TestTransferFunds:
         )
 
         with pytest.raises(CommandRejectedError) as exc:
-            handle_transfer_funds(cmd, state, seq=0)
+            handle_transfer_funds(cmd, state)
 
         assert "non-zero" in str(exc.value)
 
@@ -777,7 +791,7 @@ class TestEdgeCases:
             table_root=table_root,
             amount=currency(500),
         )
-        reserve_event = handle_reserve_funds(reserve_cmd, state, seq=1)
+        reserve_event = handle_reserve_funds(reserve_cmd, state)
         apply_reserved(state, reserve_event)
 
         assert state.available_balance == 500
@@ -785,7 +799,7 @@ class TestEdgeCases:
 
         # Release
         release_cmd = player.ReleaseFunds(table_root=table_root)
-        release_event = handle_release_funds(release_cmd, state, seq=2)
+        release_event = handle_release_funds(release_cmd, state)
         apply_released(state, release_event)
 
         assert state.available_balance == 1000

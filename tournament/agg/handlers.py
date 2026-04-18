@@ -1,13 +1,12 @@
-"""Tournament aggregate - rich domain model (OO pattern).
-
-This implements the tournament aggregate using CommandHandler base class
-with @handles/@applies decorators.
-"""
+"""Tournament aggregate - rich domain model."""
 
 from dataclasses import dataclass, field
 
-from angzarr_client import CommandHandler, applies, handles, now
+from google.protobuf.any_pb2 import Any as ProtoAny
+
+from angzarr_client import applies, command_handler, handles, now
 from angzarr_client.errors import CommandRejectedError
+from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import tournament_pb2 as tournament
 
 
@@ -44,13 +43,55 @@ class _TournamentState:
     total_prize_pool: int = 0
 
 
-class Tournament(CommandHandler[_TournamentState]):
+_APPLIER_REGISTRY: list[tuple[type, str]] = []
+
+
+@command_handler(domain="tournament", state=_TournamentState)
+class Tournament:
     """Tournament aggregate with event sourcing."""
 
-    domain = "tournament"
+    def __init__(self, event_book: types.EventBook | None = None) -> None:
+        self._state = _TournamentState()
+        self._events = types.EventBook()
+        if event_book is not None:
+            for page in event_book.pages:
+                new_page = types.EventPage()
+                new_page.CopyFrom(page)
+                self._events.pages.append(new_page)
+                if page.HasField("event"):
+                    self._apply_any(page.event, self._state)
 
-    def _create_empty_state(self) -> _TournamentState:
-        return _TournamentState()
+    # --- Compatibility helpers (test path) ---
+
+    def _get_state(self) -> _TournamentState:
+        return self._state
+
+    def event_book(self) -> types.EventBook:
+        return self._events
+
+    def _emit(self, event) -> None:
+        any_msg = ProtoAny()
+        any_msg.Pack(event, type_url_prefix="type.googleapis.com/")
+        page = types.EventPage(
+            event=any_msg,
+            header=types.PageHeader(sequence=len(self._events.pages)),
+        )
+        self._events.pages.append(page)
+        self._apply_any(any_msg, self._state)
+
+    def _apply_any(self, event_any: ProtoAny, state: _TournamentState) -> None:
+        for event_type, method_name in _APPLIER_REGISTRY:
+            expected = f"type.googleapis.com/{event_type.DESCRIPTOR.full_name}"
+            if event_any.type_url == expected:
+                evt = event_type()
+                event_any.Unpack(evt)
+                getattr(self, method_name)(state, evt)
+                return
+
+    def _router_bind(self, state):
+        saved = self._state
+        self._state = state
+        return saved
 
     # --- Event appliers ---
 
@@ -161,87 +202,85 @@ class Tournament(CommandHandler[_TournamentState]):
 
     @property
     def exists(self) -> bool:
-        return bool(self._get_state().tournament_id)
+        return bool(self._state.tournament_id)
 
     @property
     def is_registration_open(self) -> bool:
         return (
-            self._get_state().status
+            self._state.status
             == tournament.TournamentStatus.TOURNAMENT_REGISTRATION_OPEN
         )
 
     @property
     def is_running(self) -> bool:
-        return (
-            self._get_state().status == tournament.TournamentStatus.TOURNAMENT_RUNNING
-        )
+        return self._state.status == tournament.TournamentStatus.TOURNAMENT_RUNNING
 
     @property
     def status(self) -> int:
-        return self._get_state().status
+        return self._state.status
 
     @property
     def buy_in(self) -> int:
-        return self._get_state().buy_in
+        return self._state.buy_in
 
     @property
     def starting_stack(self) -> int:
-        return self._get_state().starting_stack
+        return self._state.starting_stack
 
     @property
     def max_players(self) -> int:
-        return self._get_state().max_players
+        return self._state.max_players
 
     @property
     def min_players(self) -> int:
-        return self._get_state().min_players
+        return self._state.min_players
 
     @property
     def registered_players(self) -> dict:
-        return self._get_state().registered_players
+        return self._state.registered_players
 
     @property
     def players_remaining(self) -> int:
-        return self._get_state().players_remaining
+        return self._state.players_remaining
 
     @property
     def total_prize_pool(self) -> int:
-        return self._get_state().total_prize_pool
+        return self._state.total_prize_pool
 
     @property
     def current_level(self) -> int:
-        return self._get_state().current_level
+        return self._state.current_level
 
     @property
     def rebuy_config(self):
-        return self._get_state().rebuy_config
+        return self._state.rebuy_config
 
     @property
     def blind_structure(self) -> list:
-        return self._get_state().blind_structure
+        return self._state.blind_structure
 
     def has_capacity(self) -> bool:
-        return len(self._get_state().registered_players) < self._get_state().max_players
+        return len(self._state.registered_players) < self._state.max_players
 
     def is_player_registered(self, player_root_hex: str) -> bool:
-        return player_root_hex in self._get_state().registered_players
+        return player_root_hex in self._state.registered_players
 
     def can_rebuy(self, player_root_hex: str) -> bool:
-        state = self._get_state()
-        if state.status != tournament.TournamentStatus.TOURNAMENT_RUNNING:
+        s = self._state
+        if s.status != tournament.TournamentStatus.TOURNAMENT_RUNNING:
             return False
-        if state.rebuy_config is None or not state.rebuy_config.enabled:
+        if s.rebuy_config is None or not s.rebuy_config.enabled:
             return False
         if (
-            state.rebuy_config.rebuy_level_cutoff > 0
-            and state.current_level > state.rebuy_config.rebuy_level_cutoff
+            s.rebuy_config.rebuy_level_cutoff > 0
+            and s.current_level > s.rebuy_config.rebuy_level_cutoff
         ):
             return False
-        registration = state.registered_players.get(player_root_hex)
+        registration = s.registered_players.get(player_root_hex)
         if registration is not None:
             if (
-                state.rebuy_config.max_rebuys > 0
-                and registration.rebuys_used >= state.rebuy_config.max_rebuys
+                s.rebuy_config.max_rebuys > 0
+                and registration.rebuys_used >= s.rebuy_config.max_rebuys
             ):
                 return False
         return True
@@ -250,223 +289,354 @@ class Tournament(CommandHandler[_TournamentState]):
 
     @handles(tournament.CreateTournament)
     def handle_create_tournament(
-        self, cmd: tournament.CreateTournament
+        self,
+        cmd: tournament.CreateTournament,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
     ) -> tournament.TournamentCreated:
         """Create a new tournament."""
-        if self.exists:
-            raise CommandRejectedError("Tournament already exists")
-        if not cmd.name:
-            raise CommandRejectedError("name is required")
-        if cmd.buy_in <= 0:
-            raise CommandRejectedError("buy_in must be positive")
-        if cmd.starting_stack <= 0:
-            raise CommandRejectedError("starting_stack must be positive")
-        if cmd.max_players < 2:
-            raise CommandRejectedError("max_players must be at least 2")
-        if cmd.min_players < 2:
-            raise CommandRejectedError("min_players must be at least 2")
-        if cmd.min_players > cmd.max_players:
-            raise CommandRejectedError("min_players cannot exceed max_players")
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if self.exists:
+                raise CommandRejectedError("Tournament already exists")
+            if not cmd.name:
+                raise CommandRejectedError("name is required")
+            if cmd.buy_in <= 0:
+                raise CommandRejectedError("buy_in must be positive")
+            if cmd.starting_stack <= 0:
+                raise CommandRejectedError("starting_stack must be positive")
+            if cmd.max_players < 2:
+                raise CommandRejectedError("max_players must be at least 2")
+            if cmd.min_players < 2:
+                raise CommandRejectedError("min_players must be at least 2")
+            if cmd.min_players > cmd.max_players:
+                raise CommandRejectedError("min_players cannot exceed max_players")
 
-        return tournament.TournamentCreated(
-            name=cmd.name,
-            game_variant=cmd.game_variant,
-            buy_in=cmd.buy_in,
-            starting_stack=cmd.starting_stack,
-            max_players=cmd.max_players,
-            min_players=cmd.min_players,
-            scheduled_start=cmd.scheduled_start,
-            rebuy_config=(
-                cmd.rebuy_config if cmd.HasField("rebuy_config") else None
-            ),
-            addon_config=(
-                cmd.addon_config if cmd.HasField("addon_config") else None
-            ),
-            blind_structure=cmd.blind_structure,
-            created_at=now(),
-        )
+            event = tournament.TournamentCreated(
+                name=cmd.name,
+                game_variant=cmd.game_variant,
+                buy_in=cmd.buy_in,
+                starting_stack=cmd.starting_stack,
+                max_players=cmd.max_players,
+                min_players=cmd.min_players,
+                scheduled_start=cmd.scheduled_start,
+                rebuy_config=(
+                    cmd.rebuy_config if cmd.HasField("rebuy_config") else None
+                ),
+                addon_config=(
+                    cmd.addon_config if cmd.HasField("addon_config") else None
+                ),
+                blind_structure=cmd.blind_structure,
+                created_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
 
     @handles(tournament.OpenRegistration)
     def handle_open_registration(
-        self, cmd: tournament.OpenRegistration
+        self,
+        cmd: tournament.OpenRegistration,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
     ) -> tournament.RegistrationOpened:
         """Open registration for the tournament."""
-        if not self.exists:
-            raise CommandRejectedError("Tournament does not exist")
-        if self.is_registration_open:
-            raise CommandRejectedError("Registration is already open")
-        return tournament.RegistrationOpened(opened_at=now())
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Tournament does not exist")
+            if self.is_registration_open:
+                raise CommandRejectedError("Registration is already open")
+            event = tournament.RegistrationOpened(opened_at=now())
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
 
     @handles(tournament.CloseRegistration)
     def handle_close_registration(
-        self, cmd: tournament.CloseRegistration
+        self,
+        cmd: tournament.CloseRegistration,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
     ) -> tournament.RegistrationClosed:
         """Close registration for the tournament."""
-        if not self.exists:
-            raise CommandRejectedError("Tournament does not exist")
-        if not self.is_registration_open:
-            raise CommandRejectedError("Registration is not open")
-        return tournament.RegistrationClosed(closed_at=now())
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Tournament does not exist")
+            if not self.is_registration_open:
+                raise CommandRejectedError("Registration is not open")
+            event = tournament.RegistrationClosed(closed_at=now())
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
 
     @handles(tournament.EnrollPlayer)
     def handle_enroll_player(
-        self, cmd: tournament.EnrollPlayer
+        self,
+        cmd: tournament.EnrollPlayer,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
     ) -> tournament.TournamentPlayerEnrolled | tournament.TournamentEnrollmentRejected:
         """Enroll a player in the tournament."""
-        if not self.exists:
-            raise CommandRejectedError("Tournament does not exist")
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Tournament does not exist")
 
-        # Validate enrollment
-        rejection_reason = None
-        if not cmd.player_root:
-            rejection_reason = "player_root is required"
-        elif not self.is_registration_open:
-            rejection_reason = "Registration is not open"
-        elif not self.has_capacity():
-            rejection_reason = "Tournament is full"
-        elif self.is_player_registered(cmd.player_root.hex()):
-            rejection_reason = "Player is already registered"
+            rejection_reason = None
+            if not cmd.player_root:
+                rejection_reason = "player_root is required"
+            elif not self.is_registration_open:
+                rejection_reason = "Registration is not open"
+            elif not self.has_capacity():
+                rejection_reason = "Tournament is full"
+            elif self.is_player_registered(cmd.player_root.hex()):
+                rejection_reason = "Player is already registered"
 
-        if rejection_reason is not None:
-            return tournament.TournamentEnrollmentRejected(
+            if rejection_reason is not None:
+                event = tournament.TournamentEnrollmentRejected(
+                    player_root=cmd.player_root,
+                    reservation_id=cmd.reservation_id,
+                    reason=rejection_reason,
+                    rejected_at=now(),
+                )
+                if not router_mode:
+                    self._emit(event)
+                return event
+
+            event = tournament.TournamentPlayerEnrolled(
                 player_root=cmd.player_root,
                 reservation_id=cmd.reservation_id,
-                reason=rejection_reason,
-                rejected_at=now(),
+                fee_paid=self.buy_in,
+                starting_stack=self.starting_stack,
+                registration_number=len(self.registered_players) + 1,
+                enrolled_at=now(),
             )
-
-        return tournament.TournamentPlayerEnrolled(
-            player_root=cmd.player_root,
-            reservation_id=cmd.reservation_id,
-            fee_paid=self.buy_in,
-            starting_stack=self.starting_stack,
-            registration_number=len(self.registered_players) + 1,
-            enrolled_at=now(),
-        )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
 
     @handles(tournament.ProcessRebuy)
     def handle_process_rebuy(
-        self, cmd: tournament.ProcessRebuy
+        self,
+        cmd: tournament.ProcessRebuy,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
     ) -> tournament.RebuyProcessed | tournament.RebuyDenied:
         """Process a rebuy request."""
-        if not self.exists:
-            raise CommandRejectedError("Tournament does not exist")
-        if not self.is_running:
-            raise CommandRejectedError("Tournament is not running")
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Tournament does not exist")
+            if not self.is_running:
+                raise CommandRejectedError("Tournament is not running")
 
-        rejection_reason = None
-        if not cmd.player_root:
-            rejection_reason = "player_root is required"
-        elif not self.is_player_registered(cmd.player_root.hex()):
-            rejection_reason = "Player is not registered"
-        elif not self.can_rebuy(cmd.player_root.hex()):
-            rejection_reason = "Rebuy not allowed"
+            rejection_reason = None
+            if not cmd.player_root:
+                rejection_reason = "player_root is required"
+            elif not self.is_player_registered(cmd.player_root.hex()):
+                rejection_reason = "Player is not registered"
+            elif not self.can_rebuy(cmd.player_root.hex()):
+                rejection_reason = "Rebuy not allowed"
 
-        if rejection_reason is not None:
-            return tournament.RebuyDenied(
+            if rejection_reason is not None:
+                event = tournament.RebuyDenied(
+                    player_root=cmd.player_root,
+                    reason=rejection_reason,
+                    denied_at=now(),
+                )
+                if not router_mode:
+                    self._emit(event)
+                return event
+
+            s = self._state
+            registration = s.registered_players.get(cmd.player_root.hex())
+            rebuy_count = (registration.rebuys_used + 1) if registration else 1
+            rebuy_cost = s.rebuy_config.rebuy_cost if s.rebuy_config else s.buy_in
+
+            event = tournament.RebuyProcessed(
                 player_root=cmd.player_root,
-                reason=rejection_reason,
-                denied_at=now(),
+                rebuy_count=rebuy_count,
+                rebuy_cost=rebuy_cost,
+                new_stack=s.starting_stack,
+                processed_at=now(),
             )
-
-        state = self._get_state()
-        registration = state.registered_players.get(cmd.player_root.hex())
-        rebuy_count = (registration.rebuys_used + 1) if registration else 1
-        rebuy_cost = (
-            state.rebuy_config.rebuy_cost if state.rebuy_config else state.buy_in
-        )
-
-        return tournament.RebuyProcessed(
-            player_root=cmd.player_root,
-            rebuy_count=rebuy_count,
-            rebuy_cost=rebuy_cost,
-            new_stack=state.starting_stack,
-            processed_at=now(),
-        )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
 
     @handles(tournament.AdvanceBlindLevel)
     def handle_advance_blind_level(
-        self, cmd: tournament.AdvanceBlindLevel
+        self,
+        cmd: tournament.AdvanceBlindLevel,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
     ) -> tournament.BlindLevelAdvanced:
         """Advance the blind level."""
-        if not self.exists:
-            raise CommandRejectedError("Tournament does not exist")
-        if not self.is_running:
-            raise CommandRejectedError("Tournament is not running")
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Tournament does not exist")
+            if not self.is_running:
+                raise CommandRejectedError("Tournament is not running")
 
-        state = self._get_state()
-        new_level = state.current_level + 1
-        small_blind = big_blind = ante = 0
-        if new_level <= len(state.blind_structure):
-            level_config = state.blind_structure[new_level - 1]
-            small_blind = level_config.small_blind
-            big_blind = level_config.big_blind
-            ante = level_config.ante
+            s = self._state
+            new_level = s.current_level + 1
+            small_blind = big_blind = ante = 0
+            if new_level <= len(s.blind_structure):
+                level_config = s.blind_structure[new_level - 1]
+                small_blind = level_config.small_blind
+                big_blind = level_config.big_blind
+                ante = level_config.ante
 
-        return tournament.BlindLevelAdvanced(
-            level=new_level,
-            small_blind=small_blind,
-            big_blind=big_blind,
-            ante=ante,
-            advanced_at=now(),
-        )
+            event = tournament.BlindLevelAdvanced(
+                level=new_level,
+                small_blind=small_blind,
+                big_blind=big_blind,
+                ante=ante,
+                advanced_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
 
     @handles(tournament.EliminatePlayer)
     def handle_eliminate_player(
-        self, cmd: tournament.EliminatePlayer
+        self,
+        cmd: tournament.EliminatePlayer,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
     ) -> tournament.PlayerEliminated:
         """Eliminate a player from the tournament."""
-        if not self.exists:
-            raise CommandRejectedError("Tournament does not exist")
-        if not self.is_running:
-            raise CommandRejectedError("Tournament is not running")
-        if not cmd.player_root:
-            raise CommandRejectedError("player_root is required")
-        if not self.is_player_registered(cmd.player_root.hex()):
-            raise CommandRejectedError("Player is not registered")
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Tournament does not exist")
+            if not self.is_running:
+                raise CommandRejectedError("Tournament is not running")
+            if not cmd.player_root:
+                raise CommandRejectedError("player_root is required")
+            if not self.is_player_registered(cmd.player_root.hex()):
+                raise CommandRejectedError("Player is not registered")
 
-        return tournament.PlayerEliminated(
-            player_root=cmd.player_root,
-            finish_position=self.players_remaining,
-            payout=0,
-            eliminated_at=now(),
-        )
+            event = tournament.PlayerEliminated(
+                player_root=cmd.player_root,
+                finish_position=self.players_remaining,
+                payout=0,
+                eliminated_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
 
     @handles(tournament.PauseTournament)
     def handle_pause_tournament(
-        self, cmd: tournament.PauseTournament
+        self,
+        cmd: tournament.PauseTournament,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
     ) -> tournament.TournamentPaused:
         """Pause the tournament."""
-        if not self.exists:
-            raise CommandRejectedError("Tournament does not exist")
-        if not self.is_running:
-            raise CommandRejectedError("Tournament is not running")
-        return tournament.TournamentPaused(reason=cmd.reason, paused_at=now())
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Tournament does not exist")
+            if not self.is_running:
+                raise CommandRejectedError("Tournament is not running")
+            event = tournament.TournamentPaused(reason=cmd.reason, paused_at=now())
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
 
     @handles(tournament.ResumeTournament)
     def handle_resume_tournament(
-        self, cmd: tournament.ResumeTournament
+        self,
+        cmd: tournament.ResumeTournament,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
     ) -> tournament.TournamentResumed:
         """Resume a paused tournament."""
-        if not self.exists:
-            raise CommandRejectedError("Tournament does not exist")
-        if self.status != tournament.TournamentStatus.TOURNAMENT_PAUSED:
-            raise CommandRejectedError("Tournament is not paused")
-        return tournament.TournamentResumed(resumed_at=now())
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Tournament does not exist")
+            if self.status != tournament.TournamentStatus.TOURNAMENT_PAUSED:
+                raise CommandRejectedError("Tournament is not paused")
+            event = tournament.TournamentResumed(resumed_at=now())
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
 
     @handles(tournament.StartTournament)
     def handle_start_tournament(
-        self, cmd: tournament.StartTournament
+        self,
+        cmd: tournament.StartTournament,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
     ) -> tournament.TournamentStarted:
         """Start the tournament."""
-        if not self.exists:
-            raise CommandRejectedError("Tournament does not exist")
-        if not self.is_registration_open:
-            raise CommandRejectedError("Registration is not open")
-        if len(self.registered_players) < self.min_players:
-            raise CommandRejectedError("Not enough players to start")
-        return tournament.TournamentStarted(
-            total_entries=len(self.registered_players),
-            total_prize_pool=self.total_prize_pool,
-            started_at=now(),
-        )
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Tournament does not exist")
+            if not self.is_registration_open:
+                raise CommandRejectedError("Registration is not open")
+            if len(self.registered_players) < self.min_players:
+                raise CommandRejectedError("Not enough players to start")
+            event = tournament.TournamentStarted(
+                total_players=len(self.registered_players),
+                total_prize_pool=self.total_prize_pool,
+                started_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+
+# Populate the applier registry after class definition.
+for _name in dir(Tournament):
+    _attr = getattr(Tournament, _name, None)
+    _marker = getattr(_attr, "__angzarr_applies__", None)
+    if _marker is not None:
+        _APPLIER_REGISTRY.append((_marker, _name))

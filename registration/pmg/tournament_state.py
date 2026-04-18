@@ -1,22 +1,15 @@
-"""Tournament state router for Registration PM destination state rebuilding.
+"""Tournament state rebuild helper for Registration PM.
 
-This module defines a StateRouter that automatically rebuilds TournamentStateHelper
-from EventBooks, eliminating manual rebuild_tournament_state() boilerplate.
+Replaces the former StateRouter-based builder with a plain rebuild function.
 
-Usage in PM:
-    class RegistrationPM(ProcessManager[RegistrationState]):
-        _destination_routers = {
-            "tournament": tournament_state_router,
-        }
-
-        @handles(RegistrationRequested, input_domain="player")
-        def handle_registration(self, event, destinations: dict[str, TournamentStateHelper], root):
-            tournament_state = destinations["tournament"]  # Already rebuilt!
+Usage:
+    state = TournamentStateHelper()
+    for event in events:
+        state = tournament_state_rebuild(state, event)
 """
 
 from dataclasses import dataclass, field
 
-from angzarr_client import StateRouter
 from angzarr_client.proto.examples import tournament_pb2 as tournament
 
 
@@ -78,13 +71,48 @@ def apply_player_enrolled(
     state.registered_count = len(state.registered_players)
 
 
-# --- StateRouter configuration ---
+def tournament_state_rebuild(
+    prior_state: TournamentStateHelper, event
+) -> TournamentStateHelper:
+    """Rebuild ``TournamentStateHelper`` by applying ``event`` to ``prior_state``.
 
-tournament_state_router: StateRouter[TournamentStateHelper] = (
-    StateRouter(TournamentStateHelper)
-    .on(tournament.TournamentCreated, apply_tournament_created)
-    .on(tournament.RegistrationOpened, apply_registration_opened)
-    .on(tournament.RegistrationClosed, apply_registration_closed)
-    .on(tournament.TournamentStarted, apply_tournament_started)
-    .on(tournament.TournamentPlayerEnrolled, apply_player_enrolled)
-)
+    Mutates and returns the state for chaining.
+    """
+    if isinstance(event, tournament.TournamentCreated):
+        apply_tournament_created(prior_state, event)
+    elif isinstance(event, tournament.RegistrationOpened):
+        apply_registration_opened(prior_state, event)
+    elif isinstance(event, tournament.RegistrationClosed):
+        apply_registration_closed(prior_state, event)
+    elif isinstance(event, tournament.TournamentStarted):
+        apply_tournament_started(prior_state, event)
+    elif isinstance(event, tournament.TournamentPlayerEnrolled):
+        apply_player_enrolled(prior_state, event)
+    return prior_state
+
+
+def tournament_state_from_event_book(event_book) -> TournamentStateHelper:
+    """Rebuild a ``TournamentStateHelper`` from an ``EventBook`` proto.
+
+    Unpacks each event page into its proto message based on the type URL and
+    folds it into the state.
+    """
+    state = TournamentStateHelper()
+    _type_map = {
+        "examples.TournamentCreated": tournament.TournamentCreated,
+        "examples.RegistrationOpened": tournament.RegistrationOpened,
+        "examples.RegistrationClosed": tournament.RegistrationClosed,
+        "examples.TournamentStarted": tournament.TournamentStarted,
+        "examples.TournamentPlayerEnrolled": tournament.TournamentPlayerEnrolled,
+    }
+    for page in event_book.pages:
+        if not page.HasField("event"):
+            continue
+        type_name = page.event.type_url.split("/")[-1]
+        proto_cls = _type_map.get(type_name)
+        if proto_cls is None:
+            continue
+        evt = proto_cls()
+        page.event.Unpack(evt)
+        tournament_state_rebuild(state, evt)
+    return state

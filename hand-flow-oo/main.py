@@ -1,15 +1,7 @@
-"""Hand flow process manager gRPC service (OO Pattern).
+"""Hand flow process manager gRPC service (OO Pattern, unified Router).
 
-Orchestrates the flow of poker hands by:
-1. Subscribing to table and hand domain events
-2. Managing hand process state machines
-3. Sending commands to drive hands forward
-
-This example demonstrates the OO pattern using:
-- ProcessManager[StateT] base class
-- @prepares decorator for destination declaration
-- @handles decorator for event handlers
-- _create_empty_state() and _apply_event() for state management
+Minimal declarative PM skeleton showing the new ``@process_manager`` /
+``@handles`` / ``Router`` pattern with a placeholder state.
 """
 
 import sys
@@ -19,17 +11,18 @@ from typing import Optional
 
 import structlog
 
-# Add paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from google.protobuf.any_pb2 import Any
-
-from angzarr_client import ProcessManager, handles, prepares
-from angzarr_client.process_manager_handler import (
-    ProcessManagerHandler,
-    run_process_manager_server,
+from angzarr_client import (
+    Destinations,
+    ProcessManagerGrpc,
+    ProcessManagerResponse,
+    Router,
+    handles,
+    process_manager,
+    run_server,
 )
-from angzarr_client.proto.angzarr import types_pb2 as types
+from angzarr_client.proto.angzarr import process_manager_pb2_grpc
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import table_pb2 as table
 
@@ -49,127 +42,81 @@ logger = structlog.get_logger()
 
 @dataclass
 class PMState:
-    """PM's aggregate state (rebuilt from its own events).
-
-    For simplicity in this example, we use a minimal state.
-    """
+    """PM's aggregate state (rebuilt from its own events)."""
 
     hand_root: Optional[bytes] = None
     hand_in_progress: bool = False
 
 
-class HandFlowPM(ProcessManager[PMState]):
-    """Hand Flow Process Manager using OO-style decorators.
+@process_manager(
+    name="hand-flow",
+    pm_domain="hand-flow",
+    sources=["table", "hand"],
+    targets=["hand", "table"],
+    state=PMState,
+)
+class HandFlowPM:
+    """Hand Flow Process Manager using unified Router decorators."""
 
-    This PM orchestrates poker hand flow by:
-    - Tracking when hands start and complete
-    - Coordinating between table and hand domains
-    """
-
-    name = "hand-flow"
-
-    def _create_empty_state(self) -> PMState:
-        """Create an empty state instance."""
-        return PMState()
-
-    def _apply_event(self, state: PMState, event_any: Any) -> None:
-        """Apply a single event to state.
-
-        In this simplified example, we don't persist PM events.
-        """
-        pass
-
-    @prepares(table.HandStarted)
-    def prepare_hand_started(self, event: table.HandStarted) -> list[types.Cover]:
-        """Declare the hand destination needed when a hand starts."""
-        return [
-            types.Cover(
-                domain="hand",
-                root=types.UUID(value=event.hand_root),
-            )
-        ]
-
-    @handles(table.HandStarted, input_domain="table")
+    @handles(table.HandStarted)
     def handle_hand_started(
         self,
         event: table.HandStarted,
-        destinations: list[types.EventBook],
-    ) -> None:
-        """Process the HandStarted event.
+        state: PMState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        return ProcessManagerResponse()
 
-        Initialize hand process (not persisted in this simplified version).
-        The saga-table-hand will send DealCards, so we don't emit commands here.
-        """
-        return None
-
-    @handles(hand.CardsDealt, input_domain="hand")
+    @handles(hand.CardsDealt)
     def handle_cards_dealt(
         self,
         event: hand.CardsDealt,
-        destinations: list[types.EventBook],
-    ) -> None:
-        """Process the CardsDealt event.
+        state: PMState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        return ProcessManagerResponse()
 
-        Post small blind command. In a real implementation, we'd track state
-        to know which blind to post.
-        """
-        return None
-
-    @handles(hand.BlindPosted, input_domain="hand")
+    @handles(hand.BlindPosted)
     def handle_blind_posted(
         self,
         event: hand.BlindPosted,
-        destinations: list[types.EventBook],
-    ) -> None:
-        """Process the BlindPosted event.
+        state: PMState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        return ProcessManagerResponse()
 
-        In a full implementation, we'd check if both blinds are posted
-        and then start the betting round.
-        """
-        return None
-
-    @handles(hand.ActionTaken, input_domain="hand")
+    @handles(hand.ActionTaken)
     def handle_action_taken(
         self,
         event: hand.ActionTaken,
-        destinations: list[types.EventBook],
-    ) -> None:
-        """Process the ActionTaken event.
+        state: PMState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        return ProcessManagerResponse()
 
-        In a full implementation, we'd check if betting is complete
-        and advance to the next phase.
-        """
-        return None
-
-    @handles(hand.CommunityCardsDealt, input_domain="hand")
+    @handles(hand.CommunityCardsDealt)
     def handle_community_dealt(
         self,
         event: hand.CommunityCardsDealt,
-        destinations: list[types.EventBook],
-    ) -> None:
-        """Process the CommunityCardsDealt event.
+        state: PMState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        return ProcessManagerResponse()
 
-        Start new betting round after community cards.
-        """
-        return None
-
-    @handles(hand.PotAwarded, input_domain="hand")
+    @handles(hand.PotAwarded)
     def handle_pot_awarded(
         self,
         event: hand.PotAwarded,
-        destinations: list[types.EventBook],
-    ) -> None:
-        """Process the PotAwarded event.
-
-        Hand is complete. Clean up.
-        """
-        return None
+        state: PMState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        return ProcessManagerResponse()
 
 
 def main():
     """Run the hand flow process manager gRPC service."""
-    # OO pattern: pass the PM class directly
-    handler = ProcessManagerHandler(HandFlowPM)
+    router = Router("hand-flow").with_handler(HandFlowPM()).build()
+    servicer = ProcessManagerGrpc(router)
 
     logger.info(
         "hand_flow_pm_starting",
@@ -177,9 +124,12 @@ def main():
         subscriptions=["table", "hand"],
     )
 
-    run_process_manager_server(
-        handler=handler,
-        default_port="50492",
+    run_server(
+        process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,
+        servicer,
+        service_name="hand-flow",
+        domain="hand-flow",
+        default_port="50395",
         logger=logger,
     )
 

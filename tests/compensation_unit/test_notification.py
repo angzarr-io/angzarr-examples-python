@@ -2,7 +2,8 @@
 
 from google.protobuf.any_pb2 import Any as ProtoAny
 
-from angzarr_client import CommandHandler, rejected
+from angzarr_client import Router, command_handler, rejected
+from angzarr_client.helpers import TYPE_URL_PREFIX
 from angzarr_client.proto.angzarr import types_pb2 as types
 
 
@@ -12,20 +13,63 @@ class PlayerState:
         self.reserved_amount = 0
 
 
-class TestPlayerAggregate(CommandHandler[PlayerState]):
-    domain = "player"
-
-    def _create_empty_state(self) -> PlayerState:
-        return PlayerState()
-
-    def _apply_event(self, state, event_any):
-        pass
-
-    @rejected(domain="payment", command="ProcessPayment")
-    def handle_payment_rejected(self, notification: types.Notification):
-        self._rejection_handled = True
-        self._rejection_context = notification
+@command_handler(domain="player", state=PlayerState)
+class TestPlayerAggregate:
+    @rejected("payment", "ProcessPayment")
+    def handle_payment_rejected(self, notification: types.Notification, state: PlayerState):
         return None
+
+
+def _build_rejection_request(
+    rejected_domain: str,
+    rejected_command: str,
+    rejection_reason: str,
+    source_domain: str = "",
+    source_root: bytes = b"",
+    aggregate_domain: str = "player",
+) -> types.ContextualCommand:
+    """Build a ContextualCommand whose page command is a Notification."""
+    cmd_any = ProtoAny(
+        type_url=f"type.googleapis.com/test.{rejected_command}",
+        value=b"",
+    )
+    header = types.PageHeader()
+    if source_domain:
+        header.angzarr_deferred.CopyFrom(
+            types.AngzarrDeferredSequence(
+                source=types.Cover(
+                    domain=source_domain, root=types.UUID(value=source_root)
+                ),
+                source_seq=0,
+            )
+        )
+
+    rejected_cmd = types.CommandBook(
+        cover=types.Cover(domain=rejected_domain),
+        pages=[types.CommandPage(header=header, command=cmd_any)],
+    )
+    rejection = types.RejectionNotification(
+        rejection_reason=rejection_reason,
+        rejected_command=rejected_cmd,
+    )
+    payload = ProtoAny()
+    payload.type_url = TYPE_URL_PREFIX + rejection.DESCRIPTOR.full_name
+    payload.value = rejection.SerializeToString()
+
+    notification = types.Notification(payload=payload)
+    notif_any = ProtoAny()
+    notif_any.type_url = TYPE_URL_PREFIX + notification.DESCRIPTOR.full_name
+    notif_any.value = notification.SerializeToString()
+
+    cpage = types.CommandPage()
+    cpage.header.CopyFrom(types.PageHeader(sequence=0))
+    cpage.command.CopyFrom(notif_any)
+
+    cbook = types.CommandBook(
+        cover=types.Cover(domain=aggregate_domain),
+        pages=[cpage],
+    )
+    return types.ContextualCommand(command=cbook)
 
 
 def make_notification(
@@ -44,7 +88,6 @@ def make_notification(
         type_url=f"type.googleapis.com/test.{rejected_command}",
         value=b"",
     )
-    # Build command page with source info in header
     header = types.PageHeader()
     if source_domain:
         header.angzarr_deferred.CopyFrom(
@@ -90,50 +133,54 @@ class TestNotificationCompensation:
         assert rejection.rejected_command.cover.domain == "payment"
 
     def test_aggregate_dispatches_to_rejected_handler(self):
-        """Aggregate routes Notification to @rejected handler."""
-        event_book = types.EventBook()
-        agg = TestPlayerAggregate(event_book)
+        """Router dispatches a Notification to a @rejected handler."""
+        captured = {}
 
-        notif = make_notification(
-            rejection_reason="insufficient_funds",
+        @command_handler(domain="player", state=PlayerState)
+        class Player:
+            @rejected("payment", "ProcessPayment")
+            def handle_payment_rejected(
+                self, notification: types.Notification, state: PlayerState
+            ):
+                captured["called"] = True
+                captured["notification"] = notification
+                return None
+
+        router = Router("agg").with_handler(Player()).build()
+
+        request = _build_rejection_request(
             rejected_domain="payment",
             rejected_command="ProcessPayment",
+            rejection_reason="insufficient_funds",
             source_domain="saga-payment",
         )
 
-        agg.handle_revocation(notif)
+        router.dispatch(request)
 
-        assert hasattr(agg, "_rejection_handled")
-        assert agg._rejection_handled is True
-        assert agg._rejection_context == notif
+        assert captured.get("called") is True
+        assert captured["notification"].HasField("payload")
 
     def test_aggregate_delegates_when_no_handler(self):
-        """Aggregate delegates to framework when no @rejected handler matches."""
+        """Router yields no compensation events when no @rejected handler matches."""
 
-        class PlayerNoHandlers(CommandHandler[PlayerState]):
-            domain = "player"
+        @command_handler(domain="player", state=PlayerState)
+        class PlayerNoHandlers:
+            pass
 
-            def _create_empty_state(self):
-                return PlayerState()
+        router = Router("agg").with_handler(PlayerNoHandlers()).build()
 
-            def _apply_event(self, state, event):
-                pass
-
-        event_book = types.EventBook()
-        agg = PlayerNoHandlers(event_book)
-
-        notif = make_notification(
-            rejection_reason="error",
+        request = _build_rejection_request(
             rejected_domain="unknown",
             rejected_command="UnknownCommand",
+            rejection_reason="error",
             source_domain="saga-unknown",
         )
 
-        response = agg.handle_revocation(notif)
+        response = router.dispatch(request)
 
-        assert response.HasField("revocation")
-        assert response.revocation.emit_system_revocation is True
-        assert "no custom compensation" in response.revocation.reason.lower()
+        # No matching handler → empty events (framework fallback)
+        assert response.HasField("events")
+        assert len(response.events.pages) == 0
 
     def test_rejection_notification_fields(self):
         """RejectionNotification has all expected fields."""

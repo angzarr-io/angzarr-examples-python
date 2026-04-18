@@ -1,7 +1,8 @@
-"""Tournament state - functional pattern using StateRouter.
+"""Tournament state and event appliers (pure-function form).
 
-This file defines the tournament state and event appliers as pure functions.
-Follows the same pattern as player/agg/state.py.
+The live state + applier logic now lives on the ``Tournament`` class in
+``tournament/agg/handlers.py``. This module retains the same contents in
+pure-function form for reuse (e.g. projections or docs examples).
 """
 
 from dataclasses import dataclass, field

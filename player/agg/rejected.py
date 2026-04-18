@@ -1,6 +1,9 @@
-"""Rejection handlers for saga/PM compensation.
+"""Rejection handler helpers (legacy standalone entry point).
 
-Handles command rejections that require compensating actions.
+The live rejection handler is now a ``@rejected`` method on
+``PlayerAggregate`` in ``player/agg/main.py``. This module retains the
+pure-function form for reuse in documentation examples and any non-router
+code paths that construct a FundsReleased event from a rejected JoinTable.
 """
 
 from .state import PlayerState
@@ -15,32 +18,30 @@ from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 def handle_table_join_rejected(
     notification: types.Notification,
     state: PlayerState,
-) -> types.EventBook | None:
+) -> player.FundsReleased | None:
     """Handle JoinTable rejection by releasing reserved funds.
 
-    Called when the JoinTable command (issued by saga-player-table after
-    FundsReserved) is rejected by the Table aggregate.
+    Returns the FundsReleased event directly (packed into an EventBook by the
+    router) or ``None`` if no reservation exists for the rejected table.
     """
-    from google.protobuf.any_pb2 import Any
-
-    # Extract rejection details from the notification payload
     rejection = types.RejectionNotification()
-    if notification.payload:
+    if notification.HasField("payload"):
         notification.payload.Unpack(rejection)
 
-    # Extract table_root from the rejected command
     table_root = b""
-    if rejection.rejected_command and rejection.rejected_command.cover:
-        if rejection.rejected_command.cover.root:
-            table_root = rejection.rejected_command.cover.root.value
+    if rejection.HasField("rejected_command"):
+        rc = rejection.rejected_command
+        if rc.HasField("cover") and rc.cover.HasField("root"):
+            table_root = rc.cover.root.value
 
-    # Release the funds that were reserved for this table
     table_key = table_root.hex()
     reserved_amount = state.table_reservations.get(table_key, 0)
+    if reserved_amount == 0:
+        return None
     new_reserved = state.reserved_funds - reserved_amount
     new_available = state.bankroll - new_reserved
 
-    event = player.FundsReleased(
+    return player.FundsReleased(
         amount=poker_types.Currency(amount=reserved_amount, currency_code="CHIPS"),
         table_root=table_root,
         new_available_balance=poker_types.Currency(
@@ -50,16 +51,6 @@ def handle_table_join_rejected(
             amount=new_reserved, currency_code="CHIPS"
         ),
         released_at=now(),
-    )
-
-    # Pack the event
-    event_any = Any()
-    event_any.Pack(event, type_url_prefix="type.googleapis.com/")
-
-    # Build the EventBook using the notification's cover for routing
-    return types.EventBook(
-        cover=notification.cover,
-        pages=[types.EventPage(header=types.PageHeader(sequence=0), event=event_any)],
     )
 
 

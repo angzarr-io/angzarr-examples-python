@@ -1,28 +1,25 @@
-"""Saga: Table -> Hand (OO Pattern)
+"""Saga: Table -> Hand (unified Router API).
 
 DOC: This file is referenced in docs/docs/examples/sagas.mdx
      Update documentation when making changes to saga patterns.
 
-Reacts to HandStarted events from Table domain.
-Sends DealCards commands to Hand domain.
-
-Uses the OO-style implementation with the Saga base class
-and @domain, @output_domain, @prepares, and @handles decorators.
+Reacts to HandStarted events from Table domain and emits a DealCards command
+to the Hand domain.
 """
 
 import sys
 from pathlib import Path
 
 import structlog
+from google.protobuf.any_pb2 import Any as ProtoAny
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from angzarr_client import next_sequence
+from angzarr_client import Destinations, Router, SagaGrpc, handles, run_server, saga
+from angzarr_client.proto.angzarr import saga_pb2_grpc
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import table_pb2 as table
-from angzarr_client.saga import Saga, domain, handles, output_domain, prepares
-from angzarr_client.saga_handler import SagaHandler, run_saga_server
 
 structlog.configure(
     processors=[
@@ -38,39 +35,28 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
+def _pack(msg) -> ProtoAny:
+    any_msg = ProtoAny()
+    any_msg.Pack(msg, type_url_prefix="type.googleapis.com/")
+    return any_msg
+
+
 # docs:start:saga_oo
 # docs:start:saga_handler
-@domain("table")
-@output_domain("hand")
-class TableHandSaga(Saga):
-    """Saga that translates HandStarted events to DealCards commands.
-
-    Uses the OO pattern with @domain, @output_domain, @prepares, and @handles decorators.
-    """
-
-    name = "saga-table-hand"
-
-    @prepares(table.HandStarted)
-    def prepare_hand_started(self, event: table.HandStarted) -> list[types.Cover]:
-        """Declare the hand aggregate as destination."""
-        return [
-            types.Cover(
-                domain="hand",
-                root=types.UUID(value=event.hand_root),
-            )
-        ]
+@saga(name="saga-table-hand", source="table", target="hand")
+class TableHandSaga:
+    """Saga that translates HandStarted events to DealCards commands."""
 
     @handles(table.HandStarted)
     def handle_hand_started(
         self,
         event: table.HandStarted,
-        destinations: list[types.EventBook],
+        destinations: Destinations,
     ) -> types.CommandBook:
         """Translate HandStarted -> DealCards."""
-        # Get next sequence from destination state
-        dest_seq = next_sequence(destinations[0]) if destinations else 0
+        dest_seq = destinations.sequence_for("hand") if destinations else 0
+        dest_seq = dest_seq if dest_seq is not None else 0
 
-        # Convert SeatSnapshot to PlayerInHand
         players = [
             hand.PlayerInHand(
                 player_root=seat.player_root,
@@ -80,7 +66,6 @@ class TableHandSaga(Saga):
             for seat in event.active_players
         ]
 
-        # Build DealCards command
         deal_cards = hand.DealCards(
             table_root=event.hand_root,
             hand_number=event.hand_number,
@@ -91,12 +76,6 @@ class TableHandSaga(Saga):
         )
         deal_cards.players.extend(players)
 
-        # Return pre-packed CommandBook for full control
-        from google.protobuf.any_pb2 import Any
-
-        cmd_any = Any()
-        cmd_any.Pack(deal_cards, type_url_prefix="type.googleapis.com/")
-
         return types.CommandBook(
             cover=types.Cover(
                 domain="hand",
@@ -104,8 +83,8 @@ class TableHandSaga(Saga):
             ),
             pages=[
                 types.CommandPage(
-                    sequence=dest_seq,
-                    command=cmd_any,
+                    header=types.PageHeader(sequence=dest_seq),
+                    command=_pack(deal_cards),
                 )
             ],
         )
@@ -117,6 +96,14 @@ class TableHandSaga(Saga):
 
 # docs:start:event_router
 if __name__ == "__main__":
-    handler = SagaHandler(TableHandSaga)
-    run_saga_server("saga-table-hand", "50411", handler, logger=logger)
+    router = Router("saga-table-hand").with_handler(TableHandSaga()).build()
+    servicer = SagaGrpc(router)
+    run_server(
+        saga_pb2_grpc.add_SagaServiceServicer_to_server,
+        servicer,
+        service_name="saga-table-hand",
+        domain="table",
+        default_port="50411",
+        logger=logger,
+    )
 # docs:end:event_router

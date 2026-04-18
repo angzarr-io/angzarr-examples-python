@@ -1,11 +1,12 @@
-"""Unit tests for tournament aggregate handlers (OO pattern)."""
+"""Unit tests for tournament aggregate handlers."""
 
 import pytest
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import tournament_pb2 as tournament
-from handlers import Tournament
+
+from .handlers import Tournament
 
 
 def _make_valid_create_cmd(**overrides):
@@ -128,7 +129,7 @@ class TestEnrollPlayer:
         """Enroll a player successfully."""
         t = _make_tournament_with_registration()
         event = t.handle_enroll_player(
-            tournament.EnrollPlayer(player_root=b"player1", reservation_id="res1")
+            tournament.EnrollPlayer(player_root=b"player1", reservation_id=b"res1")
         )
         assert isinstance(event, tournament.TournamentPlayerEnrolled)
         assert event.player_root == b"player1"
@@ -237,7 +238,7 @@ class TestStartTournament:
         t.handle_enroll_player(tournament.EnrollPlayer(player_root=b"p2"))
         event = t.handle_start_tournament(tournament.StartTournament())
         assert t.is_running
-        assert event.total_entries == 2
+        assert event.total_players == 2
 
     def test_rejects_not_enough_players(self) -> None:
         """Cannot start without enough players."""

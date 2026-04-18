@@ -67,7 +67,7 @@ def _event_book(ctx: ScenarioContext) -> types.EventBook:
 def _handle_command(ctx: ScenarioContext, command_msg, handler_fn):
     """Execute a command handler.
 
-    The functional handlers take (cmd, state, seq) and return raw events.
+    The helper handlers take (cmd, state) and return raw events.
     We wrap the result in an EventBook for the test assertions.
     """
     event_book = _event_book(ctx)
@@ -75,8 +75,7 @@ def _handle_command(ctx: ScenarioContext, command_msg, handler_fn):
     seq = len(ctx.events)
 
     try:
-        # Call handler with functional signature: (cmd, state, seq)
-        event = handler_fn(command_msg, state, seq)
+        event = handler_fn(command_msg, state)
 
         # Wrap event in EventBook for test assertions
         event_any = ProtoAny()

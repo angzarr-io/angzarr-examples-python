@@ -1,20 +1,17 @@
-"""Saga: Hand -> Table
+"""Saga: Hand -> Table (unified Router API).
 
-Reacts to HandComplete events from Hand domain.
-Sends EndHand commands to Table domain.
-
-Uses the OO-style Saga pattern with @handles decorators.
+Reacts to HandComplete events from Hand domain and emits an EndHand command
+to the Table domain.
 """
 
 import structlog
+from google.protobuf.any_pb2 import Any as ProtoAny
 
-from angzarr_client import Destinations, now
+from angzarr_client import Destinations, Router, SagaGrpc, handles, run_server, saga
+from angzarr_client.proto.angzarr import saga_pb2_grpc
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import table_pb2 as table
-from angzarr_client.saga import Saga, domain, handles, output_domain, run_saga_server
-
-from google.protobuf.any_pb2 import Any as ProtoAny
 
 structlog.configure(
     processors=[
@@ -30,24 +27,20 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
-@domain("hand")
-@output_domain("table")
-class HandTableSaga(Saga):
-    """Saga that translates HandComplete events to EndHand commands.
+def _pack(msg) -> ProtoAny:
+    any_msg = ProtoAny()
+    any_msg.Pack(msg, type_url_prefix="type.googleapis.com/")
+    return any_msg
 
-    When a hand completes, the Table aggregate needs to update its state
-    with the results.
-    """
 
-    name = "saga-hand-table"
+@saga(name="saga-hand-table", source="hand", target="table")
+class HandTableSaga:
+    """Saga that translates HandComplete events to EndHand commands."""
 
     @handles(hand.HandComplete)
     def handle_hand_complete(
-        self,
-        event: hand.HandComplete,
-        destinations: Destinations = None,
-    ) -> None:
-        """Translate HandComplete -> EndHand."""
+        self, event: hand.HandComplete, destinations: Destinations
+    ) -> types.CommandBook:
         results = [
             table.PotResult(
                 winner_root=winner.player_root,
@@ -58,13 +51,41 @@ class HandTableSaga(Saga):
             for winner in event.winners
         ]
 
-        end_hand = table.EndHand(
-            hand_root=self._current_root,
-        )
+        # TODO(saga-source-context): the unified saga dispatch does not expose
+        # the source event book's cover root. ``event.table_root`` is present
+        # on HandComplete, so we use it here as the target root; previously
+        # this saga stamped ``self._current_root`` (the source root), which
+        # equalled the hand aggregate root. EndHand.hand_root below preserves
+        # the hand_root via the event itself — EndHand expects it as the
+        # source hand identifier.
+        end_hand = table.EndHand()
         end_hand.results.extend(results)
 
-        self.emit_command("table", event.table_root, end_hand)
+        seq = destinations.sequence_for("table") if destinations else 0
+        seq = seq if seq is not None else 0
+
+        return types.CommandBook(
+            cover=types.Cover(
+                domain="table",
+                root=types.UUID(value=event.table_root),
+            ),
+            pages=[
+                types.CommandPage(
+                    header=types.PageHeader(sequence=seq),
+                    command=_pack(end_hand),
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":
-    run_saga_server(HandTableSaga, "50412", logger=logger)
+    router = Router("saga-hand-table").with_handler(HandTableSaga()).build()
+    servicer = SagaGrpc(router)
+    run_server(
+        saga_pb2_grpc.add_SagaServiceServicer_to_server,
+        servicer,
+        service_name="saga-hand-table",
+        domain="hand",
+        default_port="50412",
+        logger=logger,
+    )

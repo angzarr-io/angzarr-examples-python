@@ -10,19 +10,17 @@ Design Philosophy:
     PMs are coordinators, NOT decision makers. Business logic (seat validation,
     buy-in range checks) belongs in the Table aggregate. PM just translates
     events to commands and handles rejection via @rejected decorators.
-
-    Don't rebuild destination state - use destinations.stamp_command() for
-    sequence stamping. Let aggregates decide.
 """
 
-from angzarr_client import now
-from angzarr_client.destinations import Destinations
-from angzarr_client.process_manager import (
-    ProcessManager,
+from google.protobuf.any_pb2 import Any as ProtoAny
+
+from angzarr_client import (
+    Destinations,
+    ProcessManagerResponse,
     applies,
     handles,
-    output_domain,
-    prepares,
+    now,
+    process_manager,
 )
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import buy_in_pb2 as buy_in
@@ -32,21 +30,51 @@ from angzarr_client.proto.examples import poker_types_pb2 as poker
 from state import BuyInState
 
 
-class BuyInPM(ProcessManager[BuyInState]):
+def _pack(msg) -> ProtoAny:
+    any_msg = ProtoAny()
+    any_msg.Pack(msg, type_url_prefix="type.googleapis.com/")
+    return any_msg
+
+
+def _command_book(domain: str, root: bytes, cmd, sequence: int = 0) -> types.CommandBook:
+    return types.CommandBook(
+        cover=types.Cover(
+            domain=domain,
+            root=types.UUID(value=root),
+        ),
+        pages=[
+            types.CommandPage(
+                header=types.PageHeader(sequence=sequence),
+                command=_pack(cmd),
+            )
+        ],
+    )
+
+
+def _event_book(domain: str, root: bytes, event) -> types.EventBook:
+    return types.EventBook(
+        cover=types.Cover(
+            domain=domain,
+            root=types.UUID(value=root),
+        ),
+        pages=[
+            types.EventPage(event=_pack(event)),
+        ],
+    )
+
+
+@process_manager(
+    name="pmg-buy-in",
+    pm_domain="buyin",
+    sources=["player", "table"],
+    targets=["table", "player"],
+    state=BuyInState,
+)
+class BuyInPM:
     """Buy-in process manager.
 
     Coordinates the buy-in flow between Player and Table aggregates.
-
-    Design Philosophy:
-        PM sends commands, aggregates decide. The Table aggregate validates
-        seat availability, buy-in range, etc. PM handles rejection via
-        @rejected decorators and emits compensation commands.
     """
-
-    name = "pmg-buy-in"
-
-    def _create_empty_state(self) -> BuyInState:
-        return BuyInState()
 
     # --- State appliers ---
 
@@ -73,138 +101,117 @@ class BuyInPM(ProcessManager[BuyInState]):
     def apply_failed(self, state: BuyInState, _event: buy_in.BuyInFailed) -> None:
         state.phase = orch.BuyInPhase.BUY_IN_FAILED
 
-    # --- Prepare handlers ---
-
-    @prepares(buy_in.BuyInRequested)
-    def prepare_buy_in_requested(
-        self, event: buy_in.BuyInRequested
-    ) -> list[types.Cover]:
-        """BuyInRequested from Player -> need Table state."""
-        return [
-            types.Cover(
-                domain="table",
-                root=types.UUID(value=event.table_root),
-            )
-        ]
-
-    @prepares(buy_in.PlayerSeated)
-    def prepare_player_seated(self, event: buy_in.PlayerSeated) -> list[types.Cover]:
-        """PlayerSeated from Table -> need Player state."""
-        return [
-            types.Cover(
-                domain="player",
-                root=types.UUID(value=event.player_root),
-            )
-        ]
-
-    @prepares(buy_in.SeatingRejected)
-    def prepare_seating_rejected(
-        self, event: buy_in.SeatingRejected
-    ) -> list[types.Cover]:
-        """SeatingRejected from Table -> need Player state."""
-        return [
-            types.Cover(
-                domain="player",
-                root=types.UUID(value=event.player_root),
-            )
-        ]
-
     # --- Event handlers ---
 
-    @output_domain("table")
-    @handles(buy_in.BuyInRequested, input_domain="player")
+    # TODO(pm-source-context): new Router API does not expose source cover root
+    # to handlers. Callers must ensure state.player_root is seeded when invoking
+    # handle_buy_in_requested, or rely on an upstream layer to stamp player_root
+    # into the event payload. The BuyInRequested proto currently lacks a
+    # player_root field.
+    @handles(buy_in.BuyInRequested)
     def handle_buy_in_requested(
         self,
         event: buy_in.BuyInRequested,
+        state: BuyInState,
         destinations: Destinations,
-        root: bytes,
-    ) -> buy_in.SeatPlayer:
-        """Handle BuyInRequested from Player domain.
-
-        Emits SeatPlayer command to Table - Table aggregate validates seat
-        availability, buy-in range, etc. PM handles rejection via @rejected.
-
-        Args:
-            event: The BuyInRequested event
-            destinations: Destinations context for sequence stamping
-            root: The player_root from the trigger's Cover
-        """
-        # player_root comes from trigger's Cover
-        player_root = root
+    ) -> ProcessManagerResponse:
+        """Handle BuyInRequested from Player domain."""
+        player_root = state.player_root
         amount = event.amount.amount if event.HasField("amount") else 0
 
-        # Emit PM event for tracking - Table will validate
-        self._apply_and_record(
-            buy_in.BuyInInitiated(
-                player_root=player_root,
-                table_root=event.table_root,
-                reservation_id=event.reservation_id,
-                seat=event.seat,
-                amount=poker.Currency(amount=amount, currency_code="USD"),
-                phase=orch.BuyInPhase.BUY_IN_SEATING,
-                initiated_at=now(),
-            )
+        initiated = buy_in.BuyInInitiated(
+            player_root=player_root,
+            table_root=event.table_root,
+            reservation_id=event.reservation_id,
+            seat=event.seat,
+            amount=poker.Currency(amount=amount, currency_code="USD"),
+            phase=orch.BuyInPhase.BUY_IN_SEATING,
+            initiated_at=now(),
         )
 
-        # Return SeatPlayer command to Table
-        # Table aggregate validates seat availability, buy-in range, etc.
-        # PM handles rejection via @rejected decorator
-        return buy_in.SeatPlayer(
+        seat_cmd = buy_in.SeatPlayer(
             player_root=player_root,
             reservation_id=event.reservation_id,
             seat=event.seat,
             amount=amount,
         )
 
-    @output_domain("player")
-    @handles(buy_in.PlayerSeated, input_domain="table")
+        dest_seq = 0
+        if destinations and destinations.sequence_for("table") is not None:
+            dest_seq = destinations.sequence_for("table") or 0
+        cmd_book = _command_book("table", event.table_root, seat_cmd, dest_seq)
+
+        pe_book = _event_book("buyin", event.reservation_id, initiated)
+
+        return ProcessManagerResponse(
+            commands=[cmd_book],
+            process_events=pe_book,
+        )
+
+    @handles(buy_in.PlayerSeated)
     def handle_player_seated(
-        self, event: buy_in.PlayerSeated, destinations: Destinations
-    ) -> buy_in.ConfirmBuyIn:
-        """Handle PlayerSeated from Table domain.
-
-        Emits ConfirmBuyIn to Player to complete the buy-in flow.
-        """
-        # Emit PM completion event
-        self._apply_and_record(
-            buy_in.BuyInCompleted(
-                player_root=event.player_root,
-                table_root=b"",  # Not available in PlayerSeated
-                reservation_id=event.reservation_id,
-                seat=event.seat_position,
-                amount=poker.Currency(amount=event.stack, currency_code="USD"),
-                completed_at=now(),
-            )
+        self,
+        event: buy_in.PlayerSeated,
+        state: BuyInState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        """Handle PlayerSeated from Table domain."""
+        completed = buy_in.BuyInCompleted(
+            player_root=event.player_root,
+            table_root=b"",
+            reservation_id=event.reservation_id,
+            seat=event.seat_position,
+            amount=poker.Currency(amount=event.stack, currency_code="USD"),
+            completed_at=now(),
         )
 
-        return buy_in.ConfirmBuyIn(reservation_id=event.reservation_id)
+        confirm = buy_in.ConfirmBuyIn(reservation_id=event.reservation_id)
 
-    @output_domain("player")
-    @handles(buy_in.SeatingRejected, input_domain="table")
+        dest_seq = 0
+        if destinations and destinations.sequence_for("player") is not None:
+            dest_seq = destinations.sequence_for("player") or 0
+        cmd_book = _command_book("player", event.player_root, confirm, dest_seq)
+
+        pe_book = _event_book("buyin", event.reservation_id, completed)
+
+        return ProcessManagerResponse(
+            commands=[cmd_book],
+            process_events=pe_book,
+        )
+
+    @handles(buy_in.SeatingRejected)
     def handle_seating_rejected(
-        self, event: buy_in.SeatingRejected, destinations: Destinations
-    ) -> buy_in.ReleaseBuyIn:
-        """Handle SeatingRejected from Table domain.
-
-        Emits ReleaseBuyIn to Player to release reserved funds.
-        Table aggregate rejected the SeatPlayer command with a reason.
-        """
-        # Emit PM failure event
-        self._apply_and_record(
-            buy_in.BuyInFailed(
-                player_root=event.player_root,
-                table_root=b"",
-                reservation_id=event.reservation_id,
-                failure=orch.OrchestrationFailure(
-                    code="SEATING_REJECTED",
-                    message=event.reason,
-                    failed_at_phase="SEATING",
-                    failed_at=now(),
-                ),
-            )
+        self,
+        event: buy_in.SeatingRejected,
+        state: BuyInState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        """Handle SeatingRejected from Table domain."""
+        failed = buy_in.BuyInFailed(
+            player_root=event.player_root,
+            table_root=b"",
+            reservation_id=event.reservation_id,
+            failure=orch.OrchestrationFailure(
+                code="SEATING_REJECTED",
+                message=event.reason,
+                failed_at_phase="SEATING",
+                failed_at=now(),
+            ),
         )
 
-        return buy_in.ReleaseBuyIn(
+        release = buy_in.ReleaseBuyIn(
             reservation_id=event.reservation_id,
             reason=event.reason,
+        )
+
+        dest_seq = 0
+        if destinations and destinations.sequence_for("player") is not None:
+            dest_seq = destinations.sequence_for("player") or 0
+        cmd_book = _command_book("player", event.player_root, release, dest_seq)
+
+        pe_book = _event_book("buyin", event.reservation_id, failed)
+
+        return ProcessManagerResponse(
+            commands=[cmd_book],
+            process_events=pe_book,
         )

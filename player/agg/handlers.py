@@ -1,18 +1,18 @@
-"""Player command handlers - functional pattern using @command_handler.
+"""Player command handler helpers - guard/validate/compute functions.
 
-This file defines command handlers as pure functions decorated with
-@command_handler. Contrasts with the OO pattern in player/agg/handlers/player.py
-which uses @handles decorators on class methods.
+Pure functions split into three phases per command:
+    guard(state)        -> raises CommandRejectedError if state preconditions fail
+    validate(cmd, ...)  -> raises CommandRejectedError if inputs invalid; may return
+                          normalized values
+    compute(cmd, ...)   -> builds and returns the resulting event
 
-Handler signature (decorated):
-    handler(cmd: ConcreteCommand, state: PlayerState, seq: int) -> Event
-
-The decorator auto-unpacks the command and packs the returned event.
+Top-level ``on_*`` wrappers compose the three phases and are invoked from
+``PlayerAggregate`` methods in ``main.py``.
 """
 
 from .state import PlayerState
 
-from angzarr_client import command_handler, now
+from angzarr_client import now
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
@@ -50,9 +50,8 @@ def register_player_compute(
     )
 
 
-@command_handler(player.RegisterPlayer)
 def handle_register_player(
-    cmd: player.RegisterPlayer, state: PlayerState, seq: int
+    cmd: player.RegisterPlayer, state: PlayerState
 ) -> player.PlayerRegistered:
     """Register a new player."""
     register_player_guard(state)
@@ -104,9 +103,8 @@ def deposit_funds_compute(
 
 
 # docs:start:polyglot_handler
-@command_handler(player.DepositFunds)
 def handle_deposit_funds(
-    cmd: player.DepositFunds, state: PlayerState, seq: int
+    cmd: player.DepositFunds, state: PlayerState
 ) -> player.FundsDeposited:
     """Deposit funds into player's bankroll."""
     deposit_funds_guard(state)
@@ -150,9 +148,8 @@ def withdraw_funds_compute(
     )
 
 
-@command_handler(player.WithdrawFunds)
 def handle_withdraw_funds(
-    cmd: player.WithdrawFunds, state: PlayerState, seq: int
+    cmd: player.WithdrawFunds, state: PlayerState
 ) -> player.FundsWithdrawn:
     """Withdraw funds from player's bankroll."""
     withdraw_funds_guard(state)
@@ -206,9 +203,8 @@ def reserve_funds_compute(
 
 
 # docs:start:reserve_funds_imp
-@command_handler(player.ReserveFunds)
 def handle_reserve_funds(
-    cmd: player.ReserveFunds, state: PlayerState, seq: int
+    cmd: player.ReserveFunds, state: PlayerState
 ) -> player.FundsReserved:
     """Reserve funds for a table buy-in."""
     reserve_funds_guard(state)
@@ -262,9 +258,8 @@ def release_funds_compute(
     )
 
 
-@command_handler(player.ReleaseFunds)
 def handle_release_funds(
-    cmd: player.ReleaseFunds, state: PlayerState, seq: int
+    cmd: player.ReleaseFunds, state: PlayerState
 ) -> player.FundsReleased:
     """Release reserved funds when leaving a table."""
     release_funds_guard(state)
@@ -307,9 +302,8 @@ def transfer_funds_compute(
     )
 
 
-@command_handler(player.TransferFunds)
 def handle_transfer_funds(
-    cmd: player.TransferFunds, state: PlayerState, seq: int
+    cmd: player.TransferFunds, state: PlayerState
 ) -> player.FundsTransferred:
     """Transfer funds to player (from pot winnings, etc.)."""
     transfer_funds_guard(state)
