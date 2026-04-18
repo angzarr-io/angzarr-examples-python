@@ -55,6 +55,13 @@ paths_to_mutate = [
     "hand/agg/handlers/game_rules.py",
     "tournament/agg/handlers.py",
 ]
+# Orchestration-feature BDD tests import PM source via filesystem paths
+# that resolve outside the ``mutants/`` workdir; they don't exercise the
+# aggregates under mutation, so exclude them from mutmut's pytest run.
+pytest_add_cli_args_test_selection = [
+    "--ignore=tests/unit/test_orchestration.py",
+    "--ignore=tests/unit/test_projector.py",
+]
 
 [tool.ruff]
 extend-exclude = ["**/*_pb2.py", "**/*_pb2_grpc.py", "**/angzarr-core", "**/angzarr-core/**"]
