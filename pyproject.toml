@@ -19,7 +19,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
-    "pytest-bdd>=7.0.0",
     "debugpy>=1.8.0",
     "black>=24.0.0",
     "ruff>=0.4.0",
@@ -44,8 +43,9 @@ pythonpath = ["."]
 testpaths = ["tests"]
 # Integration tests need a running container and are opt-in via `just test-integration-ai`
 # (which sets -p no:cacheprovider and points pytest at tests/integration/ explicitly).
-# The default suite excludes them alongside the Gherkin suites.
-addopts = "-v --ignore=tests/features --ignore=tests/acceptance --ignore=tests/integration"
+# tests/example/ is a behave (gherkin) tier invoked via `just test-example-unit`
+# and is excluded here so the default pytest run stays fast.
+addopts = "-v --ignore=tests/example --ignore=tests/integration"
 markers = [
     "integration: requires a running sidecar container (see tests/integration/)",
 ]
@@ -87,12 +87,11 @@ also_copy = [
     "rebuy/",
     "registration/",
 ]
-# Orchestration-feature BDD tests import PM source via filesystem paths
-# that resolve outside the ``mutants/`` workdir; they don't exercise the
-# aggregates under mutation, so exclude them from mutmut's pytest run.
+# Mutation tests run only plain pytest — the behave tier is invoked
+# separately via `just test-example-unit`.
 pytest_add_cli_args_test_selection = [
-    "--ignore=tests/unit/test_orchestration.py",
-    "--ignore=tests/unit/test_projector.py",
+    "--ignore=tests/example",
+    "--ignore=tests/integration",
 ]
 
 [tool.ruff]
@@ -103,5 +102,3 @@ extend-exclude = ["**/*_pb2.py", "**/*_pb2_grpc.py", "**/angzarr-core", "**/angz
 "run_game.py" = ["E402"]
 "run_whatifs.py" = ["E402"]
 "tests/conftest.py" = ["E402"]
-"tests/unit/test_orchestration.py" = ["E402"]
-"tests/unit/test_projector.py" = ["E402"]

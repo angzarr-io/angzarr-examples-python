@@ -44,16 +44,33 @@ def _make_event_book(pages):
     )
 
 
+_HANDLER_MAP = {
+    "deal": "handle_deal_cards",
+    "post_blind": "handle_post_blind",
+    "action": "handle_player_action",
+    "deal_community": "handle_deal_community_cards",
+    "draw": "handle_request_draw",
+    "reveal": "handle_reveal_cards",
+    "award": "handle_award_pot",
+}
+
+
 def _execute_handler(context, method_name: str, cmd):
     """Execute a command handler method on the Hand aggregate."""
-    event_book = _make_event_book(context.events if hasattr(context, "events") else [])
+    prior_events = context.events if hasattr(context, "events") else []
+    event_book = _make_event_book(prior_events)
     agg = Hand(event_book)
+    prior_count = len(prior_events)
 
+    resolved = _HANDLER_MAP.get(method_name, method_name)
     try:
-        method = getattr(agg, method_name)
+        method = getattr(agg, resolved)
         result = method(cmd)
-        # Get the event book with new events
-        result_book = agg.event_book()
+        # Only the newly-emitted pages (past the replay prefix) represent
+        # the result of this command.
+        full_book = agg.event_book()
+        new_pages = list(full_book.pages)[prior_count:]
+        result_book = _make_event_book(new_pages)
         context.result = result_book
         context.error = None
         # Store aggregate for state access
@@ -64,6 +81,21 @@ def _execute_handler(context, method_name: str, cmd):
         # Handle tuple results (e.g., award returns (PotAwarded, HandComplete))
         if isinstance(result, tuple):
             context.result_events = result
+        # Bridge for game_rules_steps' shared "each player has N hole cards"
+        # and "the remaining deck has N cards" step definitions which expect
+        # context.players and context.deal_result.
+        if method_name == "deal" and isinstance(result, hand.CardsDealt):
+
+            class _DealResult:
+                def __init__(self, event, agg):
+                    self.player_cards = {
+                        pc.player_root: [(c.suit, c.rank) for c in pc.cards]
+                        for pc in event.player_cards
+                    }
+                    self.remaining_deck = list(agg.remaining_deck)
+
+            context.players = [p.player_root for p in result.players]
+            context.deal_result = _DealResult(result, agg)
     except CommandRejectedError as e:
         context.result = None
         context.error = e
@@ -1377,6 +1409,322 @@ def step_then_player_has_ranking(context, player_id, ranking):
     assert (
         results[player_id] == expected
     ), f"Expected {ranking}, got {results[player_id]}"
+
+
+# =============================================================================
+# New scenarios (EU-0049 .. EU-0099) — Phase 3 additions
+# =============================================================================
+
+
+@given(
+    r"short-stacked blinds posted with small (?P<sb>\d+) big (?P<bb>\d+) and stack (?P<stack>\d+)"
+)
+def step_given_short_stacked_blinds(context, sb, bb, stack):
+    """Post blinds with player_stack matching the actual starting stack."""
+    if not hasattr(context, "events"):
+        context.events = []
+    sb_amt, bb_amt, initial = int(sb), int(bb), int(stack)
+    sb_event = hand.BlindPosted(
+        player_root=b"player-1",
+        blind_type="small",
+        amount=sb_amt,
+        player_stack=initial - sb_amt,
+        pot_total=sb_amt,
+        posted_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(sb_event, len(context.events)))
+    bb_event = hand.BlindPosted(
+        player_root=b"player-2",
+        blind_type="big",
+        amount=bb_amt,
+        player_stack=initial - bb_amt,
+        pot_total=sb_amt + bb_amt,
+        posted_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(bb_event, len(context.events)))
+
+
+@given(r"a HandComplete event for the hand")
+def step_given_hand_complete(context):
+    """Add a HandComplete event."""
+    if not hasattr(context, "events"):
+        context.events = []
+    event = hand.HandComplete(
+        table_root=b"table-1",
+        hand_number=1,
+        completed_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, len(context.events)))
+
+
+@given(
+    r'a PotAwarded event awarding player "(?P<player_id>[^"]+)" amount (?P<amount>\d+)'
+)
+def step_given_pot_awarded(context, player_id, amount):
+    """Add a PotAwarded event."""
+    if not hasattr(context, "events"):
+        context.events = []
+    event = hand.PotAwarded(awarded_at=make_timestamp())
+    event.winners.append(
+        hand.PotWinner(
+            player_root=player_id.encode(),
+            amount=int(amount),
+            pot_type="main",
+        )
+    )
+    context.events.append(make_event_page(event, len(context.events)))
+
+
+@given(
+    r'a CardsDealt event with table_root "(?P<tbl>[^"]+)" and hand_number (?P<num>\d+)'
+)
+def step_given_cards_dealt_with_table_root_and_num(context, tbl, num):
+    """Custom CardsDealt with explicit table_root bytes (hex) and hand_number."""
+    if not hasattr(context, "events"):
+        context.events = []
+    table_bytes = bytes.fromhex(tbl)
+    cards_dealt = hand.CardsDealt(
+        table_root=table_bytes,
+        hand_number=int(num),
+        game_variant=poker_types.TEXAS_HOLDEM,
+        dealer_position=0,
+        dealt_at=make_timestamp(),
+    )
+    for i in range(2):
+        player_root = f"player-{i + 1}".encode()
+        cards_dealt.players.append(
+            hand.PlayerInHand(player_root=player_root, position=i, stack=1000)
+        )
+        cards_dealt.player_cards.append(
+            hand.PlayerHoleCards(
+                player_root=player_root,
+                cards=[
+                    poker_types.Card(suit=poker_types.HEARTS, rank=14),
+                    poker_types.Card(suit=poker_types.SPADES, rank=13),
+                ],
+            )
+        )
+    context.events.append(make_event_page(cards_dealt, len(context.events)))
+
+
+@given(r"a BettingRoundComplete event with stack snapshots:")
+def step_given_betting_round_complete_with_snapshots(context):
+    """Add BettingRoundComplete with stack snapshots from data table."""
+    if not hasattr(context, "events"):
+        context.events = []
+    evt = hand.BettingRoundComplete(
+        completed_phase=poker_types.PREFLOP,
+        completed_at=make_timestamp(),
+    )
+    for row in context.table:
+        row_dict = {
+            context.table.headings[j]: row[j]
+            for j in range(len(context.table.headings))
+        }
+        evt.stacks.append(
+            hand.PlayerStackSnapshot(
+                player_root=row_dict["player_root"].encode(),
+                stack=int(row_dict["stack"]),
+                is_all_in=row_dict["is_all_in"].lower() == "true",
+                has_folded=row_dict["has_folded"].lower() == "true",
+            )
+        )
+    context.events.append(make_event_page(evt, len(context.events)))
+
+
+@when(r"I handle a DealCards command for (?P<variant>\w+) with no players")
+def step_when_deal_cards_no_players(context, variant):
+    """Handle DealCards command with empty players list."""
+    game_variant = getattr(poker_types, variant, poker_types.TEXAS_HOLDEM)
+    cmd = hand.DealCards(
+        table_root=b"table-1",
+        hand_number=1,
+        game_variant=game_variant,
+        dealer_position=0,
+    )
+    _execute_handler(context, "deal", cmd)
+
+
+@when(
+    r'I deal the same (?P<variant>\w+) hand twice with seed "(?P<seed>[^"]+)"'
+)
+def step_when_deal_twice_with_seed(context, variant, seed):
+    """Deal the same hand twice with a deck_seed and compare outputs."""
+    game_variant = getattr(poker_types, variant, poker_types.TEXAS_HOLDEM)
+    players = [
+        hand.PlayerInHand(player_root=f"player-{i + 1}".encode(), position=i, stack=1000)
+        for i in range(2)
+    ]
+
+    def _deal():
+        agg = Hand(types.EventBook())
+        cmd = hand.DealCards(
+            table_root=b"table-1",
+            hand_number=1,
+            game_variant=game_variant,
+            dealer_position=0,
+            deck_seed=seed.encode(),
+        )
+        cmd.players.extend(players)
+        return agg.handle_deal_cards(cmd), agg
+
+    context.deal_a, context.agg_a = _deal()
+    context.deal_b, context.agg_b = _deal()
+
+
+@then(r"both deals produce identical hole cards")
+def step_then_identical_hole_cards(context):
+    """Verify two deals with same seed produce identical hole cards."""
+    a_cards = {
+        pc.player_root: [(c.suit, c.rank) for c in pc.cards]
+        for pc in context.deal_a.player_cards
+    }
+    b_cards = {
+        pc.player_root: [(c.suit, c.rank) for c in pc.cards]
+        for pc in context.deal_b.player_cards
+    }
+    assert a_cards == b_cards, f"Deals differ: {a_cards} vs {b_cards}"
+
+
+@when(
+    r'I handle a PostBlind command with no player_root type "(?P<blind_type>[^"]+)" amount (?P<amount>\d+)'
+)
+def step_when_post_blind_no_root(context, blind_type, amount):
+    """Handle PostBlind command without player_root."""
+    cmd = hand.PostBlind(blind_type=blind_type, amount=int(amount))
+    _execute_handler(context, "post_blind", cmd)
+
+
+@when(
+    r"I handle a PlayerAction command with no player_root action (?P<action>\w+)"
+)
+def step_when_player_action_no_root(context, action):
+    """Handle PlayerAction command without player_root."""
+    action_type = getattr(poker_types, action, poker_types.FOLD)
+    cmd = hand.PlayerAction(action=action_type, amount=0)
+    _execute_handler(context, "action", cmd)
+
+
+@when(
+    r'I handle a PlayerAction command for player "(?P<player_id>[^"]+)" with unknown action type'
+)
+def step_when_player_action_unknown(context, player_id):
+    """Handle PlayerAction command with unknown action type."""
+    cmd = hand.PlayerAction(
+        player_root=player_id.encode(),
+        action=999,  # Invalid action
+        amount=0,
+    )
+    _execute_handler(context, "action", cmd)
+
+
+@when(
+    r'I handle a RevealCards command with no player_root and muck (?P<muck>\w+)'
+)
+def step_when_reveal_cards_no_root(context, muck):
+    """Handle RevealCards command without player_root."""
+    cmd = hand.RevealCards(muck=(muck.lower() == "true"))
+    _execute_handler(context, "reveal", cmd)
+
+
+@when(r"I handle an AwardPot command with no awards")
+def step_when_award_pot_no_awards(context):
+    """Handle AwardPot command with empty awards."""
+    cmd = hand.AwardPot()
+    _execute_handler(context, "award", cmd)
+
+
+@then(r"the hand state current_bet is (?P<bet>\d+)")
+def step_then_state_current_bet(context, bet):
+    """Verify hand state current_bet."""
+    assert context.agg is not None, "No hand aggregate"
+    assert context.agg.current_bet == int(bet), (
+        f"Expected current_bet={bet}, got {context.agg.current_bet}"
+    )
+
+
+@then(r"each player has bet_this_round (?P<amount>\d+)")
+def step_then_each_player_bet_this_round(context, amount):
+    """Verify each player's bet_this_round is reset."""
+    assert context.agg is not None, "No hand aggregate"
+    for player in context.agg.players.values():
+        assert player.bet_this_round == int(amount), (
+            f"Expected bet_this_round={amount}, got {player.bet_this_round} "
+            f"for player {player.player_root!r}"
+        )
+
+
+@then(r'player "(?P<player_id>[^"]+)" has stack (?P<stack>\d+)')
+def step_then_player_has_stack(context, player_id, stack):
+    """Verify a player's stack after rebuild."""
+    assert context.agg is not None, "No hand aggregate"
+    player = context.agg.get_player(player_id.encode())
+    assert player is not None, f"Player {player_id} not found"
+    assert player.stack == int(stack), (
+        f"Expected stack={stack}, got {player.stack}"
+    )
+
+
+@then(r'player "(?P<player_id>[^"]+)" is all-in')
+def step_then_player_is_all_in(context, player_id):
+    """Verify a player's is_all_in flag."""
+    assert context.agg is not None, "No hand aggregate"
+    player = context.agg.get_player(player_id.encode())
+    assert player is not None, f"Player {player_id} not found"
+    assert player.is_all_in, f"Player {player_id} is not all-in"
+
+
+@then(r'the hand state has hand_id "(?P<hid>[^"]+)"')
+def step_then_state_hand_id(context, hid):
+    """Verify hand id."""
+    assert context.agg is not None, "No hand aggregate"
+    assert context.agg.hand_id == hid, (
+        f"Expected hand_id={hid}, got {context.agg.hand_id}"
+    )
+
+
+@then(r"the hand event book has (?P<count>\d+) pages")
+def step_then_event_book_pages(context, count):
+    """Verify number of pages in the event book."""
+    assert context.agg is not None, "No hand aggregate"
+    book = context.agg.event_book()
+    assert len(book.pages) == int(count), (
+        f"Expected {count} pages, got {len(book.pages)}"
+    )
+
+
+@then(r"the hand state small_blind is (?P<amount>\d+)")
+def step_then_state_small_blind(context, amount):
+    """Verify small_blind."""
+    assert context.agg.small_blind == int(amount), (
+        f"Expected small_blind={amount}, got {context.agg.small_blind}"
+    )
+
+
+@then(r"the hand state big_blind is (?P<amount>\d+)")
+def step_then_state_big_blind(context, amount):
+    """Verify big_blind."""
+    assert context.agg.big_blind == int(amount), (
+        f"Expected big_blind={amount}, got {context.agg.big_blind}"
+    )
+
+
+@then(r"the hand state min_raise is (?P<amount>\d+)")
+def step_then_state_min_raise(context, amount):
+    """Verify min_raise."""
+    assert context.agg.min_raise == int(amount), (
+        f"Expected min_raise={amount}, got {context.agg.min_raise}"
+    )
+
+
+@then(r"the hand state has (?P<count>\d+) active players")
+def step_then_state_active_players(context, count):
+    """Verify active player count."""
+    assert context.agg is not None, "No hand aggregate"
+    active = context.agg.get_active_players()
+    assert len(active) == int(count), (
+        f"Expected {count} active players, got {len(active)}"
+    )
 
 
 @then(r'player "(?P<player_id>[^"]+)" wins')

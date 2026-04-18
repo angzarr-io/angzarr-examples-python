@@ -10,9 +10,18 @@ from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 from player.agg.handlers import (
+    handle_confirm_buy_in,
+    handle_confirm_rebuy_fee,
+    handle_confirm_registration_fee,
     handle_deposit_funds,
+    handle_initiate_buy_in,
+    handle_initiate_rebuy,
+    handle_initiate_tournament_registration,
     handle_register_player,
+    handle_release_buy_in,
     handle_release_funds,
+    handle_release_rebuy_fee,
+    handle_release_registration_fee,
     handle_reserve_funds,
     handle_transfer_funds,
     handle_withdraw_funds,
@@ -22,8 +31,11 @@ from player.agg.state import PlayerState, build_state
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import try_unpack, type_name_from_url
 from angzarr_client.proto.angzarr import types_pb2 as types
+from angzarr_client.proto.examples import buy_in_pb2 as buy_in
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples import registration_pb2 as registration
 
 # Use regex matchers for flexibility
 use_step_matcher("re")
@@ -80,7 +92,7 @@ def step_given_player_registered(context, name):
     context.events.append(make_event_page(event, seq=len(context.events)))
 
 
-@given(r"a FundsDeposited event with amount (?P<amount>\d+)")
+@given(r"a FundsDeposited event with amount (?P<amount>-?\d+)")
 def step_given_funds_deposited(context, amount):
     """Add a FundsDeposited event to history."""
     if not hasattr(context, "events"):
@@ -104,7 +116,7 @@ def step_given_funds_deposited(context, amount):
 
 
 @given(
-    r'a FundsReserved event with amount (?P<amount>\d+) for table "(?P<table_id>[^"]+)"'
+    r'a FundsReserved event with amount (?P<amount>-?\d+) for table "(?P<table_id>[^"]+)"'
 )
 def step_given_funds_reserved(context, amount, table_id):
     """Add a FundsReserved event to history."""
@@ -139,6 +151,70 @@ def step_given_funds_reserved(context, amount, table_id):
     context.events.append(make_event_page(event, seq=len(context.events)))
 
 
+@given(r"a FundsWithdrawn event with amount (?P<amount>-?\d+)")
+def step_given_funds_withdrawn(context, amount):
+    """Add a FundsWithdrawn event to history."""
+    if not hasattr(context, "events"):
+        context.events = []
+
+    prior_balance = 0
+    for ep in context.events:
+        for cls in (player.FundsDeposited, player.FundsWithdrawn, player.FundsTransferred):
+            if evt := try_unpack(ep.event, cls):
+                if evt.new_balance:
+                    prior_balance = evt.new_balance.amount
+
+    new_balance = prior_balance - int(amount)
+
+    event = player.FundsWithdrawn(
+        amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
+        new_balance=poker_types.Currency(amount=new_balance, currency_code="CHIPS"),
+        withdrawn_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+@given(
+    r'a FundsReleased event for table "(?P<table_id>[^"]+)" with amount (?P<amount>-?\d+)'
+)
+def step_given_funds_released(context, table_id, amount):
+    """Add a FundsReleased event to history."""
+    if not hasattr(context, "events"):
+        context.events = []
+
+    total_deposited = 0
+    total_reserved = 0
+    for ep in context.events:
+        if evt := try_unpack(ep.event, player.FundsDeposited):
+            if evt.new_balance:
+                total_deposited = evt.new_balance.amount
+        elif evt := try_unpack(ep.event, player.FundsWithdrawn):
+            if evt.new_balance:
+                total_deposited = evt.new_balance.amount
+        elif evt := try_unpack(ep.event, player.FundsReserved):
+            if evt.new_reserved_balance:
+                total_reserved = evt.new_reserved_balance.amount
+        elif evt := try_unpack(ep.event, player.FundsReleased):
+            if evt.new_reserved_balance:
+                total_reserved = evt.new_reserved_balance.amount
+
+    new_reserved = max(0, total_reserved - int(amount))
+    new_available = total_deposited - new_reserved
+
+    event = player.FundsReleased(
+        amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
+        table_root=table_id.encode("utf-8"),
+        new_available_balance=poker_types.Currency(
+            amount=new_available, currency_code="CHIPS"
+        ),
+        new_reserved_balance=poker_types.Currency(
+            amount=new_reserved, currency_code="CHIPS"
+        ),
+        released_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
 # --- When steps ---
 
 # Handler lookup by method name
@@ -149,7 +225,23 @@ _HANDLER_MAP = {
     "reserve": handle_reserve_funds,
     "release": handle_release_funds,
     "transfer": handle_transfer_funds,
+    # Orchestration commands handled by the Player aggregate
+    "initiate_buy_in": handle_initiate_buy_in,
+    "confirm_buy_in": handle_confirm_buy_in,
+    "release_buy_in": handle_release_buy_in,
+    "initiate_registration": handle_initiate_tournament_registration,
+    "confirm_registration": handle_confirm_registration_fee,
+    "release_registration": handle_release_registration_fee,
+    "initiate_rebuy": handle_initiate_rebuy,
+    "confirm_rebuy": handle_confirm_rebuy_fee,
+    "release_rebuy": handle_release_rebuy_fee,
 }
+
+
+def _id_bytes(label: str) -> bytes:
+    """Deterministic 16-byte id derived from a label."""
+    raw = label.encode("utf-8")
+    return (raw + b"\x00" * 16)[:16]
 
 
 def _build_state_from_events(events: list) -> PlayerState:
@@ -163,6 +255,10 @@ def _execute_handler(context, method_name: str, cmd):
     """Execute a functional command handler."""
     events = context.events if hasattr(context, "events") else []
     state = _build_state_from_events(events)
+    # Apply any post-replay seeders (e.g. setting PendingRebuy.chips_to_add
+    # that isn't carried on the RebuyRequested event itself).
+    for seeder in getattr(context, "state_seeders", []):
+        seeder(state)
     seq = len(events)
 
     handler = _HANDLER_MAP.get(method_name)
@@ -170,7 +266,7 @@ def _execute_handler(context, method_name: str, cmd):
         raise ValueError(f"Unknown handler: {method_name}")
 
     try:
-        result_event = handler(cmd, state, seq)
+        result_event = handler(cmd, state)
 
         # Pack result into EventPage and EventBook
         event_any = ProtoAny()
@@ -195,7 +291,7 @@ def _execute_handler(context, method_name: str, cmd):
 
 
 @when(
-    r'I handle a RegisterPlayer command with name "(?P<name>[^"]+)" and email "(?P<email>[^"]+)"'
+    r'I handle a RegisterPlayer command with name "(?P<name>[^"]*)" and email "(?P<email>[^"]*)"'
 )
 def step_when_register_player(context, name, email):
     """Handle RegisterPlayer command."""
@@ -208,7 +304,7 @@ def step_when_register_player(context, name, email):
 
 
 @when(
-    r'I handle a RegisterPlayer command with name "(?P<name>[^"]+)" and email "(?P<email>[^"]+)" as AI'
+    r'I handle a RegisterPlayer command with name "(?P<name>[^"]*)" and email "(?P<email>[^"]*)" as AI'
 )
 def step_when_register_player_ai(context, name, email):
     """Handle RegisterPlayer command for AI player."""
@@ -221,7 +317,7 @@ def step_when_register_player_ai(context, name, email):
     _execute_handler(context, "register", cmd)
 
 
-@when(r"I handle a DepositFunds command with amount (?P<amount>\d+)")
+@when(r"I handle a DepositFunds command with amount (?P<amount>-?\d+)")
 def step_when_deposit_funds(context, amount):
     """Handle DepositFunds command."""
     cmd = player.DepositFunds(
@@ -230,7 +326,7 @@ def step_when_deposit_funds(context, amount):
     _execute_handler(context, "deposit", cmd)
 
 
-@when(r"I handle a WithdrawFunds command with amount (?P<amount>\d+)")
+@when(r"I handle a WithdrawFunds command with amount (?P<amount>-?\d+)")
 def step_when_withdraw_funds(context, amount):
     """Handle WithdrawFunds command."""
     cmd = player.WithdrawFunds(
@@ -240,7 +336,7 @@ def step_when_withdraw_funds(context, amount):
 
 
 @when(
-    r'I handle a ReserveFunds command with amount (?P<amount>\d+) for table "(?P<table_id>[^"]+)"'
+    r'I handle a ReserveFunds command with amount (?P<amount>-?\d+) for table "(?P<table_id>[^"]+)"'
 )
 def step_when_reserve_funds(context, amount, table_id):
     """Handle ReserveFunds command."""
@@ -251,13 +347,29 @@ def step_when_reserve_funds(context, amount, table_id):
     _execute_handler(context, "reserve", cmd)
 
 
-@when(r'I handle a ReleaseFunds command for table "(?P<table_id>[^"]+)"')
+@when(r'I handle a ReleaseFunds command for table "(?P<table_id>[^"]*)"')
 def step_when_release_funds(context, table_id):
     """Handle ReleaseFunds command."""
     cmd = player.ReleaseFunds(
         table_root=table_id.encode("utf-8"),
     )
     _execute_handler(context, "release", cmd)
+
+
+@when(
+    r'I handle a TransferFunds command from "(?P<from_player>[^"]*)" '
+    r'with amount (?P<amount>-?\d+) for hand "(?P<hand_id>[^"]*)" '
+    r'reason "(?P<reason>[^"]*)"'
+)
+def step_when_transfer_funds(context, from_player, amount, hand_id, reason):
+    """Handle TransferFunds command."""
+    cmd = player.TransferFunds(
+        from_player_root=from_player.encode("utf-8"),
+        amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
+        hand_root=hand_id.encode("utf-8"),
+        reason=reason,
+    )
+    _execute_handler(context, "transfer", cmd)
 
 
 @when(r"I rebuild the player state")
@@ -302,7 +414,7 @@ def step_then_event_has_player_type(context, ptype):
     ), f"Expected player_type={ptype}, got {event.player_type}"
 
 
-@then(r"the player event has amount (?P<amount>\d+)")
+@then(r"the player event has amount (?P<amount>-?\d+)")
 def step_then_event_has_amount(context, amount):
     """Verify the event amount field."""
     event_any = context.result_event_any
@@ -322,14 +434,16 @@ def step_then_event_has_amount(context, amount):
     ), f"Expected amount={amount}, got {event.amount.amount}"
 
 
-@then(r"the player event has new_balance (?P<balance>\d+)")
+@then(r"the player event has new_balance (?P<balance>-?\d+)")
 def step_then_event_has_new_balance(context, balance):
     """Verify the event new_balance field."""
     event_any = context.result_event_any
 
     # Try different event types that have new_balance field
-    event = try_unpack(event_any, player.FundsDeposited) or try_unpack(
-        event_any, player.FundsWithdrawn
+    event = (
+        try_unpack(event_any, player.FundsDeposited)
+        or try_unpack(event_any, player.FundsWithdrawn)
+        or try_unpack(event_any, player.FundsTransferred)
     )
     if event is None:
         raise AssertionError(
@@ -341,7 +455,36 @@ def step_then_event_has_new_balance(context, balance):
     ), f"Expected new_balance={balance}, got {event.new_balance.amount}"
 
 
-@then(r"the player event has new_available_balance (?P<balance>\d+)")
+@then(r"the player event has new_reserved_balance (?P<balance>-?\d+)")
+def step_then_event_has_new_reserved_balance(context, balance):
+    """Verify the event new_reserved_balance field."""
+    event_any = context.result_event_any
+
+    event = try_unpack(event_any, player.FundsReserved) or try_unpack(
+        event_any, player.FundsReleased
+    )
+    if event is None:
+        raise AssertionError(
+            f"Unknown event type for new_reserved_balance: {event_any.type_url}"
+        )
+
+    assert event.new_reserved_balance.amount == int(
+        balance
+    ), f"Expected new_reserved_balance={balance}, got {event.new_reserved_balance.amount}"
+
+
+@then(r'the player event has reason "(?P<reason>[^"]*)"')
+def step_then_event_has_reason(context, reason):
+    """Verify the event reason field (FundsTransferred, etc.)."""
+    event = try_unpack(context.result_event_any, player.FundsTransferred)
+    if event is None:
+        raise AssertionError(
+            f"No reason field on event type: {context.result_event_any.type_url}"
+        )
+    assert event.reason == reason, f"Expected reason={reason!r}, got {event.reason!r}"
+
+
+@then(r"the player event has new_available_balance (?P<balance>-?\d+)")
 def step_then_event_has_new_available_balance(context, balance):
     """Verify the event new_available_balance field."""
     event_any = context.result_event_any
@@ -380,7 +523,7 @@ def step_then_error_contains(context, text):
     ), f"Expected error to contain '{text}', got '{context.error_message}'"
 
 
-@then(r"the player state has bankroll (?P<amount>\d+)")
+@then(r"the player state has bankroll (?P<amount>-?\d+)")
 def step_then_state_has_bankroll(context, amount):
     """Verify the player state bankroll."""
     assert context.state is not None, "No player state"
@@ -389,7 +532,7 @@ def step_then_state_has_bankroll(context, amount):
     ), f"Expected bankroll={amount}, got {context.state.bankroll}"
 
 
-@then(r"the player state has reserved_funds (?P<amount>\d+)")
+@then(r"the player state has reserved_funds (?P<amount>-?\d+)")
 def step_then_state_has_reserved_funds(context, amount):
     """Verify the player state reserved_funds."""
     assert context.state is not None, "No player state"
@@ -398,7 +541,7 @@ def step_then_state_has_reserved_funds(context, amount):
     ), f"Expected reserved_funds={amount}, got {context.state.reserved_funds}"
 
 
-@then(r"the player state has available_balance (?P<amount>\d+)")
+@then(r"the player state has available_balance (?P<amount>-?\d+)")
 def step_then_state_has_available_balance(context, amount):
     """Verify the player state available_balance."""
     assert context.state is not None, "No player state"
@@ -406,3 +549,309 @@ def step_then_state_has_available_balance(context, amount):
     assert available == int(
         amount
     ), f"Expected available_balance={amount}, got {available}"
+
+
+# =============================================================================
+# Orchestration Command Step Definitions (buy-in / registration / rebuy)
+# =============================================================================
+# These commands live on the Player aggregate and emit orchestration events
+# that the PMs (BuyInOrchestrator, etc.) react to. PM-level orchestration
+# behaviour is in orchestration_steps.py.
+
+
+# --- Given: pending orchestration state via event replay ---
+
+
+@given(
+    r'a pending buy-in "(?P<res>[^"]+)" for table "(?P<tbl>[^"]+)" '
+    r"seat (?P<seat>\d+) amount (?P<amt>\d+)"
+)
+def step_given_pending_buy_in(context, res, tbl, seat, amt):
+    if not hasattr(context, "events"):
+        context.events = []
+    event = buy_in.BuyInRequested(
+        reservation_id=_id_bytes(res),
+        table_root=_id_bytes(tbl),
+        seat=int(seat),
+        amount=poker_types.Currency(amount=int(amt), currency_code="CHIPS"),
+        requested_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+@given(
+    r'a pending registration "(?P<res>[^"]+)" for tournament "(?P<trn>[^"]+)" '
+    r"fee (?P<fee>\d+)"
+)
+def step_given_pending_registration(context, res, trn, fee):
+    if not hasattr(context, "events"):
+        context.events = []
+    event = registration.RegistrationRequested(
+        reservation_id=_id_bytes(res),
+        tournament_root=_id_bytes(trn),
+        fee=poker_types.Currency(amount=int(fee), currency_code="CHIPS"),
+        requested_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+@given(
+    r'a pending rebuy "(?P<res>[^"]+)" for tournament "(?P<trn>[^"]+)" '
+    r'table "(?P<tbl>[^"]+)" seat (?P<seat>\d+) fee (?P<fee>\d+) '
+    r"chips (?P<chips>\d+)"
+)
+def step_given_pending_rebuy(context, res, trn, tbl, seat, fee, chips):
+    if not hasattr(context, "events"):
+        context.events = []
+    event = rebuy.RebuyRequested(
+        reservation_id=_id_bytes(res),
+        tournament_root=_id_bytes(trn),
+        table_root=_id_bytes(tbl),
+        seat=int(seat),
+        fee=poker_types.Currency(amount=int(fee), currency_code="CHIPS"),
+        requested_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+    # PendingRebuy.chips_to_add isn't on the RebuyRequested event — seed it
+    # directly on the materialized state after replay.
+    hex_key = _id_bytes(res).hex()
+    chips_val = int(chips)
+
+    def _seed(state):
+        pending = state.pending_rebuys.get(hex_key)
+        if pending is not None:
+            pending.chips_to_add = chips_val
+
+    if not hasattr(context, "state_seeders"):
+        context.state_seeders = []
+    context.state_seeders.append(_seed)
+
+
+@given(
+    r'a BuyInConfirmed event for reservation "(?P<res>[^"]+)" table "(?P<tbl>[^"]+)"'
+)
+def step_given_buy_in_confirmed_event(context, res, tbl):
+    if not hasattr(context, "events"):
+        context.events = []
+    event = buy_in.BuyInConfirmed(
+        reservation_id=_id_bytes(res),
+        table_root=_id_bytes(tbl),
+        confirmed_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+@given(
+    r'a RegistrationFeeConfirmed event for reservation "(?P<res>[^"]+)" '
+    r'tournament "(?P<trn>[^"]+)"'
+)
+def step_given_registration_confirmed_event(context, res, trn):
+    if not hasattr(context, "events"):
+        context.events = []
+    event = registration.RegistrationFeeConfirmed(
+        reservation_id=_id_bytes(res),
+        tournament_root=_id_bytes(trn),
+        confirmed_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+@given(r'a RebuyFeeConfirmed event for reservation "(?P<res>[^"]+)"')
+def step_given_rebuy_confirmed_event(context, res):
+    if not hasattr(context, "events"):
+        context.events = []
+    event = rebuy.RebuyFeeConfirmed(
+        reservation_id=_id_bytes(res),
+        confirmed_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+# --- When: orchestration commands ---
+
+
+@when(
+    r'I handle an InitiateBuyIn command for table "(?P<tbl>[^"]*)" '
+    r"seat (?P<seat>-?\d+) amount (?P<amt>-?\d+)"
+)
+def step_when_initiate_buy_in(context, tbl, seat, amt):
+    cmd = buy_in.InitiateBuyIn(
+        table_root=_id_bytes(tbl) if tbl else b"",
+        seat=int(seat),
+        amount=poker_types.Currency(amount=int(amt), currency_code="CHIPS"),
+    )
+    _execute_handler(context, "initiate_buy_in", cmd)
+
+
+@when(r'I handle a ConfirmBuyIn command for reservation "(?P<res>[^"]*)"')
+def step_when_confirm_buy_in(context, res):
+    cmd = buy_in.ConfirmBuyIn(reservation_id=_id_bytes(res) if res else b"")
+    _execute_handler(context, "confirm_buy_in", cmd)
+
+
+@when(
+    r'I handle a ReleaseBuyIn command for reservation "(?P<res>[^"]*)" '
+    r'reason "(?P<reason>[^"]*)"'
+)
+def step_when_release_buy_in(context, res, reason):
+    cmd = buy_in.ReleaseBuyIn(
+        reservation_id=_id_bytes(res) if res else b"", reason=reason
+    )
+    _execute_handler(context, "release_buy_in", cmd)
+
+
+@when(
+    r'I handle an InitiateTournamentRegistration command for tournament "(?P<trn>[^"]*)"'
+)
+def step_when_initiate_registration(context, trn):
+    cmd = registration.InitiateTournamentRegistration(
+        tournament_root=_id_bytes(trn) if trn else b"",
+    )
+    _execute_handler(context, "initiate_registration", cmd)
+
+
+@when(r'I handle a ConfirmRegistrationFee command for reservation "(?P<res>[^"]*)"')
+def step_when_confirm_registration(context, res):
+    cmd = registration.ConfirmRegistrationFee(
+        reservation_id=_id_bytes(res) if res else b""
+    )
+    _execute_handler(context, "confirm_registration", cmd)
+
+
+@when(
+    r'I handle a ReleaseRegistrationFee command for reservation "(?P<res>[^"]*)" '
+    r'reason "(?P<reason>[^"]*)"'
+)
+def step_when_release_registration(context, res, reason):
+    cmd = registration.ReleaseRegistrationFee(
+        reservation_id=_id_bytes(res) if res else b"", reason=reason
+    )
+    _execute_handler(context, "release_registration", cmd)
+
+
+@when(
+    r'I handle an InitiateRebuy command for tournament "(?P<trn>[^"]*)" '
+    r'table "(?P<tbl>[^"]*)" seat (?P<seat>-?\d+)'
+)
+def step_when_initiate_rebuy(context, trn, tbl, seat):
+    cmd = rebuy.InitiateRebuy(
+        tournament_root=_id_bytes(trn) if trn else b"",
+        table_root=_id_bytes(tbl) if tbl else b"",
+        seat=int(seat),
+    )
+    _execute_handler(context, "initiate_rebuy", cmd)
+
+
+@when(r'I handle a ConfirmRebuyFee command for reservation "(?P<res>[^"]*)"')
+def step_when_confirm_rebuy(context, res):
+    cmd = rebuy.ConfirmRebuyFee(reservation_id=_id_bytes(res) if res else b"")
+    _execute_handler(context, "confirm_rebuy", cmd)
+
+
+@when(
+    r'I handle a ReleaseRebuyFee command for reservation "(?P<res>[^"]*)" '
+    r'reason "(?P<reason>[^"]*)"'
+)
+def step_when_release_rebuy(context, res, reason):
+    cmd = rebuy.ReleaseRebuyFee(
+        reservation_id=_id_bytes(res) if res else b"", reason=reason
+    )
+    _execute_handler(context, "release_rebuy", cmd)
+
+
+# --- Then: orchestration event field assertions ---
+
+
+def _orch_event(event_any):
+    for cls in (
+        buy_in.BuyInRequested,
+        buy_in.BuyInConfirmed,
+        buy_in.BuyInReservationReleased,
+        registration.RegistrationRequested,
+        registration.RegistrationFeeConfirmed,
+        registration.RegistrationFeeReleased,
+        rebuy.RebuyRequested,
+        rebuy.RebuyFeeConfirmed,
+        rebuy.RebuyFeeReleased,
+    ):
+        if evt := try_unpack(event_any, cls):
+            return evt
+    return None
+
+
+@then(r'the orchestration event has table_root "(?P<tbl>[^"]+)"')
+def step_then_orch_table_root(context, tbl):
+    evt = _orch_event(context.result_event_any)
+    assert evt is not None, (
+        f"Not an orchestration event: {context.result_event_any.type_url}"
+    )
+    assert evt.table_root == _id_bytes(tbl), (
+        f"Expected table_root for {tbl}, got {evt.table_root!r}"
+    )
+
+
+@then(r'the orchestration event has tournament_root "(?P<trn>[^"]+)"')
+def step_then_orch_tournament_root(context, trn):
+    evt = _orch_event(context.result_event_any)
+    assert evt is not None
+    assert evt.tournament_root == _id_bytes(trn), (
+        f"Expected tournament_root for {trn}, got {evt.tournament_root!r}"
+    )
+
+
+@then(r"the orchestration event has seat (?P<seat>-?\d+)")
+def step_then_orch_seat(context, seat):
+    evt = _orch_event(context.result_event_any)
+    assert evt is not None
+    assert evt.seat == int(seat), f"Expected seat={seat}, got {evt.seat}"
+
+
+@then(r"the orchestration event has fee (?P<fee>-?\d+)")
+def step_then_orch_fee(context, fee):
+    evt = _orch_event(context.result_event_any)
+    assert evt is not None
+    assert evt.fee.amount == int(fee), (
+        f"Expected fee={fee}, got {evt.fee.amount}"
+    )
+
+
+@then(r"the orchestration event has chips_added (?P<chips>-?\d+)")
+def step_then_orch_chips_added(context, chips):
+    evt = _orch_event(context.result_event_any)
+    assert evt is not None
+    assert evt.chips_added == int(chips), (
+        f"Expected chips_added={chips}, got {evt.chips_added}"
+    )
+
+
+@then(r"the orchestration event has a reservation_id")
+def step_then_orch_has_reservation_id(context):
+    evt = _orch_event(context.result_event_any)
+    assert evt is not None
+    assert evt.reservation_id, "reservation_id was empty"
+
+
+@then(r'the orchestration event has reason "(?P<reason>[^"]*)"')
+def step_then_orch_reason(context, reason):
+    evt = _orch_event(context.result_event_any)
+    assert evt is not None
+    assert evt.reason == reason, f"Expected reason={reason!r}, got {evt.reason!r}"
+
+
+# --- Then: pending-state assertions ---
+
+
+@then(r'the player state has no pending buy-in "(?P<res>[^"]+)"')
+def step_then_no_pending_buy_in(context, res):
+    assert _id_bytes(res).hex() not in context.state.pending_buy_ins
+
+
+@then(r'the player state has no pending registration "(?P<res>[^"]+)"')
+def step_then_no_pending_registration(context, res):
+    assert _id_bytes(res).hex() not in context.state.pending_registrations
+
+
+@then(r'the player state has no pending rebuy "(?P<res>[^"]+)"')
+def step_then_no_pending_rebuy(context, res):
+    assert _id_bytes(res).hex() not in context.state.pending_rebuys

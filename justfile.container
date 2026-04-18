@@ -21,21 +21,31 @@ ai-proto:
 install *FLAGS: proto-gen ai-proto
     uv sync {{FLAGS}}
 
-# Run unit tests (uses testpaths from pyproject.toml)
-test-unit:
+# Run plain pytest unit/integration tests (uses testpaths from pyproject.toml)
+test-pytest:
     uv run pytest -v
 
-# Run acceptance tests (Gherkin/behave) against deployed system or in-process
-# PLAYER_URL set → GrpcClient to coordinator; unset → InProcessClient
-test-acceptance:
-    PLAYER_URL="${PLAYER_URL:-}" uv run behave tests/acceptance/features/ --tags="~@wip"
+# Unit-example cucumber: poker handler logic, direct invocation, no infra.
+# Feature files live in angzarr-project/features/example/unit/ (git submodule);
+# behave discovers steps/ + environment.py via relative sibling symlinks.
+test-example-unit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ln -sfn ../../../../tests/example/unit/steps angzarr-project/features/example/unit/steps
+    ln -sfn ../../../../tests/example/unit/environment.py angzarr-project/features/example/unit/environment.py
+    uv run behave angzarr-project/features/example/unit/ --tags="~@wip"
 
-# Run unit-level behave specs (existing feature files)
-test-behave-unit:
-    uv run behave features/specs/ --tags="~@wip"
+# Acceptance-example cucumber: poker E2E via CommandClient.
+# PLAYER_URL set → GrpcClient to coordinator; unset → InProcessClient.
+test-example-acceptance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ln -sfn ../../../../tests/example/acceptance/steps angzarr-project/features/example/acceptance/steps
+    ln -sfn ../../../../tests/example/acceptance/environment.py angzarr-project/features/example/acceptance/environment.py
+    PLAYER_URL="${PLAYER_URL:-}" uv run behave angzarr-project/features/example/acceptance/ --tags="~@wip"
 
 # Run all tests
-test: test-unit test-behave-unit test-acceptance
+test: test-pytest test-example-unit test-example-acceptance
 
 # Format code (use --check for CI)
 fmt *FLAGS:

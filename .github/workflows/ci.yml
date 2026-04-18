@@ -55,8 +55,11 @@ jobs:
       - name: Install dependencies
         run: just install
 
-      - name: Test (unit)
-        run: just test-unit
+      - name: Test (pytest)
+        run: just test-pytest
+
+      - name: Test (example unit behave)
+        run: just test-example-unit
 
       - name: Mutation test
         run: just mutation-test
@@ -365,9 +368,9 @@ jobs:
           export PLAYER_URL=localhost:1310
           export TABLE_URL=localhost:1311
           export HAND_URL=localhost:1312
-          uv run behave angzarr-project/features/acceptance/ \
-            --steps-dir tests/acceptance/steps \
-            --environment-file tests/acceptance/environment.py \
+          uv run behave angzarr-project/features/example/acceptance/ \
+            --steps-dir tests/example/acceptance/steps \
+            --environment-file tests/example/acceptance/environment.py \
             --tags="~@wip" --no-capture --no-strict || true
 
       - name: Show logs on failure

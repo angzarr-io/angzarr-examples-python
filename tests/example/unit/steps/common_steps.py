@@ -56,4 +56,5 @@ def step_then_result_is_examples_event(context, event_type):
     assert context.result.pages, "No event pages in result"
     event_any = context.result.pages[0].event
     actual_type = type_name_from_url(event_any.type_url)
-    assert actual_type == event_type, f"Expected {event_type} but got {actual_type}"
+    expected = f"examples.{event_type}"
+    assert actual_type == expected, f"Expected {expected} but got {actual_type}"

@@ -64,16 +64,19 @@ default:
 install:
     just _container install
 
-test-unit:
-    just _container test-unit
+test-pytest:
+    just _container test-pytest
 
-test-acceptance:
-    just _container test-acceptance
+test-example-unit:
+    just _container test-example-unit
+
+test-example-acceptance:
+    just _container test-example-acceptance
 
 mutation-test:
     just _container mutation-test
 
-test: test-unit test-acceptance
+test: test-pytest test-example-unit test-example-acceptance
 
 fmt:
     just _container fmt

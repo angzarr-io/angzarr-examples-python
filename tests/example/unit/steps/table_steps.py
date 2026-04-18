@@ -10,7 +10,9 @@ from table.agg.handlers import Table
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import type_name_from_url
 from angzarr_client.proto.angzarr import types_pb2 as types
+from angzarr_client.proto.examples import buy_in_pb2 as buy_in
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples import rebuy_pb2 as rebuy
 from angzarr_client.proto.examples import table_pb2 as table
 
 # Use regex matchers for flexibility
@@ -239,21 +241,49 @@ def step_given_hand_ended(context, hand_num):
 # --- When steps ---
 
 
+_HANDLER_MAP = {
+    "create": "handle_create_table",
+    "join": "handle_join_table",
+    "leave": "handle_leave_table",
+    "start_hand": "handle_start_hand",
+    "end_hand": "handle_end_hand",
+    "seat_player": "handle_seat_player",
+    "add_rebuy_chips": "handle_add_rebuy_chips",
+}
+
+
+def _id_bytes(label: str) -> bytes:
+    """Deterministic 16-byte id derived from a label."""
+    raw = label.encode("utf-8")
+    return (raw + b"\x00" * 16)[:16]
+
+
 def _execute_handler(context, method_name: str, cmd):
     """Execute a command handler method on the Table aggregate."""
     event_book = _make_event_book(context.events if hasattr(context, "events") else [])
     agg = Table(event_book)
 
     try:
-        method = getattr(agg, method_name)
-        method(cmd)
-        # Get the event book with new events
+        actual_name = _HANDLER_MAP.get(method_name, method_name)
+        method = getattr(agg, actual_name)
+        result_event = method(cmd)
+        # Get the event book with new events (stateful path appends via _emit).
         result_book = agg.event_book()
         context.result = result_book
         context.error = None
-        # Extract the event for assertion steps
-        if result_book.pages:
-            context.result_event_any = result_book.pages[0].event
+        # Prefer the explicitly returned event (for handlers like seat_player
+        # that return rejection events with raising).
+        if result_event is not None:
+            event_any = ProtoAny()
+            event_any.Pack(result_event, type_url_prefix="type.googleapis.com/")
+            context.result_event_any = event_any
+            # Rebuild result book to contain only the new event for
+            # single-event assertion steps.
+            context.result = _make_event_book(
+                [make_event_page(result_event, seq=len(context.events) if hasattr(context, "events") else 0)]
+            )
+        elif result_book.pages:
+            context.result_event_any = result_book.pages[-1].event
         # Store aggregate for state access
         context.agg = agg
     except CommandRejectedError as e:
@@ -263,7 +293,7 @@ def _execute_handler(context, method_name: str, cmd):
 
 
 @when(
-    r'I handle a CreateTable command with name "(?P<name>[^"]+)" and variant "(?P<variant>[^"]+)":'
+    r'I handle a CreateTable command with name "(?P<name>[^"]*)" and variant "(?P<variant>[^"]+)":'
 )
 def step_when_create_table(context, name, variant):
     """Handle CreateTable command with datatable."""
@@ -287,19 +317,19 @@ def step_when_create_table(context, name, variant):
 
 
 @when(
-    r'I handle a JoinTable command for player "(?P<player_id>[^"]+)" at seat (?P<seat>-?\d+) with buy-in (?P<buy_in>\d+)'
+    r'I handle a JoinTable command for player "(?P<player_id>[^"]*)" at seat (?P<seat>-?\d+) with buy-in (?P<buy_in_amt>\d+)'
 )
-def step_when_join_table(context, player_id, seat, buy_in):
+def step_when_join_table(context, player_id, seat, buy_in_amt):
     """Handle JoinTable command."""
     cmd = table.JoinTable(
         player_root=player_id.encode("utf-8"),
         preferred_seat=int(seat),
-        buy_in_amount=int(buy_in),
+        buy_in_amount=int(buy_in_amt),
     )
     _execute_handler(context, "join", cmd)
 
 
-@when(r'I handle a LeaveTable command for player "(?P<player_id>[^"]+)"')
+@when(r'I handle a LeaveTable command for player "(?P<player_id>[^"]*)"')
 def step_when_leave_table(context, player_id):
     """Handle LeaveTable command."""
     cmd = table.LeaveTable(
@@ -555,3 +585,238 @@ def step_then_state_has_hand_count(context, count):
     assert context.agg.hand_count == int(
         count
     ), f"Expected hand_count={count}, got {context.agg.hand_count}"
+
+
+# =============================================================================
+# Phase 2 additions: richer Table coverage + SeatPlayer / AddRebuyChips
+# =============================================================================
+
+
+# --- Additional Given steps ---
+
+
+@given(r'a PlayerSatOut event for player "(?P<player_id>[^"]+)"')
+def step_given_player_sat_out(context, player_id):
+    """Add a PlayerSatOut event to the history."""
+    if not hasattr(context, "events"):
+        context.events = []
+    event = table.PlayerSatOut(player_root=player_id.encode("utf-8"))
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+@given(r'a PlayerSatIn event for player "(?P<player_id>[^"]+)"')
+def step_given_player_sat_in(context, player_id):
+    """Add a PlayerSatIn event to the history."""
+    if not hasattr(context, "events"):
+        context.events = []
+    event = table.PlayerSatIn(player_root=player_id.encode("utf-8"))
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+@given(
+    r'a ChipsAdded event for player "(?P<player_id>[^"]+)" with new_stack (?P<new_stack>\d+)'
+)
+def step_given_chips_added(context, player_id, new_stack):
+    """Add a ChipsAdded event to the history."""
+    if not hasattr(context, "events"):
+        context.events = []
+    event = table.ChipsAdded(
+        player_root=player_id.encode("utf-8"),
+        new_stack=int(new_stack),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+# --- Additional When steps ---
+
+
+@when(r"I handle an EndHand command with mismatched hand_root")
+def step_when_end_hand_mismatch(context):
+    """Handle EndHand with a deliberately wrong hand_root to trigger
+    the "Hand root mismatch" rejection."""
+    cmd = table.EndHand(hand_root=b"\x99\x99\x99")
+    _execute_handler(context, "end_hand", cmd)
+
+
+@when(
+    r'I start a hand and end it with winner "(?P<winner>[^"]+)" winning (?P<amount>\d+)'
+)
+def step_when_start_and_end_hand(context, winner, amount):
+    """Run StartHand then EndHand in sequence, re-using the emitted hand_root.
+
+    Exercises the full end-to-end lifecycle within a single scenario.
+    """
+    events = context.events if hasattr(context, "events") else []
+    agg = Table(_make_event_book(events))
+
+    start_event = agg.handle_start_hand(table.StartHand())
+    end_cmd = table.EndHand(hand_root=start_event.hand_root)
+    end_cmd.results.append(
+        table.PotResult(
+            winner_root=winner.encode("utf-8"),
+            amount=int(amount),
+            pot_type="main",
+        )
+    )
+    try:
+        end_event = agg.handle_end_hand(end_cmd)
+        event_any = ProtoAny()
+        event_any.Pack(end_event, type_url_prefix="type.googleapis.com/")
+        context.result_event_any = event_any
+        context.result = _make_event_book(
+            [make_event_page(end_event, seq=len(events) + 1)]
+        )
+        context.error = None
+        context.agg = agg
+    except CommandRejectedError as e:
+        context.result = None
+        context.error = e
+        context.error_message = str(e)
+
+
+@when(
+    r'I handle a SeatPlayer command for player "(?P<player_id>[^"]+)" '
+    r'reservation "(?P<res>[^"]+)" seat (?P<seat>-?\d+) amount (?P<amount>\d+)'
+)
+def step_when_seat_player(context, player_id, res, seat, amount):
+    """Handle SeatPlayer orchestration command."""
+    cmd = buy_in.SeatPlayer(
+        player_root=player_id.encode("utf-8"),
+        reservation_id=_id_bytes(res),
+        seat=int(seat),
+        amount=int(amount),
+    )
+    _execute_handler(context, "seat_player", cmd)
+
+
+@when(
+    r'I handle an AddRebuyChips command for player "(?P<player_id>[^"]+)" '
+    r'reservation "(?P<res>[^"]+)" seat (?P<seat>-?\d+) amount (?P<amount>-?\d+)'
+)
+def step_when_add_rebuy_chips(context, player_id, res, seat, amount):
+    """Handle AddRebuyChips orchestration command."""
+    cmd = rebuy.AddRebuyChips(
+        player_root=player_id.encode("utf-8"),
+        reservation_id=_id_bytes(res),
+        seat=int(seat),
+        amount=int(amount),
+    )
+    _execute_handler(context, "add_rebuy_chips", cmd)
+
+
+# --- Additional Then steps ---
+
+
+@then(r"the small_blind_position equals the dealer_position")
+def step_then_sb_equals_dealer(context):
+    """Heads-up: dealer posts SB."""
+    event = table.HandStarted()
+    context.result_event_any.Unpack(event)
+    assert event.small_blind_position == event.dealer_position, (
+        f"Expected SB==dealer, got SB={event.small_blind_position} "
+        f"dealer={event.dealer_position}"
+    )
+
+
+@then(r"the small_blind_position differs from the dealer_position")
+def step_then_sb_differs_from_dealer(context):
+    """3+ players: SB is left of dealer, so must differ."""
+    event = table.HandStarted()
+    context.result_event_any.Unpack(event)
+    assert event.small_blind_position != event.dealer_position, (
+        f"Expected SB!=dealer, both are {event.small_blind_position}"
+    )
+
+
+@then(r'the table state has table_id "(?P<table_id>[^"]+)"')
+def step_then_state_table_id(context, table_id):
+    assert context.agg is not None, "No table aggregate"
+    assert context.agg.table_id == table_id, (
+        f"Expected table_id={table_id!r}, got {context.agg.table_id!r}"
+    )
+
+
+@then(r"the table state is full")
+def step_then_state_is_full(context):
+    assert context.agg is not None, "No table aggregate"
+    assert context.agg.is_full, "Expected table to be full"
+
+
+@then(r"the table state has (?P<count>\d+) active_players")
+def step_then_state_active_players(context, count):
+    assert context.agg is not None, "No table aggregate"
+    assert context.agg.active_player_count == int(count), (
+        f"Expected {count} active_players, got {context.agg.active_player_count}"
+    )
+
+
+@then(r"the table state has current_hand_root empty")
+def step_then_state_current_hand_root_empty(context):
+    assert context.agg is not None, "No table aggregate"
+    assert context.agg.current_hand_root == b"", (
+        f"Expected empty current_hand_root, got {context.agg.current_hand_root!r}"
+    )
+
+
+@then(r"the table state seat (?P<seat>\d+) has stack (?P<stack>\d+)")
+def step_then_state_seat_stack(context, seat, stack):
+    assert context.agg is not None, "No table aggregate"
+    s = context.agg.get_seat(int(seat))
+    assert s is not None, f"Seat {seat} is empty"
+    assert s.stack == int(stack), f"Expected stack={stack}, got {s.stack}"
+
+
+# --- Seating event (PlayerSeated / SeatingRejected) assertions ---
+
+
+@then(r"the seating event has seat_position (?P<pos>\d+)")
+def step_then_seating_seat_position(context, pos):
+    event = buy_in.PlayerSeated()
+    context.result_event_any.Unpack(event)
+    assert event.seat_position == int(pos), (
+        f"Expected seat_position={pos}, got {event.seat_position}"
+    )
+
+
+@then(r"the seating event has stack (?P<stack>\d+)")
+def step_then_seating_stack(context, stack):
+    event = buy_in.PlayerSeated()
+    context.result_event_any.Unpack(event)
+    assert event.stack == int(stack), f"Expected stack={stack}, got {event.stack}"
+
+
+@then(r'the seating rejection reason contains "(?P<text>[^"]+)"')
+def step_then_seating_rejection_reason(context, text):
+    event = buy_in.SeatingRejected()
+    context.result_event_any.Unpack(event)
+    assert text.lower() in event.reason.lower(), (
+        f"Expected reason to contain {text!r}, got {event.reason!r}"
+    )
+
+
+# --- Rebuy event assertions ---
+
+
+@then(r"the rebuy event has amount (?P<amount>\d+)")
+def step_then_rebuy_amount(context, amount):
+    event = rebuy.RebuyChipsAdded()
+    context.result_event_any.Unpack(event)
+    assert event.amount == int(amount), (
+        f"Expected amount={amount}, got {event.amount}"
+    )
+
+
+@then(r"the rebuy event has new_stack (?P<stack>\d+)")
+def step_then_rebuy_new_stack(context, stack):
+    event = rebuy.RebuyChipsAdded()
+    context.result_event_any.Unpack(event)
+    assert event.new_stack == int(stack), (
+        f"Expected new_stack={stack}, got {event.new_stack}"
+    )
+
+
+@then(r"the rebuy event has seat (?P<seat>\d+)")
+def step_then_rebuy_seat(context, seat):
+    event = rebuy.RebuyChipsAdded()
+    context.result_event_any.Unpack(event)
+    assert event.seat == int(seat), f"Expected seat={seat}, got {event.seat}"

@@ -3,8 +3,9 @@
 import sys
 from pathlib import Path
 
-# Add project paths
-root = Path(__file__).parent.parent
+# Add project paths. Resolve symlinks so sys.path is correct when this module
+# is loaded via a symlink (e.g. under angzarr-project/features/example/unit/).
+root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(root))
 sys.path.insert(0, str(root / "prj-output"))
 sys.path.insert(0, str(root / "hand-flow"))
@@ -25,3 +26,4 @@ def before_scenario(context, scenario):
     context.error = None
     context.state = None
     context.commands_sent = []
+    context.state_seeders = []

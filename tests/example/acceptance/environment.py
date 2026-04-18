@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 # Add project paths so imports work
-root = Path(__file__).parent.parent.parent
+root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(root))
 for agg in ["player/agg", "table/agg", "hand/agg", "sagas"]:
     path = root / agg
