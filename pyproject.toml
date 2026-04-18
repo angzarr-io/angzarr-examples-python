@@ -46,6 +46,14 @@ addopts = "-v --ignore=tests/features --ignore=tests/acceptance"
 
 [tool.black]
 target-version = ["py311"]
+# Submodules have their own formatting rules + CI.
+extend-exclude = '''
+(
+    angzarr-client-python
+    | angzarr-project
+    | mutants
+)
+'''
 
 [tool.mutmut]
 paths_to_mutate = [
