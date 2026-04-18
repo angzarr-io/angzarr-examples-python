@@ -17,23 +17,44 @@ from angzarr_client import (
 )
 from angzarr_client.proto.angzarr import command_handler_pb2_grpc
 from angzarr_client.proto.angzarr import types_pb2 as types
+from angzarr_client.proto.examples import buy_in_pb2 as buy_in
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples import registration_pb2 as registration
 
 from angzarr_client import now
 
 from .handlers import (
+    handle_confirm_buy_in,
+    handle_confirm_rebuy_fee,
+    handle_confirm_registration_fee,
     handle_deposit_funds,
+    handle_initiate_buy_in,
+    handle_initiate_rebuy,
+    handle_initiate_tournament_registration,
     handle_register_player,
+    handle_release_buy_in,
     handle_release_funds,
+    handle_release_rebuy_fee,
+    handle_release_registration_fee,
     handle_reserve_funds,
     handle_transfer_funds,
     handle_withdraw_funds,
 )
 from .state import (
     PlayerState,
+    apply_buy_in_confirmed,
+    apply_buy_in_released,
+    apply_buy_in_requested,
     apply_deposited,
+    apply_rebuy_confirmed,
+    apply_rebuy_released,
+    apply_rebuy_requested,
     apply_registered,
+    apply_registration_confirmed,
+    apply_registration_released,
+    apply_registration_requested,
     apply_released,
     apply_reserved,
     apply_transferred,
@@ -84,6 +105,75 @@ class PlayerAggregate:
     ) -> player.FundsTransferred:
         return handle_transfer_funds(cmd, state)
 
+    # --- Buy-in orchestration command handlers ---
+
+    @handles(buy_in.InitiateBuyIn)
+    def on_initiate_buy_in(
+        self, cmd: buy_in.InitiateBuyIn, state: PlayerState, seq: int
+    ) -> buy_in.BuyInRequested:
+        return handle_initiate_buy_in(cmd, state)
+
+    @handles(buy_in.ConfirmBuyIn)
+    def on_confirm_buy_in(
+        self, cmd: buy_in.ConfirmBuyIn, state: PlayerState, seq: int
+    ) -> buy_in.BuyInConfirmed:
+        return handle_confirm_buy_in(cmd, state)
+
+    @handles(buy_in.ReleaseBuyIn)
+    def on_release_buy_in(
+        self, cmd: buy_in.ReleaseBuyIn, state: PlayerState, seq: int
+    ) -> buy_in.BuyInReservationReleased:
+        return handle_release_buy_in(cmd, state)
+
+    # --- Tournament-registration orchestration command handlers ---
+
+    @handles(registration.InitiateTournamentRegistration)
+    def on_initiate_tournament_registration(
+        self,
+        cmd: registration.InitiateTournamentRegistration,
+        state: PlayerState,
+        seq: int,
+    ) -> registration.RegistrationRequested:
+        return handle_initiate_tournament_registration(cmd, state)
+
+    @handles(registration.ConfirmRegistrationFee)
+    def on_confirm_registration_fee(
+        self,
+        cmd: registration.ConfirmRegistrationFee,
+        state: PlayerState,
+        seq: int,
+    ) -> registration.RegistrationFeeConfirmed:
+        return handle_confirm_registration_fee(cmd, state)
+
+    @handles(registration.ReleaseRegistrationFee)
+    def on_release_registration_fee(
+        self,
+        cmd: registration.ReleaseRegistrationFee,
+        state: PlayerState,
+        seq: int,
+    ) -> registration.RegistrationFeeReleased:
+        return handle_release_registration_fee(cmd, state)
+
+    # --- Rebuy orchestration command handlers ---
+
+    @handles(rebuy.InitiateRebuy)
+    def on_initiate_rebuy(
+        self, cmd: rebuy.InitiateRebuy, state: PlayerState, seq: int
+    ) -> rebuy.RebuyRequested:
+        return handle_initiate_rebuy(cmd, state)
+
+    @handles(rebuy.ConfirmRebuyFee)
+    def on_confirm_rebuy_fee(
+        self, cmd: rebuy.ConfirmRebuyFee, state: PlayerState, seq: int
+    ) -> rebuy.RebuyFeeConfirmed:
+        return handle_confirm_rebuy_fee(cmd, state)
+
+    @handles(rebuy.ReleaseRebuyFee)
+    def on_release_rebuy_fee(
+        self, cmd: rebuy.ReleaseRebuyFee, state: PlayerState, seq: int
+    ) -> rebuy.RebuyFeeReleased:
+        return handle_release_rebuy_fee(cmd, state)
+
     # --- Event appliers ---
 
     @applies(player.PlayerRegistered)
@@ -121,6 +211,66 @@ class PlayerAggregate:
         self, state: PlayerState, event: player.FundsTransferred
     ) -> None:
         apply_transferred(state, event)
+
+    # --- Buy-in orchestration appliers ---
+
+    @applies(buy_in.BuyInRequested)
+    def _apply_buy_in_requested(
+        self, state: PlayerState, event: buy_in.BuyInRequested
+    ) -> None:
+        apply_buy_in_requested(state, event)
+
+    @applies(buy_in.BuyInConfirmed)
+    def _apply_buy_in_confirmed(
+        self, state: PlayerState, event: buy_in.BuyInConfirmed
+    ) -> None:
+        apply_buy_in_confirmed(state, event)
+
+    @applies(buy_in.BuyInReservationReleased)
+    def _apply_buy_in_released(
+        self, state: PlayerState, event: buy_in.BuyInReservationReleased
+    ) -> None:
+        apply_buy_in_released(state, event)
+
+    # --- Registration orchestration appliers ---
+
+    @applies(registration.RegistrationRequested)
+    def _apply_registration_requested(
+        self, state: PlayerState, event: registration.RegistrationRequested
+    ) -> None:
+        apply_registration_requested(state, event)
+
+    @applies(registration.RegistrationFeeConfirmed)
+    def _apply_registration_confirmed(
+        self, state: PlayerState, event: registration.RegistrationFeeConfirmed
+    ) -> None:
+        apply_registration_confirmed(state, event)
+
+    @applies(registration.RegistrationFeeReleased)
+    def _apply_registration_released(
+        self, state: PlayerState, event: registration.RegistrationFeeReleased
+    ) -> None:
+        apply_registration_released(state, event)
+
+    # --- Rebuy orchestration appliers ---
+
+    @applies(rebuy.RebuyRequested)
+    def _apply_rebuy_requested(
+        self, state: PlayerState, event: rebuy.RebuyRequested
+    ) -> None:
+        apply_rebuy_requested(state, event)
+
+    @applies(rebuy.RebuyFeeConfirmed)
+    def _apply_rebuy_confirmed(
+        self, state: PlayerState, event: rebuy.RebuyFeeConfirmed
+    ) -> None:
+        apply_rebuy_confirmed(state, event)
+
+    @applies(rebuy.RebuyFeeReleased)
+    def _apply_rebuy_released(
+        self, state: PlayerState, event: rebuy.RebuyFeeReleased
+    ) -> None:
+        apply_rebuy_released(state, event)
 
     # --- Rejection handlers (compensation) ---
 

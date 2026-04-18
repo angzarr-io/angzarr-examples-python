@@ -9,6 +9,8 @@ from google.protobuf.any_pb2 import Any as ProtoAny
 from angzarr_client import applies, command_handler, handles, now
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.proto.angzarr import types_pb2 as types
+from angzarr_client.proto.examples import buy_in_pb2 as buy_in_proto
+from angzarr_client.proto.examples import rebuy_pb2 as rebuy_proto
 from angzarr_client.proto.examples import table_pb2 as table_proto
 
 
@@ -177,6 +179,33 @@ class Table:
     @applies(table_proto.ChipsAdded)
     def apply_chips_added(
         self, state: _TableState, event: table_proto.ChipsAdded
+    ) -> None:
+        for seat in state.seats.values():
+            if seat.player_root == event.player_root:
+                seat.stack = event.new_stack
+                break
+
+    @applies(buy_in_proto.PlayerSeated)
+    def apply_player_seated(
+        self, state: _TableState, event: buy_in_proto.PlayerSeated
+    ) -> None:
+        state.seats[event.seat_position] = _SeatState(
+            position=event.seat_position,
+            player_root=event.player_root,
+            stack=event.stack,
+        )
+
+    @applies(buy_in_proto.SeatingRejected)
+    def apply_seating_rejected(
+        self, state: _TableState, event: buy_in_proto.SeatingRejected
+    ) -> None:
+        # SeatingRejected carries no state change for the table — the seat
+        # was never occupied. Recorded for audit / replay completeness.
+        return None
+
+    @applies(rebuy_proto.RebuyChipsAdded)
+    def apply_rebuy_chips_added(
+        self, state: _TableState, event: rebuy_proto.RebuyChipsAdded
     ) -> None:
         for seat in state.seats.values():
             if seat.player_root == event.player_root:
@@ -541,6 +570,109 @@ class Table:
             )
             event.results.extend(cmd.results)
 
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(buy_in_proto.SeatPlayer)
+    def handle_seat_player(
+        self,
+        cmd: buy_in_proto.SeatPlayer,
+        state: _TableState | None = None,
+        seq: int | None = None,
+    ):
+        """PM-orchestrated seating: validate and emit PlayerSeated or
+        SeatingRejected. Unlike JoinTable this handler never raises — the
+        rejection is an event so the PM can compensate.
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Table does not exist")
+
+            reason: str | None = None
+            seat_position = cmd.seat
+
+            if not cmd.player_root:
+                reason = "player_root is required"
+            elif self.find_player_seat(cmd.player_root) is not None:
+                reason = "Player already seated"
+            elif cmd.amount < self.min_buy_in:
+                reason = f"Buy-in must be at least {self.min_buy_in}"
+            elif cmd.amount > self.max_buy_in:
+                reason = "Buy-in above maximum"
+            elif 0 <= cmd.seat < self.max_players:
+                if self.get_seat(cmd.seat) is not None:
+                    reason = "Seat is occupied"
+            elif cmd.seat == -1:
+                found = self._find_available_seat(-1)
+                if found is None:
+                    reason = "Table is full"
+                else:
+                    seat_position = found
+            else:
+                reason = "Invalid seat position"
+
+            if reason is None:
+                event = buy_in_proto.PlayerSeated(
+                    player_root=cmd.player_root,
+                    reservation_id=cmd.reservation_id,
+                    seat_position=seat_position,
+                    stack=cmd.amount,
+                    seated_at=now(),
+                )
+            else:
+                event = buy_in_proto.SeatingRejected(
+                    player_root=cmd.player_root,
+                    reservation_id=cmd.reservation_id,
+                    requested_seat=cmd.seat,
+                    reason=reason,
+                    rejected_at=now(),
+                )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(rebuy_proto.AddRebuyChips)
+    def handle_add_rebuy_chips(
+        self,
+        cmd: rebuy_proto.AddRebuyChips,
+        state: _TableState | None = None,
+        seq: int | None = None,
+    ) -> rebuy_proto.RebuyChipsAdded:
+        """PM-orchestrated rebuy chip top-up."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Table does not exist")
+            if not cmd.player_root:
+                raise CommandRejectedError("player_root is required")
+            if cmd.amount <= 0:
+                raise CommandRejectedError.invalid_argument(
+                    "amount must be positive"
+                )
+            seat = self.find_player_seat(cmd.player_root)
+            if seat is None:
+                raise CommandRejectedError("Player is not seated at this table")
+            if seat.position != cmd.seat:
+                raise CommandRejectedError("Seat position mismatch")
+
+            event = rebuy_proto.RebuyChipsAdded(
+                player_root=cmd.player_root,
+                reservation_id=cmd.reservation_id,
+                seat=cmd.seat,
+                amount=cmd.amount,
+                new_stack=seat.stack + cmd.amount,
+                added_at=now(),
+            )
             if not router_mode:
                 self._emit(event)
             return event

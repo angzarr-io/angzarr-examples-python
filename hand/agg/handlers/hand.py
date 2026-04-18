@@ -244,6 +244,32 @@ class Hand:
             state.pots[0].amount = event.pot_total
         state.action_on_position = -1
 
+    @applies(hand_proto.BettingRoundComplete)
+    def apply_betting_round_complete(
+        self, state: _HandState, event: hand_proto.BettingRoundComplete
+    ) -> None:
+        """Reset per-round betting state and advance Five Card Draw from
+        preflop → draw. Other variants get their phase change from
+        CommunityCardsDealt; this applier handles the one transition that
+        has no community-card event.
+        """
+        for player in state.players.values():
+            player.bet_this_round = 0
+            player.has_acted = False
+        state.current_bet = 0
+
+        for snap in event.stacks:
+            for player in state.players.values():
+                if player.player_root == snap.player_root:
+                    player.stack = snap.stack
+                    player.is_all_in = snap.is_all_in
+                    player.has_folded = snap.has_folded
+                    break
+
+        if state.game_variant == poker_types.FIVE_CARD_DRAW:
+            if event.completed_phase == poker_types.PREFLOP:
+                state.current_phase = poker_types.DRAW
+
     @applies(hand_proto.ShowdownStarted)
     def apply_showdown_started(
         self, state: _HandState, event: hand_proto.ShowdownStarted

@@ -9,7 +9,38 @@ the router.
 
 from dataclasses import dataclass, field
 
+from angzarr_client.proto.examples import buy_in_pb2 as buy_in
 from angzarr_client.proto.examples import player_pb2 as player
+from angzarr_client.proto.examples import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples import registration_pb2 as registration
+
+
+@dataclass
+class PendingBuyIn:
+    """In-flight buy-in request awaiting Table acceptance."""
+
+    table_root: bytes = b""
+    seat: int = 0
+    amount: int = 0
+
+
+@dataclass
+class PendingRegistration:
+    """In-flight tournament-registration request awaiting Tournament enrollment."""
+
+    tournament_root: bytes = b""
+    fee: int = 0
+
+
+@dataclass
+class PendingRebuy:
+    """In-flight rebuy request awaiting Tournament approval + Table chip add."""
+
+    tournament_root: bytes = b""
+    table_root: bytes = b""
+    seat: int = 0
+    fee: int = 0
+    chips_to_add: int = 0
 
 
 @dataclass
@@ -25,6 +56,10 @@ class PlayerState:
     reserved_funds: int = 0
     table_reservations: dict = field(default_factory=dict)
     status: str = ""
+    # Pending cross-aggregate orchestrations, keyed by reservation_id hex.
+    pending_buy_ins: dict[str, PendingBuyIn] = field(default_factory=dict)
+    pending_registrations: dict[str, PendingRegistration] = field(default_factory=dict)
+    pending_rebuys: dict[str, PendingRebuy] = field(default_factory=dict)
 
     @property
     def exists(self) -> bool:
@@ -87,6 +122,129 @@ def apply_transferred(state: PlayerState, event: player.FundsTransferred) -> Non
         state.bankroll = event.new_balance.amount
 
 
+# --- Buy-in orchestration appliers ---
+
+
+def apply_buy_in_requested(
+    state: PlayerState, event: buy_in.BuyInRequested
+) -> None:
+    """Reserve funds for a pending buy-in."""
+    reservation_hex = event.reservation_id.hex()
+    amount = event.amount.amount if event.HasField("amount") else 0
+    state.reserved_funds += amount
+    state.pending_buy_ins[reservation_hex] = PendingBuyIn(
+        table_root=event.table_root,
+        seat=event.seat,
+        amount=amount,
+    )
+
+
+def apply_buy_in_confirmed(
+    state: PlayerState, event: buy_in.BuyInConfirmed
+) -> None:
+    """Move reserved funds out of the bankroll into the table."""
+    reservation_hex = event.reservation_id.hex()
+    pending = state.pending_buy_ins.pop(reservation_hex, None)
+    if pending is None:
+        return
+    state.reserved_funds -= pending.amount
+    table_key = pending.table_root.hex()
+    state.table_reservations[table_key] = pending.amount
+    state.bankroll -= pending.amount
+
+
+def apply_buy_in_released(
+    state: PlayerState, event: buy_in.BuyInReservationReleased
+) -> None:
+    """Return reserved funds on a released buy-in."""
+    reservation_hex = event.reservation_id.hex()
+    pending = state.pending_buy_ins.pop(reservation_hex, None)
+    if pending is None:
+        return
+    state.reserved_funds -= pending.amount
+
+
+# --- Registration orchestration appliers ---
+
+
+def apply_registration_requested(
+    state: PlayerState, event: registration.RegistrationRequested
+) -> None:
+    """Reserve the registration fee."""
+    reservation_hex = event.reservation_id.hex()
+    fee = event.fee.amount if event.HasField("fee") else 0
+    state.reserved_funds += fee
+    state.pending_registrations[reservation_hex] = PendingRegistration(
+        tournament_root=event.tournament_root,
+        fee=fee,
+    )
+
+
+def apply_registration_confirmed(
+    state: PlayerState, event: registration.RegistrationFeeConfirmed
+) -> None:
+    """Deduct the registration fee from bankroll + reserved."""
+    reservation_hex = event.reservation_id.hex()
+    pending = state.pending_registrations.pop(reservation_hex, None)
+    if pending is None:
+        return
+    state.reserved_funds -= pending.fee
+    state.bankroll -= pending.fee
+
+
+def apply_registration_released(
+    state: PlayerState, event: registration.RegistrationFeeReleased
+) -> None:
+    """Return the reserved registration fee."""
+    reservation_hex = event.reservation_id.hex()
+    pending = state.pending_registrations.pop(reservation_hex, None)
+    if pending is None:
+        return
+    state.reserved_funds -= pending.fee
+
+
+# --- Rebuy orchestration appliers ---
+
+
+def apply_rebuy_requested(
+    state: PlayerState, event: rebuy.RebuyRequested
+) -> None:
+    """Reserve the rebuy fee."""
+    reservation_hex = event.reservation_id.hex()
+    fee = event.fee.amount if event.HasField("fee") else 0
+    state.reserved_funds += fee
+    state.pending_rebuys[reservation_hex] = PendingRebuy(
+        tournament_root=event.tournament_root,
+        table_root=event.table_root,
+        seat=event.seat,
+        fee=fee,
+        chips_to_add=0,
+    )
+
+
+def apply_rebuy_confirmed(
+    state: PlayerState, event: rebuy.RebuyFeeConfirmed
+) -> None:
+    """Deduct the rebuy fee from bankroll + reserved."""
+    reservation_hex = event.reservation_id.hex()
+    pending = state.pending_rebuys.pop(reservation_hex, None)
+    if pending is None:
+        return
+    state.reserved_funds -= pending.fee
+    state.bankroll -= pending.fee
+
+
+def apply_rebuy_released(
+    state: PlayerState, event: rebuy.RebuyFeeReleased
+) -> None:
+    """Return the reserved rebuy fee."""
+    reservation_hex = event.reservation_id.hex()
+    pending = state.pending_rebuys.pop(reservation_hex, None)
+    if pending is None:
+        return
+    state.reserved_funds -= pending.fee
+
+
 # docs:end:state_router
 
 
@@ -109,6 +267,33 @@ def build_state(state: PlayerState, events: list) -> PlayerState:
         "examples.FundsReserved": (player.FundsReserved, apply_reserved),
         "examples.FundsReleased": (player.FundsReleased, apply_released),
         "examples.FundsTransferred": (player.FundsTransferred, apply_transferred),
+        # Buy-in orchestration
+        "examples.BuyInRequested": (buy_in.BuyInRequested, apply_buy_in_requested),
+        "examples.BuyInConfirmed": (buy_in.BuyInConfirmed, apply_buy_in_confirmed),
+        "examples.BuyInReservationReleased": (
+            buy_in.BuyInReservationReleased,
+            apply_buy_in_released,
+        ),
+        # Registration orchestration
+        "examples.RegistrationRequested": (
+            registration.RegistrationRequested,
+            apply_registration_requested,
+        ),
+        "examples.RegistrationFeeConfirmed": (
+            registration.RegistrationFeeConfirmed,
+            apply_registration_confirmed,
+        ),
+        "examples.RegistrationFeeReleased": (
+            registration.RegistrationFeeReleased,
+            apply_registration_released,
+        ),
+        # Rebuy orchestration
+        "examples.RebuyRequested": (rebuy.RebuyRequested, apply_rebuy_requested),
+        "examples.RebuyFeeConfirmed": (
+            rebuy.RebuyFeeConfirmed,
+            apply_rebuy_confirmed,
+        ),
+        "examples.RebuyFeeReleased": (rebuy.RebuyFeeReleased, apply_rebuy_released),
     }
 
     for event_any in events:
