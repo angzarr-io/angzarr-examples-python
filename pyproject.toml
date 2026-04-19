@@ -43,9 +43,7 @@ pythonpath = ["."]
 testpaths = ["tests"]
 # Integration tests need a running container and are opt-in via `just test-integration-ai`
 # (which sets -p no:cacheprovider and points pytest at tests/integration/ explicitly).
-# tests/example/ is a behave (gherkin) tier invoked via `just test-example-unit`
-# and is excluded here so the default pytest run stays fast.
-addopts = "-v --ignore=tests/example --ignore=tests/integration"
+addopts = "-v --ignore=tests/integration"
 markers = [
     "integration: requires a running sidecar container (see tests/integration/)",
 ]
@@ -86,11 +84,9 @@ also_copy = [
     "buy_in/",
     "rebuy/",
     "registration/",
+    "angzarr-project/",
 ]
-# Mutation tests run only plain pytest — the behave tier is invoked
-# separately via `just test-example-unit`.
 pytest_add_cli_args_test_selection = [
-    "--ignore=tests/example",
     "--ignore=tests/integration",
 ]
 

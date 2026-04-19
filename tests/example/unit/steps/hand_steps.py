@@ -776,22 +776,6 @@ def step_then_blind_event_has_blind_type(context, blind_type):
     ), f"Expected {blind_type}, got {event.blind_type}"
 
 
-@then(r"the player event has amount (?P<amount>\d+)")
-def step_then_event_has_amount(context, amount):
-    """Verify amount in event."""
-    assert context.result_event_any is not None, "No result event"
-    # Try different event types
-    type_url = context.result_event_any.type_url
-    if "BlindPosted" in type_url:
-        event = hand.BlindPosted()
-        context.result_event_any.Unpack(event)
-        assert event.amount == int(amount), f"Expected {amount}, got {event.amount}"
-    elif "ActionTaken" in type_url:
-        event = hand.ActionTaken()
-        context.result_event_any.Unpack(event)
-        assert event.amount == int(amount), f"Expected {amount}, got {event.amount}"
-
-
 @then(r"the blind event has amount (?P<amount>\d+)")
 def step_then_blind_event_has_amount(context, amount):
     """Verify amount in BlindPosted event."""

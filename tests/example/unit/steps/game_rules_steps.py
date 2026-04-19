@@ -272,6 +272,16 @@ def step_then_kicker_count(context, n):
     )
 
 
+@then(r"the kickers are (?P<kicker_list>[\d, ]+)")
+def step_then_kickers(context, kicker_list):
+    """Pin the exact kicker rank ordering so kicker-filter mutations get caught
+    (e.g. ``rank_counts[r] == 1`` → ``!= 1`` would silently change the kickers)."""
+    expected = [int(k.strip()) for k in kicker_list.split(",")]
+    assert list(context.kickers) == expected, (
+        f"Expected kickers {expected}, got {list(context.kickers)}"
+    )
+
+
 # --- Then: variant property assertions ---
 
 
