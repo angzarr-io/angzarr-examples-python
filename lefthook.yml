@@ -10,3 +10,16 @@ pre-commit:
     fmt:
       run: just fmt-fix
       stage_fixed: true
+    # Runs plain pytest, which now routes the behave (gherkin) tier via
+    # tests/example/test_features.py — exercises every feature file.
+    test:
+      run: just test-pytest
+
+pre-push:
+  parallel: false
+  commands:
+    # Gate the mutation kill rate. ~4–5 min; bypass with LEFTHOOK=0 git push
+    # when iterating quickly on non-handler code.
+    mutation:
+      tags: slow
+      run: just mutation-test
