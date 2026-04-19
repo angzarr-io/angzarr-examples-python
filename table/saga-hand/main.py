@@ -41,7 +41,7 @@ def _pack(msg) -> ProtoAny:
     return any_msg
 
 
-# region saga_oo
+# region saga
 # region saga_handler
 @saga(name="saga-table-hand", source="table", target="hand")
 class TableHandSaga:

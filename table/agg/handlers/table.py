@@ -329,7 +329,7 @@ class Table:
         self._state = state
         return saved
 
-    # region oo_handlers
+    # region handlers
     @handles(table_proto.CreateTable)
     def handle_create_table(
         self,

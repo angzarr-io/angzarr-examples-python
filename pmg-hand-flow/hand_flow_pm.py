@@ -25,7 +25,7 @@ from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import table_pb2 as table
 
 
-# region pm_state_oo
+# region pm_state
 class HandPhase(Enum):
     AWAITING_DEAL = "awaiting_deal"
     DEALING = "dealing"
@@ -64,7 +64,7 @@ def _command_book(domain: str, cmd, sequence: int = 0) -> types.CommandBook:
     )
 
 
-# region pm_handler_oo
+# region pm_handler
 @process_manager(
     name="pmg-hand-flow",
     pm_domain="hand-flow",
