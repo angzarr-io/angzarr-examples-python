@@ -25,7 +25,7 @@ from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import table_pb2 as table
 
 
-# docs:start:pm_state_oo
+# region pm_state_oo
 class HandPhase(Enum):
     AWAITING_DEAL = "awaiting_deal"
     DEALING = "dealing"
@@ -43,7 +43,7 @@ class HandFlowState:
     player_count: int = 0
 
 
-# docs:end:pm_state_oo
+# endregion
 
 
 def _pack(msg) -> ProtoAny:
@@ -64,7 +64,7 @@ def _command_book(domain: str, cmd, sequence: int = 0) -> types.CommandBook:
     )
 
 
-# docs:start:pm_handler_oo
+# region pm_handler_oo
 @process_manager(
     name="pmg-hand-flow",
     pm_domain="hand-flow",
@@ -130,7 +130,7 @@ class HandFlowPM:
         )
 
 
-# docs:end:pm_handler_oo
+# endregion
 
 
 if __name__ == "__main__":

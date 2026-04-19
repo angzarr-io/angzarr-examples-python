@@ -47,7 +47,7 @@ def truncate_id(player_root: bytes) -> str:
     return player_root[:4].hex() if len(player_root) >= 4 else player_root.hex()
 
 
-# docs:start:projector_oo
+# region projector_oo
 @projector(name="prj-output", domains=["player", "table", "hand"])
 class OutputProjector:
     """Output projector using OO-style decorators with multi-domain support."""
@@ -106,7 +106,7 @@ class OutputProjector:
         write_log(f"HAND #{event.hand_number} complete")
 
 
-# docs:end:projector_oo
+# endregion
 
 
 def main():

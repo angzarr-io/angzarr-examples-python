@@ -28,7 +28,7 @@ _TransferFunds = getattr(player, "TransferFunds", None)
 
 if _TableSettled is not None and _TransferFunds is not None:
 
-    # docs:start:saga_splitter
+    # region saga_splitter
     @saga(name="saga-table-player-splitter", source="table", target="player")
     class TableSettledSplitterSaga:
         """Splits one TableSettled event into multiple TransferFunds commands."""
@@ -62,7 +62,7 @@ if _TableSettled is not None and _TransferFunds is not None:
                 )
             return commands
 
-    # docs:end:saga_splitter
+    # endregion
 
 else:
     TableSettledSplitterSaga = None

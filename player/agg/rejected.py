@@ -14,7 +14,7 @@ from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
 
-# docs:start:rejected_handler
+# region rejected_handler
 def handle_table_join_rejected(
     notification: types.Notification,
     state: PlayerState,
@@ -54,4 +54,4 @@ def handle_table_join_rejected(
     )
 
 
-# docs:end:rejected_handler
+# endregion

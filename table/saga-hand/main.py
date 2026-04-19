@@ -41,8 +41,8 @@ def _pack(msg) -> ProtoAny:
     return any_msg
 
 
-# docs:start:saga_oo
-# docs:start:saga_handler
+# region saga_oo
+# region saga_handler
 @saga(name="saga-table-hand", source="table", target="hand")
 class TableHandSaga:
     """Saga that translates HandStarted events to DealCards commands."""
@@ -90,11 +90,11 @@ class TableHandSaga:
         )
 
 
-# docs:end:saga_handler
-# docs:end:saga_oo
+# endregion
+# endregion
 
 
-# docs:start:event_router
+# region event_router
 if __name__ == "__main__":
     router = Router("saga-table-hand").with_handler(TableHandSaga()).build()
     servicer = SagaGrpc(router)
@@ -106,4 +106,4 @@ if __name__ == "__main__":
         default_port="50411",
         logger=logger,
     )
-# docs:end:event_router
+# endregion

@@ -62,7 +62,7 @@ from .state import (
 )
 
 
-# docs:start:command_router
+# region command_router
 @command_handler(domain="player", state=PlayerState)
 class PlayerAggregate:
     """Player aggregate - dispatches commands and applies events."""
@@ -270,7 +270,7 @@ class PlayerAggregate:
 
     # --- Rejection handlers (compensation) ---
 
-    # docs:start:rejected_handler
+    # region rejected_handler
     @rejected("table", "JoinTable")
     def on_join_table_rejected(
         self, notification: types.Notification, state: PlayerState
@@ -309,12 +309,12 @@ class PlayerAggregate:
             released_at=now(),
         )
 
-    # docs:end:rejected_handler
+    # endregion
 
 
 # Build the router with the aggregate handler instance.
 router = Router("player").with_handler(PlayerAggregate()).build()
-# docs:end:command_router
+# endregion
 
 
 if __name__ == "__main__":

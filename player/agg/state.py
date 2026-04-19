@@ -73,7 +73,7 @@ class PlayerState:
 # --- Event appliers (pure functions) ---
 
 
-# docs:start:state_router
+# region state_router
 def apply_registered(state: PlayerState, event: player.PlayerRegistered) -> None:
     """Apply PlayerRegistered event to state."""
     state.player_id = f"player_{event.email}"
@@ -235,7 +235,7 @@ def apply_rebuy_released(state: PlayerState, event: rebuy.RebuyFeeReleased) -> N
     state.reserved_funds -= pending.fee
 
 
-# docs:end:state_router
+# endregion
 
 
 def build_state(state: PlayerState, events: list) -> PlayerState:

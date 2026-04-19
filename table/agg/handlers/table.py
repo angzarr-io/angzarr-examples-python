@@ -329,7 +329,7 @@ class Table:
         self._state = state
         return saved
 
-    # docs:start:oo_handlers
+    # region oo_handlers
     @handles(table_proto.CreateTable)
     def handle_create_table(
         self,
@@ -378,7 +378,7 @@ class Table:
             if router_mode:
                 self._state = saved
 
-    # docs:end:oo_handlers
+    # endregion
 
     @handles(table_proto.JoinTable)
     def handle_join_table(

@@ -68,17 +68,17 @@ def handle_register_player(
 # =============================================================================
 
 
-# docs:start:deposit_funds_guard
+# region deposit_funds_guard
 def deposit_funds_guard(state: PlayerState) -> None:
     """Check state preconditions before processing deposit."""
     if not state.exists:
         raise CommandRejectedError("Player does not exist")
 
 
-# docs:end:deposit_funds_guard
+# endregion
 
 
-# docs:start:deposit_funds_validate
+# region deposit_funds_validate
 def deposit_funds_validate(cmd: player.DepositFunds) -> int:
     """Validate deposit command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
@@ -87,10 +87,10 @@ def deposit_funds_validate(cmd: player.DepositFunds) -> int:
     return amount
 
 
-# docs:end:deposit_funds_validate
+# endregion
 
 
-# docs:start:deposit_funds_compute
+# region deposit_funds_compute
 def deposit_funds_compute(
     cmd: player.DepositFunds, state: PlayerState, amount: int
 ) -> player.FundsDeposited:
@@ -103,10 +103,10 @@ def deposit_funds_compute(
     )
 
 
-# docs:end:deposit_funds_compute
+# endregion
 
 
-# docs:start:polyglot_handler
+# region polyglot_handler
 def handle_deposit_funds(
     cmd: player.DepositFunds, state: PlayerState
 ) -> player.FundsDeposited:
@@ -116,7 +116,7 @@ def handle_deposit_funds(
     return deposit_funds_compute(cmd, state, amount)
 
 
-# docs:end:polyglot_handler
+# endregion
 
 
 # =============================================================================
@@ -204,7 +204,7 @@ def reserve_funds_compute(
     )
 
 
-# docs:start:reserve_funds_imp
+# region reserve_funds_imp
 def handle_reserve_funds(
     cmd: player.ReserveFunds, state: PlayerState
 ) -> player.FundsReserved:
@@ -214,7 +214,7 @@ def handle_reserve_funds(
     return reserve_funds_compute(cmd, state, amount)
 
 
-# docs:end:reserve_funds_imp
+# endregion
 
 
 # =============================================================================
