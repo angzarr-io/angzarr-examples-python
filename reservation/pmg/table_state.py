@@ -1,13 +1,8 @@
-"""Table state rebuild helper for BuyIn PM destination state rebuilding.
+"""Table state rebuild helper for the reservation PM.
 
-Replaces the former StateRouter-based builder with a plain rebuild function.
-
-Usage:
-    state = table_state_rebuild(prior_state, event)
-    # or fold over events:
-    state = TableStateHelper()
-    for event in events:
-        state = table_state_rebuild(state, event)
+Minimal fold over Table-domain events. Used to pre-validate buy-in and
+rebuy flows against live table state queried synchronously via
+``QueryClient``.
 """
 
 from dataclasses import dataclass, field
@@ -25,28 +20,16 @@ class TableStateHelper:
     min_buy_in: int = 0
     max_buy_in: int = 0
     max_players: int = 0
-    seats: dict[int, bytes] = field(default_factory=dict)  # position -> player_root
+    seats: dict[int, bytes] = field(default_factory=dict)
 
     def find_seat_by_player(self, player_root: bytes) -> int | None:
-        """Find seat position for a player."""
         for pos, root in self.seats.items():
             if root == player_root:
                 return pos
         return None
 
-    def next_available_seat(self) -> int | None:
-        """Find next available seat."""
-        for i in range(self.max_players):
-            if i not in self.seats:
-                return i
-        return None
-
-
-# --- State appliers (pure functions) ---
-
 
 def apply_table_created(state: TableStateHelper, event: table.TableCreated) -> None:
-    """Apply TableCreated event."""
     state.table_id = f"table_{event.table_name}"
     state.table_name = event.table_name
     state.min_buy_in = event.min_buy_in
@@ -55,25 +38,18 @@ def apply_table_created(state: TableStateHelper, event: table.TableCreated) -> N
 
 
 def apply_player_joined(state: TableStateHelper, event: table.PlayerJoined) -> None:
-    """Apply PlayerJoined event."""
     state.seats[event.seat_position] = event.player_root
 
 
 def apply_player_seated(state: TableStateHelper, event: buy_in.PlayerSeated) -> None:
-    """Apply PlayerSeated event (from buy-in flow)."""
     state.seats[event.seat_position] = event.player_root
 
 
 def apply_player_left(state: TableStateHelper, event: table.PlayerLeft) -> None:
-    """Apply PlayerLeft event."""
     state.seats.pop(event.seat_position, None)
 
 
 def table_state_rebuild(prior_state: TableStateHelper, event) -> TableStateHelper:
-    """Rebuild TableStateHelper by applying ``event`` to ``prior_state`` in place.
-
-    Returns the same state instance for chaining.
-    """
     if isinstance(event, table.TableCreated):
         apply_table_created(prior_state, event)
     elif isinstance(event, table.PlayerJoined):
@@ -86,17 +62,12 @@ def table_state_rebuild(prior_state: TableStateHelper, event) -> TableStateHelpe
 
 
 def table_state_from_event_book(event_book) -> TableStateHelper:
-    """Rebuild a ``TableStateHelper`` from an ``EventBook`` proto.
-
-    Unpacks each event page into its proto message based on the type URL
-    suffix and folds it into the state.
-    """
     state = TableStateHelper()
     _type_map = {
-        "examples.TableCreated": table.TableCreated,
-        "examples.PlayerJoined": table.PlayerJoined,
-        "examples.PlayerSeated": buy_in.PlayerSeated,
-        "examples.PlayerLeft": table.PlayerLeft,
+        "angzarr_client.proto.examples.TableCreated": table.TableCreated,
+        "angzarr_client.proto.examples.PlayerJoined": table.PlayerJoined,
+        "angzarr_client.proto.examples.PlayerSeated": buy_in.PlayerSeated,
+        "angzarr_client.proto.examples.PlayerLeft": table.PlayerLeft,
     }
     for page in event_book.pages:
         if not page.HasField("event"):

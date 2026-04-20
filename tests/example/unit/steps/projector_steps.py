@@ -177,7 +177,7 @@ def step_given_funds_reserved_event(context, amount):
     """Create a FundsReserved event."""
     context.event = player.FundsReserved(
         amount=poker_types.Currency(amount=int(amount)),
-        table_root=b"table-1",
+        key=b"table-1",
     )
 
 

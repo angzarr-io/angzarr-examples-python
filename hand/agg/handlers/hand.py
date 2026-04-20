@@ -676,6 +676,8 @@ class Hand:
             indices = list(cmd.card_indices)
             if len(indices) > 5:
                 raise CommandRejectedError("Cannot discard more than 5 cards")
+            if len(set(indices)) != len(indices):
+                raise CommandRejectedError("Duplicate card indices")
             for idx in indices:
                 if idx < 0 or idx >= len(player.hole_cards):
                     raise CommandRejectedError(f"Invalid card index: {idx}")

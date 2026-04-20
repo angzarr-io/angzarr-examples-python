@@ -675,7 +675,7 @@ def step_when_start_and_end_hand(context, winner, amount):
 
 
 @when(
-    r'I handle a SeatPlayer command for player "(?P<player_id>[^"]+)" '
+    r'I handle a SeatPlayer command for player "(?P<player_id>[^"]*)" '
     r'reservation "(?P<res>[^"]+)" seat (?P<seat>-?\d+) amount (?P<amount>\d+)'
 )
 def step_when_seat_player(context, player_id, res, seat, amount):
@@ -690,7 +690,7 @@ def step_when_seat_player(context, player_id, res, seat, amount):
 
 
 @when(
-    r'I handle an AddRebuyChips command for player "(?P<player_id>[^"]+)" '
+    r'I handle an AddRebuyChips command for player "(?P<player_id>[^"]*)" '
     r'reservation "(?P<res>[^"]+)" seat (?P<seat>-?\d+) amount (?P<amount>-?\d+)'
 )
 def step_when_add_rebuy_chips(context, player_id, res, seat, amount):

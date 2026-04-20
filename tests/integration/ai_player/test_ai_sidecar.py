@@ -55,12 +55,12 @@ def _reflection_describe_methods(channel, symbol: str) -> set[str]:
 class TestReflection:
     def test_lists_aisidecar_and_health_services(self, channel):
         services = _reflection_list(channel)
-        assert "examples.AiSidecar" in services
+        assert "angzarr_client.proto.examples.AiSidecar" in services
         assert "grpc.health.v1.Health" in services
         assert "grpc.reflection.v1alpha.ServerReflection" in services
 
     def test_aisidecar_exposes_all_eight_rpcs(self, channel):
-        methods = _reflection_describe_methods(channel, "examples.AiSidecar")
+        methods = _reflection_describe_methods(channel, "angzarr_client.proto.examples.AiSidecar")
         assert methods == EXPECTED_RPCS, (
             f"missing: {EXPECTED_RPCS - methods}, extra: {methods - EXPECTED_RPCS}"
         )
@@ -70,7 +70,7 @@ class TestHealth:
     def test_standard_grpc_health_serving(self, channel):
         health_stub = health_pb2_grpc.HealthStub(channel)
         resp = health_stub.Check(
-            health_pb2.HealthCheckRequest(service="examples.AiSidecar")
+            health_pb2.HealthCheckRequest(service="angzarr_client.proto.examples.AiSidecar")
         )
         assert resp.status == health_pb2.HealthCheckResponse.SERVING
 

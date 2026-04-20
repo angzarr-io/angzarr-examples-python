@@ -59,7 +59,7 @@ class HandResultsSaga:
         for player_hex in event.stack_changes:
             player_root = bytes.fromhex(player_hex)
             release = player.ReleaseFunds(
-                table_root=event.hand_root,
+                key=event.hand_root,
             )
             commands.append(_command_book("player", player_root, release, dest_seq))
         return commands

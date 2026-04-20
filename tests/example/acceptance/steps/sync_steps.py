@@ -125,7 +125,7 @@ def step_given_multiple_sagas_fail(context):
 )
 def step_when_start_hand_with_sync_mode(context, table_name, mode):
     """Start a hand with specified sync mode."""
-    from .table_steps import _start_hand
+    from table_steps import _start_hand
 
     sync_mode = parse_sync_mode(mode)
     context.last_sync_mode = sync_mode
@@ -146,7 +146,7 @@ def step_when_start_hand_cascade_error(context, table_name, sync_mode, error_mod
     context.last_sync_mode = sync
     context.last_cascade_error_mode = cascade_error
 
-    from .table_steps import _start_hand
+    from table_steps import _start_hand
 
     _start_hand(
         context,

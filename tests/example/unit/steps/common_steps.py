@@ -42,13 +42,13 @@ def make_event_page(event_msg, num: int = 0, time_str: str = None) -> types.Even
 # These handle the `examples.EventType` format used in feature files
 
 
-@then(r"the result is an? examples\.(?P<event_type>\w+) event")
+@then(r"the result is an? angzarr_client\.proto\.examples\.(?P<event_type>\w+) event")
 def step_then_result_is_examples_event(context, event_type):
-    """Verify the result event type (handles examples.EventType format).
+    """Verify the result event type.
 
-    Matches patterns like:
-    - Then the result is a examples.CardsDealt event
-    - Then the result is an examples.ActionTaken event
+    Matches feature-file assertions like:
+    - Then the result is a angzarr_client.proto.examples.CardsDealt event
+    - Then the result is an angzarr_client.proto.examples.ActionTaken event
     """
     assert (
         context.result is not None
@@ -56,5 +56,5 @@ def step_then_result_is_examples_event(context, event_type):
     assert context.result.pages, "No event pages in result"
     event_any = context.result.pages[0].event
     actual_type = type_name_from_url(event_any.type_url)
-    expected = f"examples.{event_type}"
+    expected = f"angzarr_client.proto.examples.{event_type}"
     assert actual_type == expected, f"Expected {expected} but got {actual_type}"

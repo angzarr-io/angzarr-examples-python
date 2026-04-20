@@ -29,7 +29,16 @@ def before_all(context):
 
 
 def before_scenario(context, scenario):
-    """Reset per-scenario state."""
+    """Reset per-scenario state.
+
+    Recreate the CommandClient too: the cluster-tier ``coordinator
+    restarted`` scenario kills a pod mid-suite, leaving the next
+    scenario's grpc channel pointed at a draining endpoint and
+    surfacing as ``Connection reset by peer``. Cheap to rebuild.
+    """
+    if hasattr(context, "client"):
+        context.client.close()
+    context.client = create_client()
     context.players = {}
     context.tables = {}
     context.hands = {}

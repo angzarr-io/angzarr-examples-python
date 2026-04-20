@@ -9,7 +9,7 @@ from behave import given, then, use_step_matcher, when
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
-from .common_steps import new_uuid_bytes, pack_command, send_with_retry
+from common_steps import new_uuid_bytes, pack_command, send_with_retry
 
 use_step_matcher("re")
 
@@ -34,7 +34,7 @@ def _register_player(context, name: str, email: str):
         email=email,
         player_type=poker_types.HUMAN,
     )
-    packed = pack_command(cmd, "examples.RegisterPlayer")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.RegisterPlayer")
     seq = context.players[name]["sequence"]
 
     response = context.client.send_command("player", root, packed, sequence=seq)
@@ -50,7 +50,7 @@ def _deposit_funds(context, name: str, amount: int, sync_mode=None):
     cmd = player.DepositFunds(
         amount=poker_types.Currency(amount=amount, currency_code="USD"),
     )
-    packed = pack_command(cmd, "examples.DepositFunds")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.DepositFunds")
     seq = context.players[name]["sequence"]
 
     kwargs = {"sequence": seq}
@@ -86,7 +86,7 @@ def step_given_table_with_seated_players(context, table_name):
 
     Creates the table and joins all players listed in the data table.
     """
-    from .table_steps import _create_table, _join_table
+    from table_steps import _create_table, _join_table
 
     # First register and fund all players
     for row in context.table:
@@ -113,7 +113,7 @@ def step_given_table_with_seated_players(context, table_name):
 @given(r'a table "(?P<table_name>[^"]+)" with (?P<count>\d+) seated players?')
 def step_given_table_with_n_seated_players(context, table_name, count):
     """Set up a table with N default players."""
-    from .table_steps import _create_table, _join_table
+    from table_steps import _create_table, _join_table
 
     count = int(count)
     _create_table(context, table_name, small_blind=5, big_blind=10)
@@ -176,7 +176,7 @@ def step_when_deposit_funds(context, amount, name):
 )
 def step_when_deposit_with_sync_mode(context, amount, name, mode):
     """Deposit chips with specified sync mode."""
-    from .sync_steps import parse_sync_mode
+    from sync_steps import parse_sync_mode
 
     import time
 
@@ -193,7 +193,7 @@ def step_when_deposit_to_all_players(context, mode):
     """Deposit chips to all test players for performance testing."""
     import time
 
-    from .sync_steps import parse_sync_mode
+    from sync_steps import parse_sync_mode
 
     sync_mode = parse_sync_mode(mode)
     context.last_sync_mode = sync_mode

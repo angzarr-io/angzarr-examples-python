@@ -76,7 +76,7 @@ class HandTableSaga:
 
 
 if __name__ == "__main__":
-    router = Router("saga-hand-table").with_handler(HandTableSaga()).build()
+    router = Router("saga-hand-table").with_handler(HandTableSaga, lambda: HandTableSaga()).build()
     servicer = SagaGrpc(router)
     run_server(
         saga_pb2_grpc.add_SagaServiceServicer_to_server,

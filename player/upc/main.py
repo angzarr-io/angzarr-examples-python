@@ -55,7 +55,7 @@ class PlayerUpcaster:
     pass
 
 
-router = Router("upcaster-player").with_handler(PlayerUpcaster()).build()
+router = Router("upcaster-player").with_handler(PlayerUpcaster, lambda: PlayerUpcaster()).build()
 servicer = UpcasterGrpc(router)
 
 

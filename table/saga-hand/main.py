@@ -96,7 +96,7 @@ class TableHandSaga:
 
 # region event_router
 if __name__ == "__main__":
-    router = Router("saga-table-hand").with_handler(TableHandSaga()).build()
+    router = Router("saga-table-hand").with_handler(TableHandSaga, lambda: TableHandSaga()).build()
     servicer = SagaGrpc(router)
     run_server(
         saga_pb2_grpc.add_SagaServiceServicer_to_server,

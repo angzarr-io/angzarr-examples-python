@@ -178,7 +178,7 @@ class HandFlowPM:
 
 def main():
     """Run the hand flow process manager gRPC service."""
-    router = Router("hand-flow").with_handler(HandFlowPM()).build()
+    router = Router("hand-flow").with_handler(HandFlowPM, lambda: HandFlowPM()).build()
     servicer = ProcessManagerGrpc(router)
 
     logger.info(

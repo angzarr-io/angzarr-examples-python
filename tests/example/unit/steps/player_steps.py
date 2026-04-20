@@ -10,23 +10,21 @@ from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 from player.agg.handlers import (
-    handle_confirm_buy_in,
-    handle_confirm_rebuy_fee,
-    handle_confirm_registration_fee,
     handle_deposit_funds,
-    handle_initiate_buy_in,
-    handle_initiate_rebuy,
-    handle_initiate_tournament_registration,
     handle_register_player,
-    handle_release_buy_in,
     handle_release_funds,
-    handle_release_rebuy_fee,
-    handle_release_registration_fee,
     handle_reserve_funds,
     handle_transfer_funds,
     handle_withdraw_funds,
 )
 from player.agg.state import PlayerState, build_state
+from reservation.agg.handlers import Reservation
+from reservation.agg.state import (
+    PendingBuyIn,
+    PendingRebuy,
+    PendingRegistration,
+    ReservationState,
+)
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import try_unpack, type_name_from_url
@@ -139,7 +137,7 @@ def step_given_funds_reserved(context, amount, table_id):
 
     event = player.FundsReserved(
         amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
-        table_root=table_id.encode("utf-8"),
+        key=table_id.encode("utf-8"),
         new_available_balance=poker_types.Currency(
             amount=new_available, currency_code="CHIPS"
         ),
@@ -203,7 +201,7 @@ def step_given_funds_released(context, table_id, amount):
 
     event = player.FundsReleased(
         amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
-        table_root=table_id.encode("utf-8"),
+        key=table_id.encode("utf-8"),
         new_available_balance=poker_types.Currency(
             amount=new_available, currency_code="CHIPS"
         ),
@@ -217,7 +215,10 @@ def step_given_funds_released(context, table_id, amount):
 
 # --- When steps ---
 
-# Handler lookup by method name
+# Handler lookup by method name — player-only primitives. Lifecycle
+# commands (buy-in / rebuy / registration Initiate/Confirm/Release) live
+# on the reservation aggregate after the refactor; they route through
+# ``_execute_reservation_handler`` below instead of ``_HANDLER_MAP``.
 _HANDLER_MAP = {
     "register": handle_register_player,
     "deposit": handle_deposit_funds,
@@ -225,16 +226,135 @@ _HANDLER_MAP = {
     "reserve": handle_reserve_funds,
     "release": handle_release_funds,
     "transfer": handle_transfer_funds,
-    # Orchestration commands handled by the Player aggregate
-    "initiate_buy_in": handle_initiate_buy_in,
-    "confirm_buy_in": handle_confirm_buy_in,
-    "release_buy_in": handle_release_buy_in,
-    "initiate_registration": handle_initiate_tournament_registration,
-    "confirm_registration": handle_confirm_registration_fee,
-    "release_registration": handle_release_registration_fee,
-    "initiate_rebuy": handle_initiate_rebuy,
-    "confirm_rebuy": handle_confirm_rebuy_fee,
-    "release_rebuy": handle_release_rebuy_fee,
+}
+
+
+# Fixed player_root bytes used for unit-test scenarios. The value just has
+# to be non-empty; a registered-player scenario that provides prior events
+# means the reservation aggregate's sync DECISION finds state.exists=True
+# and gates on bankroll. Scenarios with "no prior events" still fail the
+# existence check because the fake query returns an empty EventBook.
+_UNIT_PLAYER_ROOT = b"unit-test-player"
+
+
+class _FakeQueryClient:
+    """Stand-in for the real QueryClient in unit-test scenarios.
+
+    The reservation aggregate calls into ``QueryClient.get_event_book`` on
+    ``Initiate*`` to rebuild player state for a sync DECISION check. In
+    unit tests we have no coordinator; instead we synthesize a player
+    EventBook from the test's accumulated ``context.events`` (which
+    already contains the PlayerRegistered / FundsDeposited / etc. the
+    scenario's Given-steps added).
+    """
+
+    def __init__(self, event_pages: list):
+        self._pages = event_pages
+
+    def get_event_book(self, _query) -> types.EventBook:
+        book = types.EventBook()
+        for page in self._pages:
+            new_page = types.EventPage()
+            new_page.CopyFrom(page)
+            book.pages.append(new_page)
+        return book
+
+
+# Applier table for rebuilding ReservationState from a replayed event
+# stream. The production aggregate picks these up via ``@applies`` at
+# router-build time; unit tests bypass the router and replay directly.
+def _apply_buy_in_requested(state: ReservationState, event: buy_in.BuyInRequested) -> None:
+    state.pending_buy_ins[event.reservation_id.hex()] = PendingBuyIn(
+        player_root=event.player_root,
+        table_root=event.table_root,
+        seat=event.seat,
+        amount=event.amount.amount if event.HasField("amount") else 0,
+    )
+
+
+def _apply_buy_in_closed(state: ReservationState, event) -> None:
+    state.pending_buy_ins.pop(event.reservation_id.hex(), None)
+
+
+def _apply_registration_requested(
+    state: ReservationState, event: registration.RegistrationRequested
+) -> None:
+    state.pending_registrations[event.reservation_id.hex()] = PendingRegistration(
+        player_root=event.player_root,
+        tournament_root=event.tournament_root,
+        fee=event.fee.amount if event.HasField("fee") else 0,
+    )
+
+
+def _apply_registration_closed(state: ReservationState, event) -> None:
+    state.pending_registrations.pop(event.reservation_id.hex(), None)
+
+
+def _apply_rebuy_requested(state: ReservationState, event: rebuy.RebuyRequested) -> None:
+    state.pending_rebuys[event.reservation_id.hex()] = PendingRebuy(
+        player_root=event.player_root,
+        tournament_root=event.tournament_root,
+        table_root=event.table_root,
+        seat=event.seat,
+        fee=event.fee.amount if event.HasField("fee") else 0,
+    )
+
+
+def _apply_rebuy_closed(state: ReservationState, event) -> None:
+    state.pending_rebuys.pop(event.reservation_id.hex(), None)
+
+
+_RESERVATION_APPLIERS: dict[str, tuple[type, callable]] = {
+    "angzarr_client.proto.examples.BuyInRequested": (buy_in.BuyInRequested, _apply_buy_in_requested),
+    "angzarr_client.proto.examples.BuyInConfirmed": (buy_in.BuyInConfirmed, _apply_buy_in_closed),
+    "angzarr_client.proto.examples.BuyInReservationReleased": (
+        buy_in.BuyInReservationReleased,
+        _apply_buy_in_closed,
+    ),
+    "angzarr_client.proto.examples.RegistrationRequested": (
+        registration.RegistrationRequested,
+        _apply_registration_requested,
+    ),
+    "angzarr_client.proto.examples.RegistrationFeeConfirmed": (
+        registration.RegistrationFeeConfirmed,
+        _apply_registration_closed,
+    ),
+    "angzarr_client.proto.examples.RegistrationFeeReleased": (
+        registration.RegistrationFeeReleased,
+        _apply_registration_closed,
+    ),
+    "angzarr_client.proto.examples.RebuyRequested": (rebuy.RebuyRequested, _apply_rebuy_requested),
+    "angzarr_client.proto.examples.RebuyFeeConfirmed": (rebuy.RebuyFeeConfirmed, _apply_rebuy_closed),
+    "angzarr_client.proto.examples.RebuyFeeReleased": (rebuy.RebuyFeeReleased, _apply_rebuy_closed),
+}
+
+
+def _build_reservation_state_from_events(events: list) -> ReservationState:
+    state = ReservationState()
+    for page in events:
+        if not page.HasField("event"):
+            continue
+        type_name = type_name_from_url(page.event.type_url)
+        entry = _RESERVATION_APPLIERS.get(type_name)
+        if entry is None:
+            continue
+        proto_cls, applier = entry
+        evt = proto_cls()
+        page.event.Unpack(evt)
+        applier(state, evt)
+    return state
+
+
+_RESERVATION_METHOD_MAP = {
+    "initiate_buy_in": "on_initiate_buy_in",
+    "confirm_buy_in": "on_confirm_buy_in",
+    "release_buy_in": "on_release_buy_in",
+    "initiate_registration": "on_initiate_registration",
+    "confirm_registration": "on_confirm_registration",
+    "release_registration": "on_release_registration",
+    "initiate_rebuy": "on_initiate_rebuy",
+    "confirm_rebuy": "on_confirm_rebuy",
+    "release_rebuy": "on_release_rebuy",
 }
 
 
@@ -252,14 +372,23 @@ def _build_state_from_events(events: list) -> PlayerState:
 
 
 def _execute_handler(context, method_name: str, cmd):
-    """Execute a functional command handler."""
+    """Execute a command through either the player or reservation aggregate.
+
+    Player-primitive commands (register/deposit/withdraw/reserve/release/
+    transfer) use the functional handler map. Lifecycle commands
+    (initiate_buy_in, confirm_rebuy, etc.) route through the reservation
+    aggregate instance with a fake QueryClient so sync DECISION against
+    player state works in the unit-test harness.
+    """
     events = context.events if hasattr(context, "events") else []
+    seq = len(events)
+
+    if method_name in _RESERVATION_METHOD_MAP:
+        return _execute_reservation(context, method_name, cmd, events, seq)
+
     state = _build_state_from_events(events)
-    # Apply any post-replay seeders (e.g. setting PendingRebuy.chips_to_add
-    # that isn't carried on the RebuyRequested event itself).
     for seeder in getattr(context, "state_seeders", []):
         seeder(state)
-    seq = len(events)
 
     handler = _HANDLER_MAP.get(method_name)
     if not handler:
@@ -284,6 +413,60 @@ def _execute_handler(context, method_name: str, cmd):
 
         # Store state for assertion steps (apply new event)
         context.state = build_state(state, [event_any])
+    except CommandRejectedError as e:
+        context.result = None
+        context.error = e
+        context.error_message = str(e)
+
+
+def _execute_reservation(context, method_name: str, cmd, events: list, seq: int):
+    """Drive a lifecycle command through the Reservation aggregate.
+
+    Rebuilds ReservationState by replaying prior reservation events, wires
+    a FakeQueryClient that returns the player events so sync DECISION
+    checks work, calls the method directly, and folds the resulting event
+    into both ``context.reservation_state`` (so pending assertions see it)
+    and ``context.state`` (so legacy-named pending assertions still bind).
+    """
+    reservation_state = _build_reservation_state_from_events(events)
+    for seeder in getattr(context, "state_seeders", []):
+        seeder(reservation_state)
+
+    query_client = _FakeQueryClient(events)
+    aggregate = Reservation(query_client=query_client)
+
+    method = getattr(aggregate, _RESERVATION_METHOD_MAP[method_name])
+
+    try:
+        result_event = method(cmd, reservation_state)
+
+        event_any = ProtoAny()
+        event_any.Pack(result_event, type_url_prefix="type.googleapis.com/")
+        result_page = types.EventPage(
+            header=types.PageHeader(sequence=seq),
+            event=event_any,
+            created_at=make_timestamp(),
+        )
+        result_book = _make_event_book([result_page])
+
+        context.result = result_book
+        context.error = None
+        context.result_event_any = event_any
+
+        type_name = type_name_from_url(event_any.type_url)
+        entry = _RESERVATION_APPLIERS.get(type_name)
+        if entry is not None:
+            proto_cls, applier = entry
+            evt = proto_cls()
+            event_any.Unpack(evt)
+            applier(reservation_state, evt)
+
+        context.reservation_state = reservation_state
+        # ``context.state`` still points at player state (built from the
+        # same event stream, minus anything reservation-specific) so the
+        # bankroll / available_balance assertions keep working. Pending
+        # assertions below read from ``context.reservation_state``.
+        context.state = _build_state_from_events(events)
     except CommandRejectedError as e:
         context.result = None
         context.error = e
@@ -342,7 +525,7 @@ def step_when_reserve_funds(context, amount, table_id):
     """Handle ReserveFunds command."""
     cmd = player.ReserveFunds(
         amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
-        table_root=table_id.encode("utf-8") if table_id else b"",
+        key=table_id.encode("utf-8") if table_id else b"",
     )
     _execute_handler(context, "reserve", cmd)
 
@@ -351,9 +534,45 @@ def step_when_reserve_funds(context, amount, table_id):
 def step_when_release_funds(context, table_id):
     """Handle ReleaseFunds command."""
     cmd = player.ReleaseFunds(
-        table_root=table_id.encode("utf-8"),
+        key=table_id.encode("utf-8"),
     )
     _execute_handler(context, "release", cmd)
+
+
+@when(
+    r'I handle a JoinTable rejection notification for table "(?P<table_id>[^"]*)"'
+)
+def step_when_join_table_rejection(context, table_id):
+    """Invoke the rejection handler with a synthesized RejectionNotification.
+
+    Mirrors the router path: a failed JoinTable arrives as a Notification
+    wrapping a RejectionNotification whose ``rejected_command.cover.root``
+    carries the target table_root.
+    """
+    from player.agg.rejected import handle_table_join_rejected
+
+    events = context.events if hasattr(context, "events") else []
+    state = _build_state_from_events(events)
+
+    rejection = types.RejectionNotification()
+    rejection.rejected_command.cover.domain = "table"
+    rejection.rejected_command.cover.root.value = table_id.encode("utf-8")
+
+    payload = ProtoAny()
+    payload.Pack(rejection, type_url_prefix="type.googleapis.com/")
+    notification = types.Notification(payload=payload)
+
+    result_event = handle_table_join_rejected(notification, state)
+    event_any = ProtoAny()
+    event_any.Pack(result_event, type_url_prefix="type.googleapis.com/")
+    result_page = types.EventPage(
+        header=types.PageHeader(sequence=len(events)),
+        event=event_any,
+        created_at=make_timestamp(),
+    )
+    context.result = _make_event_book([result_page])
+    context.result_event_any = event_any
+    context.error = None
 
 
 @when(
@@ -501,19 +720,20 @@ def step_then_event_has_new_reserved_balance(context, balance):
 
 @then(r'the player event has table_root "(?P<tbl>[^"]+)"')
 def step_then_event_table_root(context, tbl):
-    """Pin table_root on FundsReserved/FundsReleased so the
-    ``table_root=cmd.table_root`` field assignment can't be silently dropped."""
+    """Pin the reservation key on FundsReserved/FundsReleased (historical
+    step name; the proto field is now ``key`` but scenarios still phrase it
+    as ``table_root``)."""
     event_any = context.result_event_any
     event = try_unpack(event_any, player.FundsReserved) or try_unpack(
         event_any, player.FundsReleased
     )
     if event is None:
         raise AssertionError(
-            f"Unknown event type for table_root: {event_any.type_url}"
+            f"Unknown event type for reservation key: {event_any.type_url}"
         )
     expected = tbl.encode("utf-8")
-    assert event.table_root == expected, (
-        f"Expected table_root={expected!r}, got {event.table_root!r}"
+    assert event.key == expected, (
+        f"Expected key={expected!r}, got {event.key!r}"
     )
 
 
@@ -623,6 +843,66 @@ def step_then_state_has_available_balance(context, amount):
 # --- Given: pending orchestration state via event replay ---
 
 
+def _append_funds_reserved(context, table_root: bytes, amount: int) -> None:
+    """Simulate the PM hop: a reservation request triggers ReserveFunds on the
+    player aggregate, emitting FundsReserved. Without this, rebuild_player_state
+    sees no change to reserved_funds / available_balance after a reservation."""
+    state = _build_state_from_events(context.events)
+    new_reserved = state.reserved_funds + amount
+    new_available = state.bankroll - new_reserved
+    event = player.FundsReserved(
+        amount=poker_types.Currency(amount=amount, currency_code="CHIPS"),
+        key=table_root,
+        new_available_balance=poker_types.Currency(
+            amount=new_available, currency_code="CHIPS"
+        ),
+        new_reserved_balance=poker_types.Currency(
+            amount=new_reserved, currency_code="CHIPS"
+        ),
+        reserved_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+def _append_funds_deducted(context, key: bytes, reservation_id: bytes, amount: int) -> None:
+    """Simulate the PM hop: a *Confirmed event triggers DeductReservedFunds on
+    the player aggregate, emitting FundsDeducted."""
+    state = _build_state_from_events(context.events)
+    new_reserved = state.reserved_funds - amount
+    new_balance = state.bankroll - amount
+    event = player.FundsDeducted(
+        amount=poker_types.Currency(amount=amount, currency_code="CHIPS"),
+        key=key,
+        reservation_id=reservation_id,
+        new_balance=poker_types.Currency(amount=new_balance, currency_code="CHIPS"),
+        new_reserved_balance=poker_types.Currency(
+            amount=new_reserved, currency_code="CHIPS"
+        ),
+        deducted_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
+def _append_funds_released(context, table_root: bytes, amount: int) -> None:
+    """Simulate the PM hop: a *Released event triggers ReleaseFunds on the
+    player aggregate, emitting FundsReleased."""
+    state = _build_state_from_events(context.events)
+    new_reserved = state.reserved_funds - amount
+    new_available = state.bankroll - new_reserved
+    event = player.FundsReleased(
+        amount=poker_types.Currency(amount=amount, currency_code="CHIPS"),
+        key=table_root,
+        new_available_balance=poker_types.Currency(
+            amount=new_available, currency_code="CHIPS"
+        ),
+        new_reserved_balance=poker_types.Currency(
+            amount=new_reserved, currency_code="CHIPS"
+        ),
+        released_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+
+
 @given(
     r'a pending buy-in "(?P<res>[^"]+)" for table "(?P<tbl>[^"]+)" '
     r"seat (?P<seat>\d+) amount (?P<amt>\d+)"
@@ -638,6 +918,7 @@ def step_given_pending_buy_in(context, res, tbl, seat, amt):
         requested_at=make_timestamp(),
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
+    _append_funds_reserved(context, _id_bytes(tbl), int(amt))
 
 
 @given(
@@ -654,6 +935,10 @@ def step_given_pending_registration(context, res, trn, fee):
         requested_at=make_timestamp(),
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
+    # Registration reserves against tournament_root (via the `key` field in the
+    # PM-issued ReserveFunds). PlayerState keys by whatever bytes it sees in
+    # FundsReserved.key.
+    _append_funds_reserved(context, _id_bytes(trn), int(fee))
 
 
 @given(
@@ -673,6 +958,7 @@ def step_given_pending_rebuy(context, res, trn, tbl, seat, fee, chips):
         requested_at=make_timestamp(),
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
+    _append_funds_reserved(context, _id_bytes(tbl), int(fee))
 
     # PendingRebuy.chips_to_add isn't on the RebuyRequested event — seed it
     # directly on the materialized state after replay.
@@ -689,18 +975,38 @@ def step_given_pending_rebuy(context, res, trn, tbl, seat, fee, chips):
     context.state_seeders.append(_seed)
 
 
+def _pending_buy_in_state(context, res: str):
+    state = _build_reservation_state_from_events(context.events)
+    return state.pending_buy_ins.get(_id_bytes(res).hex())
+
+
+def _pending_registration_state(context, res: str):
+    state = _build_reservation_state_from_events(context.events)
+    return state.pending_registrations.get(_id_bytes(res).hex())
+
+
+def _pending_rebuy_state(context, res: str):
+    state = _build_reservation_state_from_events(context.events)
+    return state.pending_rebuys.get(_id_bytes(res).hex())
+
+
 @given(
     r'a BuyInConfirmed event for reservation "(?P<res>[^"]+)" table "(?P<tbl>[^"]+)"'
 )
 def step_given_buy_in_confirmed_event(context, res, tbl):
     if not hasattr(context, "events"):
         context.events = []
+    pending = _pending_buy_in_state(context, res)  # snapshot BEFORE appending Confirmed
     event = buy_in.BuyInConfirmed(
         reservation_id=_id_bytes(res),
         table_root=_id_bytes(tbl),
         confirmed_at=make_timestamp(),
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
+    if pending is not None:
+        _append_funds_deducted(
+            context, _id_bytes(tbl), _id_bytes(res), pending.amount
+        )
 
 
 @given(
@@ -710,23 +1016,33 @@ def step_given_buy_in_confirmed_event(context, res, tbl):
 def step_given_registration_confirmed_event(context, res, trn):
     if not hasattr(context, "events"):
         context.events = []
+    pending = _pending_registration_state(context, res)
     event = registration.RegistrationFeeConfirmed(
         reservation_id=_id_bytes(res),
         tournament_root=_id_bytes(trn),
         confirmed_at=make_timestamp(),
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
+    if pending is not None:
+        _append_funds_deducted(
+            context, _id_bytes(trn), _id_bytes(res), pending.fee
+        )
 
 
 @given(r'a RebuyFeeConfirmed event for reservation "(?P<res>[^"]+)"')
 def step_given_rebuy_confirmed_event(context, res):
     if not hasattr(context, "events"):
         context.events = []
+    pending = _pending_rebuy_state(context, res)
     event = rebuy.RebuyFeeConfirmed(
         reservation_id=_id_bytes(res),
         confirmed_at=make_timestamp(),
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
+    if pending is not None:
+        _append_funds_deducted(
+            context, pending.table_root, _id_bytes(res), pending.fee
+        )
 
 
 # --- When: orchestration commands ---
@@ -741,6 +1057,7 @@ def step_when_initiate_buy_in(context, tbl, seat, amt):
         table_root=_id_bytes(tbl) if tbl else b"",
         seat=int(seat),
         amount=poker_types.Currency(amount=int(amt), currency_code="CHIPS"),
+        player_root=_UNIT_PLAYER_ROOT,
     )
     _execute_handler(context, "initiate_buy_in", cmd)
 
@@ -768,6 +1085,7 @@ def step_when_release_buy_in(context, res, reason):
 def step_when_initiate_registration(context, trn):
     cmd = registration.InitiateTournamentRegistration(
         tournament_root=_id_bytes(trn) if trn else b"",
+        player_root=_UNIT_PLAYER_ROOT,
     )
     _execute_handler(context, "initiate_registration", cmd)
 
@@ -800,6 +1118,7 @@ def step_when_initiate_rebuy(context, trn, tbl, seat):
         tournament_root=_id_bytes(trn) if trn else b"",
         table_root=_id_bytes(tbl) if tbl else b"",
         seat=int(seat),
+        player_root=_UNIT_PLAYER_ROOT,
     )
     _execute_handler(context, "initiate_rebuy", cmd)
 
@@ -1021,16 +1340,34 @@ def step_then_event_has_timestamp(context, field):
 # --- Then: pending-state assertions ---
 
 
-@then(r'the player state has no pending buy-in "(?P<res>[^"]+)"')
+def _reservation_state(context) -> ReservationState:
+    """Pending-state assertions read the reservation aggregate's state.
+
+    Before the reservation refactor these asserted against ``context.state``
+    (a PlayerState with pending dicts). That fused ownership is gone; the
+    pending records now live on the reservation aggregate, so the
+    assertions go through ``context.reservation_state`` — populated by
+    ``_execute_reservation`` after each lifecycle command.
+    """
+    reservation_state = getattr(context, "reservation_state", None)
+    if reservation_state is None:
+        events = getattr(context, "events", [])
+        reservation_state = _build_reservation_state_from_events(events)
+    return reservation_state
+
+
+@then(r'the (?:player|reservation) state has no pending buy-in "(?P<res>[^"]+)"')
 def step_then_no_pending_buy_in(context, res):
-    assert _id_bytes(res).hex() not in context.state.pending_buy_ins
+    assert _id_bytes(res).hex() not in _reservation_state(context).pending_buy_ins
 
 
-@then(r'the player state has no pending registration "(?P<res>[^"]+)"')
+@then(r'the (?:player|reservation) state has no pending registration "(?P<res>[^"]+)"')
 def step_then_no_pending_registration(context, res):
-    assert _id_bytes(res).hex() not in context.state.pending_registrations
+    assert (
+        _id_bytes(res).hex() not in _reservation_state(context).pending_registrations
+    )
 
 
-@then(r'the player state has no pending rebuy "(?P<res>[^"]+)"')
+@then(r'the (?:player|reservation) state has no pending rebuy "(?P<res>[^"]+)"')
 def step_then_no_pending_rebuy(context, res):
-    assert _id_bytes(res).hex() not in context.state.pending_rebuys
+    assert _id_bytes(res).hex() not in _reservation_state(context).pending_rebuys

@@ -1,6 +1,13 @@
-"""Buy-in process manager gRPC server.
+"""Reservation PM gRPC server.
 
-This module runs the buy-in PM that coordinates Player <-> Table buy-ins.
+Runs the consolidated reservation process manager. Subscribes to events
+from reservation/table/tournament topics and fans out commands to
+player/reservation/table/tournament targets.
+
+``QUERY_ENDPOINT`` points at the coordinator's sync-query port. It's used
+to fetch tournament state (for entry fee / rebuy cost lookup) and table
+state (for seat / capacity validation) synchronously before issuing
+downstream commands.
 """
 
 import os
@@ -9,7 +16,7 @@ import structlog
 
 from angzarr_client import ProcessManagerGrpc, QueryClient, Router, run_server
 from angzarr_client.proto.angzarr import process_manager_pb2_grpc
-from handlers import BuyInPM
+from handlers import ReservationPM
 
 structlog.configure(
     processors=[
@@ -26,11 +33,6 @@ logger = structlog.get_logger()
 
 
 def _build_query_client() -> QueryClient | None:
-    """Connect to the coordinator for synchronous cross-domain reads.
-
-    The endpoint is taken from ``QUERY_ENDPOINT``; returns ``None`` when
-    unset so the PM still bootstraps in standalone smoke-test contexts.
-    """
     endpoint = os.environ.get("QUERY_ENDPOINT")
     if not endpoint:
         return None
@@ -40,14 +42,16 @@ def _build_query_client() -> QueryClient | None:
 if __name__ == "__main__":
     query_client = _build_query_client()
     router = (
-        Router("pmg-buy-in").with_handler(BuyInPM(query_client=query_client)).build()
+        Router("pmg-reservation")
+        .with_handler(ReservationPM, lambda: ReservationPM(query_client=query_client))
+        .build()
     )
     servicer = ProcessManagerGrpc(router)
     run_server(
         process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,
         servicer,
-        service_name="pmg-buy-in",
-        domain="buyin",
-        default_port="50392",
+        service_name="pmg-reservation",
+        domain="pmg-reservation",
+        default_port="50395",
         logger=logger,
     )

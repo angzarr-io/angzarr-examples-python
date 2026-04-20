@@ -83,13 +83,15 @@ class TableSyncCompleteSaga:
     def handle_hand_complete(
         self, event: hand.HandComplete, destinations: Destinations
     ) -> types.CommandBook:
-        results = [
-            table.PotResult(
+        results = []
+        for winner in event.winners:
+            pot_result = table.PotResult(
                 winner_root=winner.player_root,
                 amount=winner.amount,
             )
-            for winner in event.winners
-        ]
+            if winner.HasField("winning_hand"):
+                pot_result.winning_hand.CopyFrom(winner.winning_hand)
+            results.append(pot_result)
 
         end_hand = table.EndHand(
             hand_root=event.table_root,

@@ -39,8 +39,14 @@ _container +ARGS: _build-image
         docker run --rm --network=host \
             -u {{UID}}:{{GID}} \
             -e UV_CACHE_DIR=/angzarr/examples-python/main/.uv-cache \
+            -e PLAYER_URL="${PLAYER_URL:-}" \
+            -e TABLE_URL="${TABLE_URL:-}" \
+            -e HAND_URL="${HAND_URL:-}" \
+            -e KUBECONFIG=/home/user/.kube/config \
             -v "{{ANGZARR_ROOT}}:/angzarr" \
             -v "{{ROOT}}/justfile.container:/angzarr/examples-python/main/justfile:ro" \
+            -v "/usr/bin/kubectl:/usr/local/bin/kubectl:ro" \
+            -v "${HOME}/.kube:/home/user/.kube:ro" \
             -w /angzarr/examples-python/main \
             {{IMAGE}} just {{ARGS}}
     fi
@@ -112,6 +118,11 @@ PLAYER_IMAGE := "ghcr.io/angzarr-io/poker-python-player"
 TABLE_IMAGE := "ghcr.io/angzarr-io/poker-python-table"
 HAND_IMAGE := "ghcr.io/angzarr-io/poker-python-hand"
 AI_IMAGE := "ghcr.io/angzarr-io/poker-python-ai-player"
+SAGA_TABLE_HAND_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-table-hand"
+SAGA_TABLE_PLAYER_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-table-player"
+TOURNAMENT_IMAGE := "ghcr.io/angzarr-io/poker-python-tournament"
+RESERVATION_IMAGE := "ghcr.io/angzarr-io/poker-python-reservation"
+PMG_RESERVATION_IMAGE := "ghcr.io/angzarr-io/poker-python-pmg-reservation"
 AI_CHART := ROOT + "/deploy/k8s/helm/ai-player"
 
 # =============================================================================
@@ -119,9 +130,25 @@ AI_CHART := ROOT + "/deploy/k8s/helm/ai-player"
 # =============================================================================
 
 # Deploy everything to kind cluster (repeatable)
-up: kind-create build-images load-images deploy-infra deploy-apps deploy-ai
+up: kind-create seed-secrets build-images load-images deploy-infra deploy-apps deploy-ai
     @echo "=== Deployment complete ==="
     @just status
+
+# Generate random db/mq passwords and store them as a K8s Secret in the
+# cluster. Idempotent: re-running rotates the passwords, so run this
+# BEFORE deploy-infra / deploy-apps on a fresh cluster, and re-run the
+# whole deploy chain when rotating.
+#
+# Passwords are never written to disk; generate_secrets.py emits a Secret
+# manifest on stdout and we pipe it directly into kubectl.
+seed-secrets: kind-create
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Seeding angzarr-credentials Secret in namespace {{NAMESPACE}} ==="
+    python3 {{ROOT}}/tools/generate_secrets.py \
+        --namespace {{NAMESPACE}} \
+        --name angzarr-credentials \
+        | kubectl apply -f -
 
 # Tear down kind cluster
 down:
@@ -148,6 +175,13 @@ build-images:
     docker build -t {{PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-player {{ROOT}}
     docker build -t {{TABLE_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-table {{ROOT}}
     docker build -t {{HAND_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-hand {{ROOT}}
+    docker build -t {{TOURNAMENT_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-tournament {{ROOT}}
+    docker build -t {{RESERVATION_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-reservation {{ROOT}}
+    echo "=== Building reservation PM ==="
+    docker build -t {{PMG_RESERVATION_IMAGE}}:latest -f {{ROOT}}/Containerfile --target pmg-reservation {{ROOT}}
+    echo "=== Building poker sagas ==="
+    docker build -t {{SAGA_TABLE_HAND_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-table-hand {{ROOT}}
+    docker build -t {{SAGA_TABLE_PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-table-player {{ROOT}}
     echo "=== Building AI player ==="
     docker build -t {{AI_IMAGE}}:latest -f {{ROOT}}/ai_player/Containerfile --target production {{ROOT}}
 
@@ -159,6 +193,11 @@ load-images:
     kind load docker-image {{PLAYER_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{TABLE_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{HAND_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{TOURNAMENT_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{RESERVATION_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{PMG_RESERVATION_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{SAGA_TABLE_HAND_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{SAGA_TABLE_PLAYER_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{AI_IMAGE}}:latest --name {{KIND_CLUSTER}}
 
 # Pull and load coordinator images into kind
@@ -198,17 +237,46 @@ kind-create:
 kind-delete:
     kind delete cluster --name {{KIND_CLUSTER}} || true
 
-# Deploy infrastructure (postgres, rabbitmq)
+# Deploy infrastructure (postgres, rabbitmq).
+#
+# Passwords come from the in-cluster Secret ``angzarr-credentials``
+# (populated by ``just seed-secrets``). They're injected into the infra
+# charts via ``--set-string`` on every install so there's no in-repo
+# fallback and no file on disk that holds a credential. If the Secret
+# is missing the recipe fails early with a clear message.
+#
+# Chart-side: ``angzarr-db-postgres-simple`` / ``angzarr-mq-rabbitmq-simple``
+# may or may not honor these override keys. Where a chart ignores the
+# override, its own internal default applies; the associated app-side
+# URI will then fail to auth and the pod will crash loudly — which is
+# the right signal ("chart can't consume the override yet") rather than
+# silently succeeding with a baked-in secret. Track chart-extension
+# needs separately rather than papering over with our own hard-coded
+# fallback.
 deploy-infra:
     #!/usr/bin/env bash
     set -euo pipefail
+    DB_PW=$(kubectl get secret -n {{NAMESPACE}} angzarr-credentials \
+        -o jsonpath='{.data.db-password}' 2>/dev/null | base64 -d)
+    MQ_PW=$(kubectl get secret -n {{NAMESPACE}} angzarr-credentials \
+        -o jsonpath='{.data.mq-password}' 2>/dev/null | base64 -d)
+    if [[ -z "$DB_PW" || -z "$MQ_PW" ]]; then
+        echo "error: angzarr-credentials Secret missing db-password or mq-password." >&2
+        echo "       run 'just seed-secrets' first." >&2
+        exit 1
+    fi
     echo "=== Deploying PostgreSQL ==="
     helm upgrade --install angzarr-db {{CHART_REGISTRY}}/angzarr-db-postgres-simple \
       --namespace {{NAMESPACE}} \
+      --set fullnameOverride=angzarr-db \
+      --set-string auth.password="$DB_PW" \
+      --set-string auth.postgresPassword="$DB_PW" \
       --wait --timeout 2m
     echo "=== Deploying RabbitMQ ==="
     helm upgrade --install angzarr-mq {{CHART_REGISTRY}}/angzarr-mq-rabbitmq-simple \
       --namespace {{NAMESPACE}} \
+      --set fullnameOverride=angzarr-mq \
+      --set-string auth.password="$MQ_PW" \
       --wait --timeout 3m
     echo "Infrastructure deployed"
 
@@ -216,14 +284,34 @@ deploy-infra:
 # Application deployment targets
 # =============================================================================
 
-# Deploy poker applications using Helm
+# Deploy poker applications using Helm.
+#
+# values.yaml holds UNUSED_REPLACED_AT_DEPLOY sentinels for the password
+# / uri / url fields — they are intentionally invalid so that a forgotten
+# override triggers an auth failure rather than a silent connection.
+# This recipe reads the real values from the in-cluster Secret
+# ``angzarr-credentials`` and injects them via ``--set-string``. The
+# secret itself is populated by ``just seed-secrets``; this recipe fails
+# early if the Secret (or either required key) is missing.
 deploy-apps:
     #!/usr/bin/env bash
     set -euo pipefail
+    DB_PW=$(kubectl get secret -n {{NAMESPACE}} angzarr-credentials \
+        -o jsonpath='{.data.db-password}' 2>/dev/null | base64 -d)
+    MQ_PW=$(kubectl get secret -n {{NAMESPACE}} angzarr-credentials \
+        -o jsonpath='{.data.mq-password}' 2>/dev/null | base64 -d)
+    if [[ -z "$DB_PW" || -z "$MQ_PW" ]]; then
+        echo "error: angzarr-credentials Secret missing db-password or mq-password." >&2
+        echo "       run 'just seed-secrets' first." >&2
+        exit 1
+    fi
     echo "=== Deploying poker applications ==="
     helm upgrade --install poker {{CHART_REGISTRY}}/angzarr \
       --version {{ANGZARR_CHART_VERSION}} \
       -f {{ROOT}}/values.yaml \
+      --set-string storage.postgres.password="$DB_PW" \
+      --set-string storage.postgres.uri="postgres://angzarr:${DB_PW}@angzarr-db:5432/angzarr" \
+      --set-string messaging.amqp.url="amqp://angzarr:${MQ_PW}@angzarr-mq:5672/%2F" \
       --namespace {{NAMESPACE}} \
       --wait --timeout 5m
     echo "Poker applications deployed"

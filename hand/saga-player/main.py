@@ -70,7 +70,7 @@ class HandPlayerSaga:
 
 
 if __name__ == "__main__":
-    router = Router("saga-hand-player").with_handler(HandPlayerSaga()).build()
+    router = Router("saga-hand-player").with_handler(HandPlayerSaga, lambda: HandPlayerSaga()).build()
     servicer = SagaGrpc(router)
     run_server(
         saga_pb2_grpc.add_SagaServiceServicer_to_server,

@@ -9,7 +9,7 @@ from behave import then, use_step_matcher, when
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
-from .common_steps import new_uuid_bytes, pack_command
+from common_steps import new_uuid_bytes, pack_command
 
 use_step_matcher("re")
 
@@ -55,7 +55,7 @@ def _send_hand_command(context, cmd, type_name: str):
 
 def _post_blind(context, player_name: str, blind_type: str, amount: int):
     """Post a blind for a player."""
-    from .player_steps import _player_root
+    from player_steps import _player_root
 
     player_root = _player_root(context, player_name)
     cmd = hand.PostBlind(
@@ -63,7 +63,7 @@ def _post_blind(context, player_name: str, blind_type: str, amount: int):
         blind_type=blind_type,
         amount=amount,
     )
-    _send_hand_command(context, cmd, "examples.PostBlind")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.PostBlind")
     hs = _get_hand_state(context)
     hs["pot"] = hs.get("pot", 0) + amount
     # Update player stack
@@ -72,7 +72,7 @@ def _post_blind(context, player_name: str, blind_type: str, amount: int):
 
 def _player_action(context, player_name: str, action_type, amount: int = 0):
     """Execute a player action."""
-    from .player_steps import _player_root
+    from player_steps import _player_root
 
     player_root = _player_root(context, player_name)
     cmd = hand.PlayerAction(
@@ -80,7 +80,7 @@ def _player_action(context, player_name: str, action_type, amount: int = 0):
         action=action_type,
         amount=amount,
     )
-    _send_hand_command(context, cmd, "examples.PlayerAction")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.PlayerAction")
 
 
 def _update_stack(context, player_name: str, delta: int):
@@ -109,7 +109,7 @@ def _get_stack(context, player_name: str) -> int:
 @when(r"a hand starts and blinds are posted \((?P<sb>\d+)/(?P<bb>\d+)\)")
 def step_when_hand_starts_and_blinds_posted(context, sb, bb):
     """Start hand and post blinds."""
-    from .table_steps import _start_hand
+    from table_steps import _start_hand
 
     table_name = context.current_table_name
     if table_name:
@@ -133,7 +133,7 @@ def step_when_blinds_posted(context, sb, bb):
 @when(r"a hand starts with dealer at seat (?P<seat>\d+)")
 def step_when_hand_starts_with_dealer(context, seat):
     """Start hand with specific dealer position."""
-    from .table_steps import _start_hand
+    from table_steps import _start_hand
 
     table_name = context.current_table_name
     if table_name:
@@ -241,7 +241,7 @@ def step_when_player_folds_cascade(context, name):
 )
 def step_when_player_discards(context, name, count, indices):
     """Discard cards for draw poker."""
-    from .player_steps import _player_root
+    from player_steps import _player_root
 
     player_root = _player_root(context, name)
     idx_list = [int(i.strip()) for i in indices.split(",")]
@@ -249,20 +249,20 @@ def step_when_player_discards(context, name, count, indices):
         player_root=player_root,
         card_indices=idx_list,
     )
-    _send_hand_command(context, cmd, "examples.RequestDraw")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.RequestDraw")
 
 
 @when(r'"(?P<name>[^"]+)" stands pat')
 def step_when_player_stands_pat(context, name):
     """Player stands pat (keeps all cards)."""
-    from .player_steps import _player_root
+    from player_steps import _player_root
 
     player_root = _player_root(context, name)
     cmd = hand.RequestDraw(
         player_root=player_root,
         card_indices=[],
     )
-    _send_hand_command(context, cmd, "examples.RequestDraw")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.RequestDraw")
 
 
 # ==========================================================================
@@ -313,7 +313,7 @@ def step_when_showdown_occurs(context):
 )
 def step_when_hand_completes_with_winner(context, hand_num, name, amount):
     """Complete a hand with specific winner and amount."""
-    from .table_steps import _start_hand
+    from table_steps import _start_hand
 
     table_name = context.current_table_name
     amt = int(amount)
@@ -334,7 +334,7 @@ def step_when_hand_completes_with_winner(context, hand_num, name, amount):
 @when(r"hand (?P<hand_num>\d+) completes")
 def step_when_hand_completes_num(context, hand_num):
     """Complete a hand."""
-    from .table_steps import _start_hand
+    from table_steps import _start_hand
 
     table_name = context.current_table_name
     if table_name:
@@ -399,7 +399,7 @@ def step_when_player_attempts_raise(context, amount):
 @when(r'"(?P<name>[^"]+)" adds (?P<amount>\d+) chips to her stack')
 def step_when_player_adds_chips(context, name, amount):
     """Add chips between hands."""
-    from .player_steps import _player_root
+    from player_steps import _player_root
 
     table_name = context.current_table_name
     table_root = context.tables[table_name]["root"] if table_name else None
@@ -412,7 +412,7 @@ def step_when_player_adds_chips(context, name, amount):
         player_root=player_root,
         amount=amt,
     )
-    packed = pack_command(cmd, "examples.AddChips")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.AddChips")
 
     try:
         if table_root:

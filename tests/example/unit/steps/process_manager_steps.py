@@ -837,36 +837,34 @@ from angzarr_client.proto.examples import tournament_pb2 as tournament
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 
-def _load_pm_modules(pmg_dir: Path, sibling_dirs: list[Path]) -> dict:
-    """Load handlers + state + helpers from a PMG directory under unique aliases.
-
-    Each PMG dir has ``handlers.py`` that does ``from state import X`` etc.
-    To avoid collisions across dirs, we temporarily stash any existing
-    ``state``/``table_state``/``tournament_state``/``handlers`` modules,
-    load the PMG via sys.path, capture the classes we need, then restore.
-    """
-    conflict_names = ("state", "table_state", "tournament_state", "handlers")
+# The three legacy PMs (buy_in/pmg, rebuy/pmg, registration/pmg) were
+# consolidated into reservation/pmg/ in the reservation refactor. Load the
+# single consolidated PM under its sibling-import convention (handlers.py
+# does ``from state import …``), then expose the old class names as
+# aliases so the existing step definitions in this file keep working
+# without being rewritten.
+def _load_reservation_pm() -> dict:
+    conflict_names = (
+        "state",
+        "table_state",
+        "tournament_state",
+        "handlers",
+    )
     saved = {n: sys.modules.pop(n) for n in conflict_names if n in sys.modules}
     saved_path = list(sys.path)
-    # rebuy's handlers expect buy_in/pmg and registration/pmg siblings on path
-    for d in reversed(sibling_dirs):
-        sys.path.insert(0, str(d))
+    pmg_dir = _REPO_ROOT / "reservation" / "pmg"
     sys.path.insert(0, str(pmg_dir))
     try:
         import handlers as h
         import state as s
-        result = {"handlers": h, "state": s}
-        # Registration extras
-        try:
-            import tournament_state as ts
-            result["tournament_state"] = ts
-        except ImportError:
-            pass
-        try:
-            import table_state as tbs
-            result["table_state"] = tbs
-        except ImportError:
-            pass
+        import table_state as tbs
+        import tournament_state as ts
+        result = {
+            "handlers": h,
+            "state": s,
+            "table_state": tbs,
+            "tournament_state": ts,
+        }
     finally:
         for n in conflict_names:
             sys.modules.pop(n, None)
@@ -876,32 +874,29 @@ def _load_pm_modules(pmg_dir: Path, sibling_dirs: list[Path]) -> dict:
     return result
 
 
-# Load all three PMs on import
-_buy_in_mods = _load_pm_modules(_REPO_ROOT / "buy_in" / "pmg", [])
-_registration_mods = _load_pm_modules(_REPO_ROOT / "registration" / "pmg", [])
-_rebuy_mods = _load_pm_modules(
-    _REPO_ROOT / "rebuy" / "pmg",
-    sibling_dirs=[
-        _REPO_ROOT / "buy_in" / "pmg",
-        _REPO_ROOT / "registration" / "pmg",
-    ],
-)
+_reservation_mods = _load_reservation_pm()
 
-BuyInPM = _buy_in_mods["handlers"].BuyInPM
-BuyInState = _buy_in_mods["state"].BuyInState
+ReservationPM = _reservation_mods["handlers"].ReservationPM
+ReservationPMState = _reservation_mods["state"].ReservationPMState
 
-RegistrationPM = _registration_mods["handlers"].RegistrationPM
-RegistrationState = _registration_mods["state"].RegistrationState
-TournamentStateHelper = _registration_mods["tournament_state"].TournamentStateHelper
-tournament_state_from_event_book = _registration_mods[
+# Back-compat aliases — each legacy PM class name now points at the
+# consolidated ReservationPM. The step bodies below instantiate these
+# freely; a single PM carries all three flavors, so the substitution is
+# safe (the state discriminator kicks in per event kind).
+BuyInPM = ReservationPM
+RegistrationPM = ReservationPM
+RebuyPM = ReservationPM
+
+# Legacy state aliases — all three flavors share one unified state class.
+BuyInState = ReservationPMState
+RegistrationState = ReservationPMState
+RebuyState = ReservationPMState
+
+TournamentStateHelper = _reservation_mods["tournament_state"].TournamentStateHelper
+tournament_state_from_event_book = _reservation_mods[
     "tournament_state"
 ].tournament_state_from_event_book
-tournament_state_rebuild = _registration_mods[
-    "tournament_state"
-].tournament_state_rebuild
-
-RebuyPM = _rebuy_mods["handlers"].RebuyPM
-RebuyState = _rebuy_mods["state"].RebuyState
+tournament_state_rebuild = _reservation_mods["tournament_state"].tournament_state_rebuild
 
 
 # --- Helpers ---------------------------------------------------------------
@@ -954,6 +949,21 @@ def _first_command(response):
     assert response is not None, "Handler returned None"
     assert response.commands, "Expected at least one command"
     return response.commands[0]
+
+
+def _find_command(response, proto_cls):
+    """Return the first command book whose packed payload matches ``proto_cls``."""
+    assert response is not None, "Handler returned None"
+    assert response.commands, "Expected at least one command"
+    type_url_suffix = proto_cls.DESCRIPTOR.full_name
+    for cmd_book in response.commands:
+        for page in cmd_book.pages:
+            if page.command.type_url.endswith(type_url_suffix):
+                return cmd_book
+    raise AssertionError(
+        f"Expected a {proto_cls.__name__} command in response; "
+        f"got {[b.cover.domain for b in response.commands]}"
+    )
 
 
 def _unpack_command(cmd_book, proto_cls):
@@ -1177,7 +1187,7 @@ def step_given_destinations(context, kv):
 
 @when(r"the BuyInPM handles (?P<handler>\w+)")
 def step_when_buy_in_handles(context, handler):
-    fn = getattr(context.pm_instance, f"handle_{handler}")
+    fn = getattr(context.pm_instance, f"on_{handler}")
     context.pm_response = fn(
         context.pm_event,
         state=context.pm_state,
@@ -1187,7 +1197,7 @@ def step_when_buy_in_handles(context, handler):
 
 @when(r"the RebuyPM handles (?P<handler>\w+)")
 def step_when_rebuy_handles(context, handler):
-    fn = getattr(context.pm_instance, f"handle_{handler}")
+    fn = getattr(context.pm_instance, f"on_{handler}")
     context.pm_response = fn(
         context.pm_event,
         state=context.pm_state,
@@ -1197,7 +1207,7 @@ def step_when_rebuy_handles(context, handler):
 
 @when(r"the RegistrationPM handles (?P<handler>\w+)")
 def step_when_registration_handles(context, handler):
-    fn = getattr(context.pm_instance, f"handle_{handler}")
+    fn = getattr(context.pm_instance, f"on_{handler}")
     context.pm_response = fn(
         context.pm_event,
         state=context.pm_state,
@@ -1228,12 +1238,11 @@ _COMMAND_TYPES = {
     + r') command is sent to the "(?P<domain>\w+)" domain'
 )
 def step_then_cmd_sent_to_domain(context, cmd_name, domain):
-    cmd_book = _first_command(context.pm_response)
-    assert cmd_book.cover.domain == domain, (
-        f"Expected domain {domain!r}, got {cmd_book.cover.domain!r}"
-    )
     proto_cls = _COMMAND_TYPES[cmd_name]
-    # Stash the unpacked command for field assertions
+    cmd_book = _find_command(context.pm_response, proto_cls)
+    assert cmd_book.cover.domain == domain, (
+        f"Expected {cmd_name} on domain {domain!r}, got {cmd_book.cover.domain!r}"
+    )
     context.pm_command = _unpack_command(cmd_book, proto_cls)
     context.pm_command_name = cmd_name
 
@@ -1278,15 +1287,15 @@ def step_then_cmd_has_int_field(context, cmd_name, field, value):
 
 
 _PROCESS_EVENT_TYPES = {
-    "examples.BuyInInitiated": buy_in.BuyInInitiated,
-    "examples.BuyInCompleted": buy_in.BuyInCompleted,
-    "examples.BuyInFailed": buy_in.BuyInFailed,
-    "examples.RebuyInitiated": rebuy.RebuyInitiated,
-    "examples.RebuyCompleted": rebuy.RebuyCompleted,
-    "examples.RebuyFailed": rebuy.RebuyFailed,
-    "examples.RegistrationInitiated": registration.RegistrationInitiated,
-    "examples.RegistrationCompleted": registration.RegistrationCompleted,
-    "examples.RegistrationFailed": registration.RegistrationFailed,
+    "angzarr_client.proto.examples.BuyInInitiated": buy_in.BuyInInitiated,
+    "angzarr_client.proto.examples.BuyInCompleted": buy_in.BuyInCompleted,
+    "angzarr_client.proto.examples.BuyInFailed": buy_in.BuyInFailed,
+    "angzarr_client.proto.examples.RebuyInitiated": rebuy.RebuyInitiated,
+    "angzarr_client.proto.examples.RebuyCompleted": rebuy.RebuyCompleted,
+    "angzarr_client.proto.examples.RebuyFailed": rebuy.RebuyFailed,
+    "angzarr_client.proto.examples.RegistrationInitiated": registration.RegistrationInitiated,
+    "angzarr_client.proto.examples.RegistrationCompleted": registration.RegistrationCompleted,
+    "angzarr_client.proto.examples.RegistrationFailed": registration.RegistrationFailed,
 }
 
 
@@ -1308,12 +1317,12 @@ def step_then_process_event_type(context, qualified):
     proto_cls = _PROCESS_EVENT_TYPES[qualified]
     context.pm_process_event = _unpack_process_event(context.pm_response, proto_cls)
     # Short name used by subsequent field assertions
-    context.pm_process_event_name = qualified.split(".", 1)[1]
+    context.pm_process_event_name = qualified.rsplit(".", 1)[-1]
 
 
 _PROCESS_EVENT_NAMES_ALT = "|".join(
     sorted(
-        (name.split(".", 1)[1] for name in _PROCESS_EVENT_TYPES),
+        (name.rsplit(".", 1)[-1] for name in _PROCESS_EVENT_TYPES),
         key=len,
         reverse=True,
     )
@@ -1380,6 +1389,20 @@ def step_then_process_event_phase(context, evt_name, phase):
     assert found, f"Could not resolve phase name {phase!r}"
     assert actual == expected_val, (
         f"{evt_name}.phase: expected {phase} ({expected_val}), got {actual}"
+    )
+
+
+@then(
+    r"the (?P<evt_name>" + _PROCESS_EVENT_NAMES_ALT + r") event has "
+    r"fee amount (?P<amount>-?\d+)"
+)
+def step_then_process_event_fee_amount(context, evt_name, amount):
+    assert context.pm_process_event_name == evt_name, (
+        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    )
+    actual = context.pm_process_event.fee.amount
+    assert actual == int(amount), (
+        f"{evt_name}.fee.amount: expected {amount}, got {actual}"
     )
 
 
@@ -1497,19 +1520,24 @@ def step_then_ts_registration_open(context, val):
     )
 
 
+def _ts_target(context):
+    """Return whichever tournament state holder the scenario populated."""
+    return getattr(context, "tournament_state_helper", None) or context.agg
+
+
 @then(r"the tournament state has max_players (?P<n>\d+)")
 def step_then_ts_max_players(context, n):
-    assert context.tournament_state_helper.max_players == int(n)
+    assert _ts_target(context).max_players == int(n)
 
 
 @then(r"the tournament state has buy_in (?P<n>\d+)")
 def step_then_ts_buy_in(context, n):
-    assert context.tournament_state_helper.buy_in == int(n)
+    assert _ts_target(context).buy_in == int(n)
 
 
 @then(r"the tournament state has starting_stack (?P<n>\d+)")
 def step_then_ts_starting_stack(context, n):
-    assert context.tournament_state_helper.starting_stack == int(n)
+    assert _ts_target(context).starting_stack == int(n)
 
 
 @then(r"the tournament state has registered_count (?P<n>\d+)")

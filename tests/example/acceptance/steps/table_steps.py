@@ -9,7 +9,7 @@ from behave import given, then, use_step_matcher, when
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import table_pb2 as table
 
-from .common_steps import new_uuid_bytes, pack_command
+from common_steps import new_uuid_bytes, pack_command
 
 use_step_matcher("re")
 
@@ -51,7 +51,7 @@ def _create_table(
         max_players=max_players,
         action_timeout_seconds=30,
     )
-    packed = pack_command(cmd, "examples.CreateTable")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.CreateTable")
     seq = context.tables[table_name]["sequence"]
 
     response = context.client.send_command("table", root, packed, sequence=seq)
@@ -65,7 +65,7 @@ def _create_table(
 
 def _join_table(context, player_name: str, table_name: str, seat: int, buy_in: int):
     """Join a player to a table and update tracked state."""
-    from .player_steps import _player_root
+    from player_steps import _player_root
 
     table_root = _table_root(context, table_name)
     player_root = _player_root(context, player_name)
@@ -75,7 +75,7 @@ def _join_table(context, player_name: str, table_name: str, seat: int, buy_in: i
         preferred_seat=seat,
         buy_in_amount=buy_in,
     )
-    packed = pack_command(cmd, "examples.JoinTable")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.JoinTable")
     seq = context.tables[table_name]["sequence"]
 
     response = context.client.send_command("table", table_root, packed, sequence=seq)
@@ -98,7 +98,7 @@ def _start_hand(context, table_name: str, sync_mode=None, cascade_error_mode=Non
     """Start a hand at a table and update tracked state."""
     table_root = _table_root(context, table_name)
     cmd = table.StartHand()
-    packed = pack_command(cmd, "examples.StartHand")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.StartHand")
     seq = context.tables[table_name]["sequence"]
 
     kwargs = {"sequence": seq}
@@ -167,7 +167,7 @@ def step_given_omaha_table(context, table_name, sb, bb):
 @given(r"seated players:")
 def step_given_seated_players(context):
     """Seat players at the most recently created table."""
-    from .player_steps import _deposit_funds, _register_player
+    from player_steps import _deposit_funds, _register_player
 
     table_name = context.current_table_name
     assert table_name is not None, "No current table to seat players at"
@@ -285,7 +285,7 @@ def step_when_player_joins_table(context, name, table_name, seat, buy_in):
 @when(r'player "(?P<name>[^"]+)" leaves table "(?P<table_name>[^"]+)"')
 def step_when_player_leaves_table(context, name, table_name):
     """Remove a player from a table."""
-    from .player_steps import _player_root
+    from player_steps import _player_root
 
     table_root = _table_root(context, table_name)
     player_root = _player_root(context, name)
@@ -293,7 +293,7 @@ def step_when_player_leaves_table(context, name, table_name):
     cmd = table.LeaveTable(
         player_root=player_root,
     )
-    packed = pack_command(cmd, "examples.LeaveTable")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.LeaveTable")
     seq = context.tables[table_name]["sequence"]
 
     response = context.client.send_command("table", table_root, packed, sequence=seq)

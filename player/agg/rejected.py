@@ -18,32 +18,31 @@ from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 def handle_table_join_rejected(
     notification: types.Notification,
     state: PlayerState,
-) -> player.FundsReleased | None:
+) -> player.FundsReleased:
     """Handle JoinTable rejection by releasing reserved funds.
 
-    Returns the FundsReleased event directly (packed into an EventBook by the
-    router) or ``None`` if no reservation exists for the rejected table.
+    Always returns a FundsReleased event — ``amount`` is zero when no
+    reservation exists for the rejected table, so downstream read-models
+    still see a correlated compensation record.
     """
     rejection = types.RejectionNotification()
     if notification.HasField("payload"):
         notification.payload.Unpack(rejection)
 
-    table_root = b""
+    key = b""
     if rejection.HasField("rejected_command"):
         rc = rejection.rejected_command
         if rc.HasField("cover") and rc.cover.HasField("root"):
-            table_root = rc.cover.root.value
+            key = rc.cover.root.value
 
-    table_key = table_root.hex()
-    reserved_amount = state.table_reservations.get(table_key, 0)
-    if reserved_amount == 0:
-        return None
+    bucket = key.hex()
+    reserved_amount = state.table_reservations.get(bucket, 0)
     new_reserved = state.reserved_funds - reserved_amount
     new_available = state.bankroll - new_reserved
 
     return player.FundsReleased(
         amount=poker_types.Currency(amount=reserved_amount, currency_code="CHIPS"),
-        table_root=table_root,
+        key=key,
         new_available_balance=poker_types.Currency(
             amount=new_available, currency_code="CHIPS"
         ),

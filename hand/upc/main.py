@@ -54,7 +54,7 @@ class HandUpcaster:
     pass
 
 
-router = Router("upcaster-hand").with_handler(HandUpcaster()).build()
+router = Router("upcaster-hand").with_handler(HandUpcaster, lambda: HandUpcaster()).build()
 servicer = UpcasterGrpc(router)
 
 

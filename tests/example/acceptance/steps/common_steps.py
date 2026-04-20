@@ -3,11 +3,40 @@
 Provides shared utilities and the Background step that all scenarios use.
 """
 
+import sys
 import time
 import uuid
+from pathlib import Path
 
-from behave import given, then, use_step_matcher
-from google.protobuf.any_pb2 import Any as ProtoAny
+# Behave's exec_file loads each step module without setting __name__/__package__,
+# so sibling step files would fail ``from .other_steps import ...`` at runtime.
+# Drop the steps directory onto sys.path here (common_steps loads first in
+# alphabetical order) so plain ``from other_steps import ...`` works
+# everywhere, including for the deferred inline imports the cyclic
+# player↔table helpers rely on.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from behave import given, then, use_step_matcher  # noqa: E402
+from behave import step_registry as _step_registry_mod  # noqa: E402
+from google.protobuf.any_pb2 import Any as ProtoAny  # noqa: E402
+
+# Cross-step imports (``from player_steps import …`` inside table_steps and
+# vice versa) cause behave to *re*-execute step modules through Python's
+# import system on top of its own exec_file load — which then trips
+# AmbiguousStep on every previously-registered decorator. Make duplicate
+# registration a silent no-op so the cyclic helpers can stay co-located
+# with their step decorators.
+_ORIG_ADD_STEP = _step_registry_mod.StepRegistry.add_step_definition
+
+
+def _add_step_definition_idempotent(self, step_type, step_text, func):
+    try:
+        return _ORIG_ADD_STEP(self, step_type, step_text, func)
+    except _step_registry_mod.AmbiguousStep:
+        return None
+
+
+_step_registry_mod.StepRegistry.add_step_definition = _add_step_definition_idempotent
 
 use_step_matcher("re")
 

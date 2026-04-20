@@ -87,7 +87,7 @@ def _build_router(*handlers) -> Router:
     """Build a Router with the given saga handlers."""
     r = Router("sagas")
     for h in handlers:
-        r = r.with_handler(h)
+        r = r.with_handler(type(h), lambda inst=h: inst)
     return r.build()
 
 
@@ -259,6 +259,28 @@ def step_given_winners(context):
                 player_root=player_root,
                 amount=int(row_dict.get("amount", 0)),
                 pot_type="main",
+            )
+        )
+
+
+@given("winners with winning_hand:")
+def step_given_winners_with_winning_hand(context):
+    """Like ``winners:`` but also populates winning_hand on each PotWinner."""
+    for row in context.table:
+        row_dict = {
+            context.table.headings[j]: row[j]
+            for j in range(len(context.table.headings))
+        }
+        player_root = row_dict.get("player_root", "player-1").encode()
+        context.event.winners.append(
+            hand.PotWinner(
+                player_root=player_root,
+                amount=int(row_dict.get("amount", 0)),
+                pot_type="main",
+                winning_hand=poker_types.HandRanking(
+                    rank_type=poker_types.HIGH_CARD,
+                    score=1,
+                ),
             )
         )
 
@@ -601,7 +623,7 @@ def step_then_no_exception(context):
 # =============================================================================
 # New step defs (EU-0309..) - ported directly from tests/unit/test_saga.py.
 # These exercise the Router via SagaHandleRequest with explicit destination
-# sequences and event-type assertions in the "examples.EventName" style.
+# sequences and event-type assertions in the "angzarr_client.proto.examples.EventName" style.
 # =============================================================================
 
 
@@ -691,7 +713,10 @@ def step_when_dispatch_saga_request(context, dest_seqs):
     context.commands = list(response.commands)
 
 
-@then("the result is a examples.(?P<event_name>\\w+) command to (?P<domain>\\w+) domain")
+@then(
+    "the result is a (?:angzarr_client\\.proto\\.)?examples\\.(?P<event_name>\\w+) "
+    "command to (?P<domain>\\w+) domain"
+)
 def step_then_result_is_command(context, event_name, domain):
     """Verify the first emitted command matches examples.<EventName> on the given domain."""
     assert len(context.commands) >= 1, "Expected at least one command"
@@ -699,7 +724,7 @@ def step_then_result_is_command(context, event_name, domain):
     assert (
         cmd_book.cover.domain == domain
     ), f"Expected domain {domain}, got {cmd_book.cover.domain}"
-    suffix = f"examples.{event_name}"
+    suffix = f"angzarr_client.proto.examples.{event_name}"
     assert cmd_book.pages[0].command.type_url.endswith(suffix), (
         f"Expected command type ending with {suffix}, got "
         f"{cmd_book.pages[0].command.type_url}"
@@ -747,6 +772,31 @@ def step_then_end_hand_result(context, count, winner, amount):
     ), f"Expected amount {amount}, got {result.amount}"
 
 
+@then("the EndHand command has (?P<count>\\d+) results")
+def step_then_end_hand_result_count(context, count):
+    """Verify the EndHand command results list has the expected length."""
+    cmd_any = context.commands[0].pages[0].command
+    cmd = table.EndHand()
+    cmd_any.Unpack(cmd)
+    assert len(cmd.results) == int(count), (
+        f"Expected {count} results, got {len(cmd.results)}"
+    )
+
+
+@then("the EndHand command result (?P<index>\\d+) has winning_hand populated")
+def step_then_end_hand_winning_hand(context, index):
+    """Verify the Nth EndHand result carries a populated winning_hand."""
+    cmd_any = context.commands[0].pages[0].command
+    cmd = table.EndHand()
+    cmd_any.Unpack(cmd)
+    i = int(index)
+    assert i < len(cmd.results), f"Only {len(cmd.results)} results"
+    result = cmd.results[i]
+    assert result.HasField("winning_hand"), (
+        f"Expected winning_hand populated on result {i}"
+    )
+
+
 @then("(?P<count>\\d+) commands are emitted to player domain")
 def step_then_commands_to_player(context, count):
     """Verify the expected number of commands were emitted to player domain."""
@@ -757,7 +807,7 @@ def step_then_commands_to_player(context, count):
     ), f"Expected {expected} commands to player, got {len(player_cmds)}"
 
 
-@then("each command is a examples.ReleaseFunds")
+@then("each command is a (?:angzarr_client\\.proto\\.)?examples\\.ReleaseFunds")
 def step_then_each_release_funds(context):
     """Verify every emitted command is a ReleaseFunds."""
     for c in context.commands:
@@ -766,7 +816,7 @@ def step_then_each_release_funds(context):
         )
 
 
-@then("each command is a examples.DepositFunds")
+@then("each command is a (?:angzarr_client\\.proto\\.)?examples\\.DepositFunds")
 def step_then_each_deposit_funds(context):
     """Verify every emitted command is a DepositFunds."""
     for c in context.commands:

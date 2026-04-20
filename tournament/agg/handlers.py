@@ -111,6 +111,10 @@ class Tournament:
             event.rebuy_config if event.HasField("rebuy_config") else None
         )
         state.blind_structure = list(event.blind_structure)
+        if not state.blind_structure:
+            state.blind_structure.append(
+                tournament.BlindLevel(level=1, small_blind=0, big_blind=0, ante=0)
+            )
         state.current_level = 1
 
     @applies(tournament.RegistrationOpened)
@@ -266,24 +270,27 @@ class Tournament:
         return player_root_hex in self._state.registered_players
 
     def can_rebuy(self, player_root_hex: str) -> bool:
+        return self._rebuy_denial_reason(player_root_hex) is None
+
+    def _rebuy_denial_reason(self, player_root_hex: str) -> str | None:
         s = self._state
         if s.status != tournament.TournamentStatus.TOURNAMENT_RUNNING:
-            return False
+            return "Tournament is not running"
         if s.rebuy_config is None or not s.rebuy_config.enabled:
-            return False
+            return "Rebuys are not enabled"
         if (
             s.rebuy_config.rebuy_level_cutoff > 0
             and s.current_level > s.rebuy_config.rebuy_level_cutoff
         ):
-            return False
+            return "Rebuy window is closed"
         registration = s.registered_players.get(player_root_hex)
         if registration is not None:
             if (
                 s.rebuy_config.max_rebuys > 0
                 and registration.rebuys_used >= s.rebuy_config.max_rebuys
             ):
-                return False
-        return True
+                return "Maximum rebuys reached"
+        return None
 
     # --- Command handlers ---
 
@@ -350,6 +357,10 @@ class Tournament:
         try:
             if not self.exists:
                 raise CommandRejectedError("Tournament does not exist")
+            if self.is_running:
+                raise CommandRejectedError(
+                    "Cannot open registration on a running tournament"
+                )
             if self.is_registration_open:
                 raise CommandRejectedError("Registration is already open")
             event = tournament.RegistrationOpened(opened_at=now())
@@ -375,7 +386,10 @@ class Tournament:
                 raise CommandRejectedError("Tournament does not exist")
             if not self.is_registration_open:
                 raise CommandRejectedError("Registration is not open")
-            event = tournament.RegistrationClosed(closed_at=now())
+            event = tournament.RegistrationClosed(
+                total_registrations=len(self.registered_players),
+                closed_at=now(),
+            )
             if not router_mode:
                 self._emit(event)
             return event
@@ -455,7 +469,7 @@ class Tournament:
             elif not self.is_player_registered(cmd.player_root.hex()):
                 rejection_reason = "Player is not registered"
             elif not self.can_rebuy(cmd.player_root.hex()):
-                rejection_reason = "Rebuy not allowed"
+                rejection_reason = self._rebuy_denial_reason(cmd.player_root.hex())
 
             if rejection_reason is not None:
                 event = tournament.RebuyDenied(
@@ -471,12 +485,15 @@ class Tournament:
             registration = s.registered_players.get(cmd.player_root.hex())
             rebuy_count = (registration.rebuys_used + 1) if registration else 1
             rebuy_cost = s.rebuy_config.rebuy_cost if s.rebuy_config else s.buy_in
+            chips_added = (
+                s.rebuy_config.rebuy_chips if s.rebuy_config else s.starting_stack
+            )
 
             event = tournament.RebuyProcessed(
                 player_root=cmd.player_root,
                 rebuy_count=rebuy_count,
                 rebuy_cost=rebuy_cost,
-                new_stack=s.starting_stack,
+                chips_added=chips_added,
                 processed_at=now(),
             )
             if not router_mode:
@@ -547,6 +564,7 @@ class Tournament:
 
             event = tournament.PlayerEliminated(
                 player_root=cmd.player_root,
+                hand_root=cmd.hand_root,
                 finish_position=self.players_remaining,
                 payout=0,
                 eliminated_at=now(),
@@ -571,6 +589,8 @@ class Tournament:
         try:
             if not self.exists:
                 raise CommandRejectedError("Tournament does not exist")
+            if self.status == tournament.TournamentStatus.TOURNAMENT_PAUSED:
+                raise CommandRejectedError("Tournament is already paused")
             if not self.is_running:
                 raise CommandRejectedError("Tournament is not running")
             event = tournament.TournamentPaused(reason=cmd.reason, paused_at=now())

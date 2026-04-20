@@ -20,7 +20,7 @@ from angzarr_client.proto.angzarr import command_handler_pb2_grpc
 
 from .handlers import Table
 
-router = Router("table").with_handler(Table()).build()
+router = Router("table").with_handler(Table, lambda: Table()).build()
 
 
 if __name__ == "__main__":

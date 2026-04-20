@@ -15,7 +15,7 @@ from angzarr_client.proto.angzarr import command_handler_pb2_grpc
 
 from .handlers import Tournament
 
-router = Router("tournament").with_handler(Tournament()).build()
+router = Router("tournament").with_handler(Tournament, lambda: Tournament()).build()
 
 
 if __name__ == "__main__":
