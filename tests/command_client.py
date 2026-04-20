@@ -76,10 +76,14 @@ class GrpcClient(CommandClient):
     def __init__(self, player_url: str):
         table_url = os.environ.get("TABLE_URL", player_url)
         hand_url = os.environ.get("HAND_URL", player_url)
+        tournament_url = os.environ.get("TOURNAMENT_URL", player_url)
+        reservation_url = os.environ.get("RESERVATION_URL", player_url)
         self._channels = {
             "player": grpc.insecure_channel(player_url),
             "table": grpc.insecure_channel(table_url),
             "hand": grpc.insecure_channel(hand_url),
+            "tournament": grpc.insecure_channel(tournament_url),
+            "reservation": grpc.insecure_channel(reservation_url),
         }
         self._stubs = {
             domain: CommandHandlerCoordinatorServiceStub(ch)

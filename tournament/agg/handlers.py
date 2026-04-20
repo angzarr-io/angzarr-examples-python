@@ -653,6 +653,46 @@ class Tournament:
             if router_mode:
                 self._state = saved
 
+    @handles(tournament.CompleteTournament)
+    def handle_complete_tournament(
+        self,
+        cmd: tournament.CompleteTournament,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.TournamentCompleted:
+        """Close the tournament and record the winner.
+
+        Typically issued once only one registered player remains, but the
+        aggregate allows completion from Running / Paused — completion is
+        a terminal transition and gets out of the way of any remaining
+        cleanup a saga or PM wants to do.
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise CommandRejectedError("Tournament does not exist")
+            if self.status == tournament.TournamentStatus.TOURNAMENT_COMPLETED:
+                raise CommandRejectedError("Tournament is already completed")
+            if self.status not in (
+                tournament.TournamentStatus.TOURNAMENT_RUNNING,
+                tournament.TournamentStatus.TOURNAMENT_PAUSED,
+            ):
+                raise CommandRejectedError(
+                    "Tournament must be running or paused to complete"
+                )
+            event = tournament.TournamentCompleted(
+                winner_root=cmd.winner_root,
+                total_prize_pool=self.total_prize_pool,
+                completed_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
 
 # Populate the applier registry after class definition.
 for _name in dir(Tournament):

@@ -42,6 +42,7 @@ def before_scenario(context, scenario):
     context.players = {}
     context.tables = {}
     context.hands = {}
+    context.tournaments = {}
     context.last_response = None
     context.last_error = None
     context.last_sync_mode = None
