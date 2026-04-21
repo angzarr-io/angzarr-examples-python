@@ -27,6 +27,7 @@ def _derive_hand_root(table_name: str, hand_number: int) -> bytes:
     seed = f"angzarr.poker.hand.table_{table_name}.{hand_number}"
     return hashlib.sha256(seed.encode()).digest()[:16]
 
+
 use_step_matcher("re")
 
 

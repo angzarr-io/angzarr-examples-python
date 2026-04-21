@@ -78,8 +78,12 @@ def sidecar_address() -> Iterator[str]:
 
     run = subprocess.run(
         [
-            "docker", "run", "--rm", "-d",
-            "-p", f"{host_port}:50500",
+            "docker",
+            "run",
+            "--rm",
+            "-d",
+            "-p",
+            f"{host_port}:50500",
             AI_IMAGE,
         ],
         capture_output=True,

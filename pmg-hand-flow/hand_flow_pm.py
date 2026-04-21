@@ -134,7 +134,9 @@ class HandFlowPM:
 
 
 if __name__ == "__main__":
-    router = Router("pmg-hand-flow").with_handler(HandFlowPM, lambda: HandFlowPM()).build()
+    router = (
+        Router("pmg-hand-flow").with_handler(HandFlowPM, lambda: HandFlowPM()).build()
+    )
     servicer = ProcessManagerGrpc(router)
     run_server(
         process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,

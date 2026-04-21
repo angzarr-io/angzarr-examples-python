@@ -320,9 +320,7 @@ def deduct_reserved_funds_validate(
     table_key = cmd.key.hex()
     reserved_for_key = state.table_reservations.get(table_key, 0)
     if amount > reserved_for_key:
-        raise CommandRejectedError(
-            "amount exceeds reserved funds for this key"
-        )
+        raise CommandRejectedError("amount exceeds reserved funds for this key")
     return amount
 
 

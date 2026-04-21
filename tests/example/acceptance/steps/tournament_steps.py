@@ -57,9 +57,7 @@ def _send_tournament_command(context, name: str, cmd, type_name: str):
     packed = pack_command(cmd, type_name)
     seq = context.tournaments[name]["sequence"]
     try:
-        response = context.client.send_command(
-            "tournament", root, packed, sequence=seq
-        )
+        response = context.client.send_command("tournament", root, packed, sequence=seq)
         context.last_response = response
         context.last_error = None
         context.command_succeeded = True
@@ -171,9 +169,7 @@ def step_when_resume_tournament(context, name):
         context.tournaments[name]["status"] = "Running"
 
 
-@when(
-    r'player "(?P<player>[^"]+)" registers for tournament "(?P<name>[^"]+)"'
-)
+@when(r'player "(?P<player>[^"]+)" registers for tournament "(?P<name>[^"]+)"')
 def step_when_player_registers(context, player, name):
     """Drive the reservation flow: player emits RegistrationRequested via
     InitiateTournamentRegistration, ReservationPM reserves funds + enrolls,
@@ -244,9 +240,7 @@ def step_when_process_rebuy(context, player, name):
         cfg["total_prize_pool"] += 100
 
 
-@when(
-    r'I eliminate player "(?P<player>[^"]+)" from tournament "(?P<name>[^"]+)"'
-)
+@when(r'I eliminate player "(?P<player>[^"]+)" from tournament "(?P<name>[^"]+)"')
 def step_when_eliminate_player(context, player, name):
     from player_steps import _player_root
 
@@ -264,9 +258,7 @@ def step_when_eliminate_player(context, player, name):
         context.tournaments[name]["eliminated"].add(player)
 
 
-@when(
-    r'I complete tournament "(?P<name>[^"]+)" with winner "(?P<player>[^"]+)"'
-)
+@when(r'I complete tournament "(?P<name>[^"]+)" with winner "(?P<player>[^"]+)"')
 def step_when_complete_tournament(context, name, player):
     from player_steps import _player_root
 
@@ -328,56 +320,42 @@ def step_then_tournament_status(context, name, status):
     command succeeding at each step, which this mirrors."""
     assert name in context.tournaments, f"Tournament {name!r} not tracked"
     actual = context.tournaments[name]["status"]
-    assert actual == status, (
-        f"Tournament {name!r} status: expected {status!r}, got {actual!r}"
-    )
+    assert (
+        actual == status
+    ), f"Tournament {name!r} status: expected {status!r}, got {actual!r}"
     assert status in _STATUS_NAME_TO_ENUM, f"Unknown status {status!r}"
 
 
-@then(
-    r'tournament "(?P<name>[^"]+)" has (?P<n>\d+) registered players?'
-)
+@then(r'tournament "(?P<name>[^"]+)" has (?P<n>\d+) registered players?')
 def step_then_tournament_registered_count(context, name, n):
     expected = int(n)
     actual = len(context.tournaments[name]["registered"])
-    assert actual == expected, (
-        f"Expected {expected} registered, got {actual}"
-    )
+    assert actual == expected, f"Expected {expected} registered, got {actual}"
 
 
-@then(
-    r'tournament "(?P<name>[^"]+)" has players_remaining (?P<n>\d+)'
-)
+@then(r'tournament "(?P<name>[^"]+)" has players_remaining (?P<n>\d+)')
 def step_then_tournament_players_remaining(context, name, n):
     expected = int(n)
     actual = len(context.tournaments[name]["registered"])
-    assert actual == expected, (
-        f"Expected players_remaining={expected}, got {actual}"
-    )
+    assert actual == expected, f"Expected players_remaining={expected}, got {actual}"
 
 
 @then(r'tournament "(?P<name>[^"]+)" has current_level (?P<k>\d+)')
 def step_then_tournament_current_level(context, name, k):
     expected = int(k)
     actual = context.tournaments[name]["current_level"]
-    assert actual == expected, (
-        f"Expected current_level={expected}, got {actual}"
-    )
+    assert actual == expected, f"Expected current_level={expected}, got {actual}"
 
 
-@then(
-    r'tournament "(?P<name>[^"]+)" has total_prize_pool (?P<p>\d+)'
-)
+@then(r'tournament "(?P<name>[^"]+)" has total_prize_pool (?P<p>\d+)')
 def step_then_tournament_prize_pool(context, name, p):
     expected = int(p)
     actual = context.tournaments[name]["total_prize_pool"]
-    assert actual == expected, (
-        f"Expected total_prize_pool={expected}, got {actual}"
-    )
+    assert actual == expected, f"Expected total_prize_pool={expected}, got {actual}"
 
 
 @then(r'tournament "(?P<name>[^"]+)" winner is "(?P<player>[^"]+)"')
 def step_then_tournament_winner(context, name, player):
-    assert context.tournaments[name].get("winner") == player, (
-        f"Expected winner {player!r}, got {context.tournaments[name].get('winner')!r}"
-    )
+    assert (
+        context.tournaments[name].get("winner") == player
+    ), f"Expected winner {player!r}, got {context.tournaments[name].get('winner')!r}"

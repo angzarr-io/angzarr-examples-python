@@ -157,7 +157,11 @@ def step_given_funds_withdrawn(context, amount):
 
     prior_balance = 0
     for ep in context.events:
-        for cls in (player.FundsDeposited, player.FundsWithdrawn, player.FundsTransferred):
+        for cls in (
+            player.FundsDeposited,
+            player.FundsWithdrawn,
+            player.FundsTransferred,
+        ):
             if evt := try_unpack(ep.event, cls):
                 if evt.new_balance:
                     prior_balance = evt.new_balance.amount
@@ -263,7 +267,9 @@ class _FakeQueryClient:
 # Applier table for rebuilding ReservationState from a replayed event
 # stream. The production aggregate picks these up via ``@applies`` at
 # router-build time; unit tests bypass the router and replay directly.
-def _apply_buy_in_requested(state: ReservationState, event: buy_in.BuyInRequested) -> None:
+def _apply_buy_in_requested(
+    state: ReservationState, event: buy_in.BuyInRequested
+) -> None:
     state.pending_buy_ins[event.reservation_id.hex()] = PendingBuyIn(
         player_root=event.player_root,
         table_root=event.table_root,
@@ -290,7 +296,9 @@ def _apply_registration_closed(state: ReservationState, event) -> None:
     state.pending_registrations.pop(event.reservation_id.hex(), None)
 
 
-def _apply_rebuy_requested(state: ReservationState, event: rebuy.RebuyRequested) -> None:
+def _apply_rebuy_requested(
+    state: ReservationState, event: rebuy.RebuyRequested
+) -> None:
     state.pending_rebuys[event.reservation_id.hex()] = PendingRebuy(
         player_root=event.player_root,
         tournament_root=event.tournament_root,
@@ -305,8 +313,14 @@ def _apply_rebuy_closed(state: ReservationState, event) -> None:
 
 
 _RESERVATION_APPLIERS: dict[str, tuple[type, callable]] = {
-    "angzarr_client.proto.examples.BuyInRequested": (buy_in.BuyInRequested, _apply_buy_in_requested),
-    "angzarr_client.proto.examples.BuyInConfirmed": (buy_in.BuyInConfirmed, _apply_buy_in_closed),
+    "angzarr_client.proto.examples.BuyInRequested": (
+        buy_in.BuyInRequested,
+        _apply_buy_in_requested,
+    ),
+    "angzarr_client.proto.examples.BuyInConfirmed": (
+        buy_in.BuyInConfirmed,
+        _apply_buy_in_closed,
+    ),
     "angzarr_client.proto.examples.BuyInReservationReleased": (
         buy_in.BuyInReservationReleased,
         _apply_buy_in_closed,
@@ -323,9 +337,18 @@ _RESERVATION_APPLIERS: dict[str, tuple[type, callable]] = {
         registration.RegistrationFeeReleased,
         _apply_registration_closed,
     ),
-    "angzarr_client.proto.examples.RebuyRequested": (rebuy.RebuyRequested, _apply_rebuy_requested),
-    "angzarr_client.proto.examples.RebuyFeeConfirmed": (rebuy.RebuyFeeConfirmed, _apply_rebuy_closed),
-    "angzarr_client.proto.examples.RebuyFeeReleased": (rebuy.RebuyFeeReleased, _apply_rebuy_closed),
+    "angzarr_client.proto.examples.RebuyRequested": (
+        rebuy.RebuyRequested,
+        _apply_rebuy_requested,
+    ),
+    "angzarr_client.proto.examples.RebuyFeeConfirmed": (
+        rebuy.RebuyFeeConfirmed,
+        _apply_rebuy_closed,
+    ),
+    "angzarr_client.proto.examples.RebuyFeeReleased": (
+        rebuy.RebuyFeeReleased,
+        _apply_rebuy_closed,
+    ),
 }
 
 
@@ -539,9 +562,7 @@ def step_when_release_funds(context, table_id):
     _execute_handler(context, "release", cmd)
 
 
-@when(
-    r'I handle a JoinTable rejection notification for table "(?P<table_id>[^"]*)"'
-)
+@when(r'I handle a JoinTable rejection notification for table "(?P<table_id>[^"]*)"')
 def step_when_join_table_rejection(context, table_id):
     """Invoke the rejection handler with a synthesized RejectionNotification.
 
@@ -625,17 +646,21 @@ def step_then_event_has_display_name(context, name):
 @then(r'the player event has email "(?P<email>[^"]*)"')
 def step_then_event_has_email(context, email):
     evt = try_unpack(context.result_event_any, player.PlayerRegistered)
-    assert evt is not None, f"Not a PlayerRegistered: {context.result_event_any.type_url}"
+    assert (
+        evt is not None
+    ), f"Not a PlayerRegistered: {context.result_event_any.type_url}"
     assert evt.email == email, f"Expected email={email!r}, got {evt.email!r}"
 
 
 @then(r'the player event has ai_model_id "(?P<model>[^"]*)"')
 def step_then_event_has_ai_model_id(context, model):
     evt = try_unpack(context.result_event_any, player.PlayerRegistered)
-    assert evt is not None, f"Not a PlayerRegistered: {context.result_event_any.type_url}"
-    assert evt.ai_model_id == model, (
-        f"Expected ai_model_id={model!r}, got {evt.ai_model_id!r}"
-    )
+    assert (
+        evt is not None
+    ), f"Not a PlayerRegistered: {context.result_event_any.type_url}"
+    assert (
+        evt.ai_model_id == model
+    ), f"Expected ai_model_id={model!r}, got {evt.ai_model_id!r}"
 
 
 @then(r'the player event has player_type "(?P<ptype>[^"]+)"')
@@ -668,9 +693,9 @@ def step_then_event_has_amount(context, amount):
     assert event.amount.amount == int(
         amount
     ), f"Expected amount={amount}, got {event.amount.amount}"
-    assert event.amount.currency_code == "CHIPS", (
-        f"Expected currency_code=CHIPS, got {event.amount.currency_code!r}"
-    )
+    assert (
+        event.amount.currency_code == "CHIPS"
+    ), f"Expected currency_code=CHIPS, got {event.amount.currency_code!r}"
 
 
 @then(r"the player event has new_balance (?P<balance>-?\d+)")
@@ -692,9 +717,9 @@ def step_then_event_has_new_balance(context, balance):
     assert event.new_balance.amount == int(
         balance
     ), f"Expected new_balance={balance}, got {event.new_balance.amount}"
-    assert event.new_balance.currency_code == "CHIPS", (
-        f"Expected currency_code=CHIPS, got {event.new_balance.currency_code!r}"
-    )
+    assert (
+        event.new_balance.currency_code == "CHIPS"
+    ), f"Expected currency_code=CHIPS, got {event.new_balance.currency_code!r}"
 
 
 @then(r"the player event has new_reserved_balance (?P<balance>-?\d+)")
@@ -713,9 +738,9 @@ def step_then_event_has_new_reserved_balance(context, balance):
     assert event.new_reserved_balance.amount == int(
         balance
     ), f"Expected new_reserved_balance={balance}, got {event.new_reserved_balance.amount}"
-    assert event.new_reserved_balance.currency_code == "CHIPS", (
-        f"Expected currency_code=CHIPS, got {event.new_reserved_balance.currency_code!r}"
-    )
+    assert (
+        event.new_reserved_balance.currency_code == "CHIPS"
+    ), f"Expected currency_code=CHIPS, got {event.new_reserved_balance.currency_code!r}"
 
 
 @then(r'the player event has table_root "(?P<tbl>[^"]+)"')
@@ -732,9 +757,7 @@ def step_then_event_table_root(context, tbl):
             f"Unknown event type for reservation key: {event_any.type_url}"
         )
     expected = tbl.encode("utf-8")
-    assert event.key == expected, (
-        f"Expected key={expected!r}, got {event.key!r}"
-    )
+    assert event.key == expected, f"Expected key={expected!r}, got {event.key!r}"
 
 
 @then(r'the player event has reason "(?P<reason>[^"]*)"')
@@ -764,9 +787,9 @@ def step_then_event_has_new_available_balance(context, balance):
     assert event.new_available_balance.amount == int(
         balance
     ), f"Expected new_available_balance={balance}, got {event.new_available_balance.amount}"
-    assert event.new_available_balance.currency_code == "CHIPS", (
-        f"Expected currency_code=CHIPS, got {event.new_available_balance.currency_code!r}"
-    )
+    assert (
+        event.new_available_balance.currency_code == "CHIPS"
+    ), f"Expected currency_code=CHIPS, got {event.new_available_balance.currency_code!r}"
 
 
 @then(r'the command fails with status "(?P<status>[^"]+)"')
@@ -799,9 +822,9 @@ def step_then_error_equals(context, text):
     "reservation_id is required" → "RESERVATION_ID IS REQUIRED").
     """
     assert context.error is not None, "Expected an error but got success"
-    assert context.error_message == text, (
-        f"Expected error to equal {text!r}, got {context.error_message!r}"
-    )
+    assert (
+        context.error_message == text
+    ), f"Expected error to equal {text!r}, got {context.error_message!r}"
 
 
 @then(r"the player state has bankroll (?P<amount>-?\d+)")
@@ -864,7 +887,9 @@ def _append_funds_reserved(context, table_root: bytes, amount: int) -> None:
     context.events.append(make_event_page(event, seq=len(context.events)))
 
 
-def _append_funds_deducted(context, key: bytes, reservation_id: bytes, amount: int) -> None:
+def _append_funds_deducted(
+    context, key: bytes, reservation_id: bytes, amount: int
+) -> None:
     """Simulate the PM hop: a *Confirmed event triggers DeductReservedFunds on
     the player aggregate, emitting FundsDeducted."""
     state = _build_state_from_events(context.events)
@@ -1004,9 +1029,7 @@ def step_given_buy_in_confirmed_event(context, res, tbl):
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
     if pending is not None:
-        _append_funds_deducted(
-            context, _id_bytes(tbl), _id_bytes(res), pending.amount
-        )
+        _append_funds_deducted(context, _id_bytes(tbl), _id_bytes(res), pending.amount)
 
 
 @given(
@@ -1024,9 +1047,7 @@ def step_given_registration_confirmed_event(context, res, trn):
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
     if pending is not None:
-        _append_funds_deducted(
-            context, _id_bytes(trn), _id_bytes(res), pending.fee
-        )
+        _append_funds_deducted(context, _id_bytes(trn), _id_bytes(res), pending.fee)
 
 
 @given(r'a RebuyFeeConfirmed event for reservation "(?P<res>[^"]+)"')
@@ -1040,9 +1061,7 @@ def step_given_rebuy_confirmed_event(context, res):
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
     if pending is not None:
-        _append_funds_deducted(
-            context, pending.table_root, _id_bytes(res), pending.fee
-        )
+        _append_funds_deducted(context, pending.table_root, _id_bytes(res), pending.fee)
 
 
 # --- When: orchestration commands ---
@@ -1163,21 +1182,21 @@ def _orch_event(event_any):
 @then(r'the orchestration event has table_root "(?P<tbl>[^"]+)"')
 def step_then_orch_table_root(context, tbl):
     evt = _orch_event(context.result_event_any)
-    assert evt is not None, (
-        f"Not an orchestration event: {context.result_event_any.type_url}"
-    )
-    assert evt.table_root == _id_bytes(tbl), (
-        f"Expected table_root for {tbl}, got {evt.table_root!r}"
-    )
+    assert (
+        evt is not None
+    ), f"Not an orchestration event: {context.result_event_any.type_url}"
+    assert evt.table_root == _id_bytes(
+        tbl
+    ), f"Expected table_root for {tbl}, got {evt.table_root!r}"
 
 
 @then(r'the orchestration event has tournament_root "(?P<trn>[^"]+)"')
 def step_then_orch_tournament_root(context, trn):
     evt = _orch_event(context.result_event_any)
     assert evt is not None
-    assert evt.tournament_root == _id_bytes(trn), (
-        f"Expected tournament_root for {trn}, got {evt.tournament_root!r}"
-    )
+    assert evt.tournament_root == _id_bytes(
+        trn
+    ), f"Expected tournament_root for {trn}, got {evt.tournament_root!r}"
 
 
 @then(r"the orchestration event has seat (?P<seat>-?\d+)")
@@ -1191,21 +1210,19 @@ def step_then_orch_seat(context, seat):
 def step_then_orch_fee(context, fee):
     evt = _orch_event(context.result_event_any)
     assert evt is not None
-    assert evt.fee.amount == int(fee), (
-        f"Expected fee={fee}, got {evt.fee.amount}"
-    )
-    assert evt.fee.currency_code == "CHIPS", (
-        f"Expected currency_code=CHIPS, got {evt.fee.currency_code!r}"
-    )
+    assert evt.fee.amount == int(fee), f"Expected fee={fee}, got {evt.fee.amount}"
+    assert (
+        evt.fee.currency_code == "CHIPS"
+    ), f"Expected currency_code=CHIPS, got {evt.fee.currency_code!r}"
 
 
 @then(r"the orchestration event has chips_added (?P<chips>-?\d+)")
 def step_then_orch_chips_added(context, chips):
     evt = _orch_event(context.result_event_any)
     assert evt is not None
-    assert evt.chips_added == int(chips), (
-        f"Expected chips_added={chips}, got {evt.chips_added}"
-    )
+    assert evt.chips_added == int(
+        chips
+    ), f"Expected chips_added={chips}, got {evt.chips_added}"
 
 
 @then(r"the orchestration event has amount (?P<amount>-?\d+)")
@@ -1215,12 +1232,12 @@ def step_then_orch_amount(context, amount):
     doesn't unpack these types, so amount-field mutations slip through."""
     evt = _orch_event(context.result_event_any)
     assert evt is not None
-    assert evt.amount.amount == int(amount), (
-        f"Expected amount={amount}, got {evt.amount.amount}"
-    )
-    assert evt.amount.currency_code == "CHIPS", (
-        f"Expected currency_code=CHIPS, got {evt.amount.currency_code!r}"
-    )
+    assert evt.amount.amount == int(
+        amount
+    ), f"Expected amount={amount}, got {evt.amount.amount}"
+    assert (
+        evt.amount.currency_code == "CHIPS"
+    ), f"Expected currency_code=CHIPS, got {evt.amount.currency_code!r}"
 
 
 @then(r"the orchestration event has a reservation_id")
@@ -1240,9 +1257,9 @@ def step_then_orch_reservation_id(context, res):
     evt = _orch_event(context.result_event_any)
     assert evt is not None
     expected = _id_bytes(res)
-    assert evt.reservation_id == expected, (
-        f"Expected reservation_id={expected!r}, got {evt.reservation_id!r}"
-    )
+    assert (
+        evt.reservation_id == expected
+    ), f"Expected reservation_id={expected!r}, got {evt.reservation_id!r}"
 
 
 @then(r'the orchestration event has reason "(?P<reason>[^"]*)"')
@@ -1256,39 +1273,39 @@ def step_then_orch_reason(context, reason):
 def step_then_event_from_player_root(context, label):
     """Check FundsTransferred.from_player_root matches the labelled bytes."""
     evt = try_unpack(context.result_event_any, player.FundsTransferred)
-    assert evt is not None, (
-        f"Not a FundsTransferred event: {context.result_event_any.type_url}"
-    )
+    assert (
+        evt is not None
+    ), f"Not a FundsTransferred event: {context.result_event_any.type_url}"
     expected = label.encode("utf-8")
-    assert evt.from_player_root == expected, (
-        f"Expected from_player_root={expected!r}, got {evt.from_player_root!r}"
-    )
+    assert (
+        evt.from_player_root == expected
+    ), f"Expected from_player_root={expected!r}, got {evt.from_player_root!r}"
 
 
 @then(r'the player event has hand_root "(?P<label>[^"]+)"')
 def step_then_event_hand_root(context, label):
     """Check FundsTransferred.hand_root matches the labelled bytes."""
     evt = try_unpack(context.result_event_any, player.FundsTransferred)
-    assert evt is not None, (
-        f"Not a FundsTransferred event: {context.result_event_any.type_url}"
-    )
+    assert (
+        evt is not None
+    ), f"Not a FundsTransferred event: {context.result_event_any.type_url}"
     expected = label.encode("utf-8")
-    assert evt.hand_root == expected, (
-        f"Expected hand_root={expected!r}, got {evt.hand_root!r}"
-    )
+    assert (
+        evt.hand_root == expected
+    ), f"Expected hand_root={expected!r}, got {evt.hand_root!r}"
 
 
 @then(r'the player event has to_player_root for player "(?P<email>[^"]+)"')
 def step_then_event_to_player_root(context, email):
     """Check FundsTransferred.to_player_root matches state.player_id (player_<email>)."""
     evt = try_unpack(context.result_event_any, player.FundsTransferred)
-    assert evt is not None, (
-        f"Not a FundsTransferred event: {context.result_event_any.type_url}"
-    )
+    assert (
+        evt is not None
+    ), f"Not a FundsTransferred event: {context.result_event_any.type_url}"
     expected = f"player_{email}".encode("utf-8")
-    assert evt.to_player_root == expected, (
-        f"Expected to_player_root={expected!r}, got {evt.to_player_root!r}"
-    )
+    assert (
+        evt.to_player_root == expected
+    ), f"Expected to_player_root={expected!r}, got {evt.to_player_root!r}"
 
 
 _TIMESTAMP_EVENT_TYPES = (
@@ -1328,13 +1345,11 @@ def step_then_event_has_timestamp(context, field):
     if event is None:
         raise AssertionError(f"Unknown event type: {event_any.type_url}")
     if not event.HasField(field):
-        raise AssertionError(
-            f"Event {type(event).__name__} has no field {field!r} set"
-        )
+        raise AssertionError(f"Event {type(event).__name__} has no field {field!r} set")
     ts = getattr(event, field)
-    assert ts.seconds > 0, (
-        f"Expected {field}.seconds > 0, got {ts.seconds} (default Timestamp)"
-    )
+    assert (
+        ts.seconds > 0
+    ), f"Expected {field}.seconds > 0, got {ts.seconds} (default Timestamp)"
 
 
 # --- Then: pending-state assertions ---
@@ -1363,9 +1378,7 @@ def step_then_no_pending_buy_in(context, res):
 
 @then(r'the (?:player|reservation) state has no pending registration "(?P<res>[^"]+)"')
 def step_then_no_pending_registration(context, res):
-    assert (
-        _id_bytes(res).hex() not in _reservation_state(context).pending_registrations
-    )
+    assert _id_bytes(res).hex() not in _reservation_state(context).pending_registrations
 
 
 @then(r'the (?:player|reservation) state has no pending rebuy "(?P<res>[^"]+)"')

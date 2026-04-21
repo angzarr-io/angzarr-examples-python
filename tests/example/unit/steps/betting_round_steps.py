@@ -68,9 +68,7 @@ def step_given_table_with_players(context):
             for j in range(len(context.table.headings))
         }
         seat = int(d["seat"])
-        players[seat] = MockPlayer(
-            name=d["name"], seat=seat, stack=int(d["stack"])
-        )
+        players[seat] = MockPlayer(name=d["name"], seat=seat, stack=int(d["stack"]))
     # Default big_blind; will be overridden by the next step
     context.br_game = BettingRoundTester(players, big_blind=10)
 
@@ -138,8 +136,7 @@ def step_then_seat_after(context, after, before):
     assert before_i in order, f"seat {before_i} was never asked to act: {order}"
     slice_after = order[order.index(before_i) + 1 :]
     assert after_i in slice_after, (
-        f"seat {after_i} did not appear after seat {before_i}; "
-        f"full order: {order}"
+        f"seat {after_i} did not appear after seat {before_i}; " f"full order: {order}"
     )
 
 
@@ -164,6 +161,6 @@ def step_then_seat_all_in(context, seat):
 def step_then_seat_stack(context, seat, stack):
     """Verify a seat's remaining stack."""
     player = context.br_game.players[int(seat)]
-    assert player.stack == int(stack), (
-        f"seat {seat} has stack {player.stack}, expected {stack}"
-    )
+    assert player.stack == int(
+        stack
+    ), f"seat {seat} has stack {player.stack}, expected {stack}"

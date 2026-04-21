@@ -61,7 +61,9 @@ def proto_uuid(raw_bytes: bytes):
     return UUID(value=raw_bytes)
 
 
-def send_with_retry(context, domain, root, packed, seq, max_attempts=10, sync_mode=None):
+def send_with_retry(
+    context, domain, root, packed, seq, max_attempts=10, sync_mode=None
+):
     """Send a command with retry logic for eventual consistency."""
     last_err = None
     kwargs = {"sequence": seq}

@@ -280,7 +280,12 @@ def _execute_handler(context, method_name: str, cmd):
             # Rebuild result book to contain only the new event for
             # single-event assertion steps.
             context.result = _make_event_book(
-                [make_event_page(result_event, seq=len(context.events) if hasattr(context, "events") else 0)]
+                [
+                    make_event_page(
+                        result_event,
+                        seq=len(context.events) if hasattr(context, "events") else 0,
+                    )
+                ]
             )
         elif result_book.pages:
             context.result_event_any = result_book.pages[-1].event
@@ -723,17 +728,17 @@ def step_then_sb_differs_from_dealer(context):
     """3+ players: SB is left of dealer, so must differ."""
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert event.small_blind_position != event.dealer_position, (
-        f"Expected SB!=dealer, both are {event.small_blind_position}"
-    )
+    assert (
+        event.small_blind_position != event.dealer_position
+    ), f"Expected SB!=dealer, both are {event.small_blind_position}"
 
 
 @then(r'the table state has table_id "(?P<table_id>[^"]+)"')
 def step_then_state_table_id(context, table_id):
     assert context.agg is not None, "No table aggregate"
-    assert context.agg.table_id == table_id, (
-        f"Expected table_id={table_id!r}, got {context.agg.table_id!r}"
-    )
+    assert (
+        context.agg.table_id == table_id
+    ), f"Expected table_id={table_id!r}, got {context.agg.table_id!r}"
 
 
 @then(r"the table state is full")
@@ -745,17 +750,17 @@ def step_then_state_is_full(context):
 @then(r"the table state has (?P<count>\d+) active_players")
 def step_then_state_active_players(context, count):
     assert context.agg is not None, "No table aggregate"
-    assert context.agg.active_player_count == int(count), (
-        f"Expected {count} active_players, got {context.agg.active_player_count}"
-    )
+    assert context.agg.active_player_count == int(
+        count
+    ), f"Expected {count} active_players, got {context.agg.active_player_count}"
 
 
 @then(r"the table state has current_hand_root empty")
 def step_then_state_current_hand_root_empty(context):
     assert context.agg is not None, "No table aggregate"
-    assert context.agg.current_hand_root == b"", (
-        f"Expected empty current_hand_root, got {context.agg.current_hand_root!r}"
-    )
+    assert (
+        context.agg.current_hand_root == b""
+    ), f"Expected empty current_hand_root, got {context.agg.current_hand_root!r}"
 
 
 @then(r"the table state seat (?P<seat>\d+) has stack (?P<stack>\d+)")
@@ -773,9 +778,9 @@ def step_then_state_seat_stack(context, seat, stack):
 def step_then_seating_seat_position(context, pos):
     event = buy_in.PlayerSeated()
     context.result_event_any.Unpack(event)
-    assert event.seat_position == int(pos), (
-        f"Expected seat_position={pos}, got {event.seat_position}"
-    )
+    assert event.seat_position == int(
+        pos
+    ), f"Expected seat_position={pos}, got {event.seat_position}"
 
 
 @then(r"the seating event has stack (?P<stack>\d+)")
@@ -789,9 +794,9 @@ def step_then_seating_stack(context, stack):
 def step_then_seating_rejection_reason(context, text):
     event = buy_in.SeatingRejected()
     context.result_event_any.Unpack(event)
-    assert text.lower() in event.reason.lower(), (
-        f"Expected reason to contain {text!r}, got {event.reason!r}"
-    )
+    assert (
+        text.lower() in event.reason.lower()
+    ), f"Expected reason to contain {text!r}, got {event.reason!r}"
 
 
 # --- Rebuy event assertions ---
@@ -801,18 +806,16 @@ def step_then_seating_rejection_reason(context, text):
 def step_then_rebuy_amount(context, amount):
     event = rebuy.RebuyChipsAdded()
     context.result_event_any.Unpack(event)
-    assert event.amount == int(amount), (
-        f"Expected amount={amount}, got {event.amount}"
-    )
+    assert event.amount == int(amount), f"Expected amount={amount}, got {event.amount}"
 
 
 @then(r"the rebuy event has new_stack (?P<stack>\d+)")
 def step_then_rebuy_new_stack(context, stack):
     event = rebuy.RebuyChipsAdded()
     context.result_event_any.Unpack(event)
-    assert event.new_stack == int(stack), (
-        f"Expected new_stack={stack}, got {event.new_stack}"
-    )
+    assert event.new_stack == int(
+        stack
+    ), f"Expected new_stack={stack}, got {event.new_stack}"
 
 
 @then(r"the rebuy event has seat (?P<seat>\d+)")

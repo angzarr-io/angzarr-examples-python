@@ -858,6 +858,7 @@ def _load_reservation_pm() -> dict:
         import state as s
         import table_state as tbs
         import tournament_state as ts
+
         result = {
             "handlers": h,
             "state": s,
@@ -895,7 +896,9 @@ TournamentStateHelper = _reservation_mods["tournament_state"].TournamentStateHel
 tournament_state_from_event_book = _reservation_mods[
     "tournament_state"
 ].tournament_state_from_event_book
-tournament_state_rebuild = _reservation_mods["tournament_state"].tournament_state_rebuild
+tournament_state_rebuild = _reservation_mods[
+    "tournament_state"
+].tournament_state_rebuild
 
 
 # --- Helpers ---------------------------------------------------------------
@@ -1233,15 +1236,16 @@ _COMMAND_TYPES = {
 
 
 @then(
-    r"an? (?P<cmd_name>" + "|".join(sorted(_COMMAND_TYPES.keys(), key=len, reverse=True))
+    r"an? (?P<cmd_name>"
+    + "|".join(sorted(_COMMAND_TYPES.keys(), key=len, reverse=True))
     + r') command is sent to the "(?P<domain>\w+)" domain'
 )
 def step_then_cmd_sent_to_domain(context, cmd_name, domain):
     proto_cls = _COMMAND_TYPES[cmd_name]
     cmd_book = _find_command(context.pm_response, proto_cls)
-    assert cmd_book.cover.domain == domain, (
-        f"Expected {cmd_name} on domain {domain!r}, got {cmd_book.cover.domain!r}"
-    )
+    assert (
+        cmd_book.cover.domain == domain
+    ), f"Expected {cmd_name} on domain {domain!r}, got {cmd_book.cover.domain!r}"
     context.pm_command = _unpack_command(cmd_book, proto_cls)
     context.pm_command_name = cmd_name
 
@@ -1254,18 +1258,18 @@ _CMD_NAMES_ALT = "|".join(sorted(_COMMAND_TYPES.keys(), key=len, reverse=True))
     r'(?P<field>\w+) "(?P<value>[^"]*)"'
 )
 def step_then_cmd_has_str_field(context, cmd_name, field, value):
-    assert context.pm_command_name == cmd_name, (
-        f"Expected asserting {cmd_name} but last command was {context.pm_command_name}"
-    )
+    assert (
+        context.pm_command_name == cmd_name
+    ), f"Expected asserting {cmd_name} but last command was {context.pm_command_name}"
     actual = getattr(context.pm_command, field)
     if isinstance(actual, bytes):
-        assert actual == _bytes(value), (
-            f"{cmd_name}.{field}: expected {value!r}, got {actual!r}"
-        )
+        assert actual == _bytes(
+            value
+        ), f"{cmd_name}.{field}: expected {value!r}, got {actual!r}"
     else:
-        assert actual == value, (
-            f"{cmd_name}.{field}: expected {value!r}, got {actual!r}"
-        )
+        assert (
+            actual == value
+        ), f"{cmd_name}.{field}: expected {value!r}, got {actual!r}"
 
 
 @then(
@@ -1273,13 +1277,11 @@ def step_then_cmd_has_str_field(context, cmd_name, field, value):
     r"(?P<field>\w+) (?P<value>-?\d+)"
 )
 def step_then_cmd_has_int_field(context, cmd_name, field, value):
-    assert context.pm_command_name == cmd_name, (
-        f"Expected asserting {cmd_name} but last command was {context.pm_command_name}"
-    )
+    assert (
+        context.pm_command_name == cmd_name
+    ), f"Expected asserting {cmd_name} but last command was {context.pm_command_name}"
     actual = getattr(context.pm_command, field)
-    assert actual == int(value), (
-        f"{cmd_name}.{field}: expected {value}, got {actual}"
-    )
+    assert actual == int(value), f"{cmd_name}.{field}: expected {value}, got {actual}"
 
 
 # --- Then: process event assertions ----------------------------------------
@@ -1301,18 +1303,16 @@ _PROCESS_EVENT_TYPES = {
 @then(r"the process event is an? (?P<qualified>[\w.]+) event")
 def step_then_process_event_type(context, qualified):
     assert context.pm_response is not None, "No PM response recorded"
-    assert context.pm_response.process_events is not None, (
-        "No process events in PM response"
-    )
-    assert context.pm_response.process_events.pages, (
-        "No pages in process events book"
-    )
+    assert (
+        context.pm_response.process_events is not None
+    ), "No process events in PM response"
+    assert context.pm_response.process_events.pages, "No pages in process events book"
     actual_type = type_name_from_url(
         context.pm_response.process_events.pages[0].event.type_url
     )
-    assert actual_type == qualified, (
-        f"Expected process event {qualified}, got {actual_type}"
-    )
+    assert (
+        actual_type == qualified
+    ), f"Expected process event {qualified}, got {actual_type}"
     proto_cls = _PROCESS_EVENT_TYPES[qualified]
     context.pm_process_event = _unpack_process_event(context.pm_response, proto_cls)
     # Short name used by subsequent field assertions
@@ -1333,18 +1333,18 @@ _PROCESS_EVENT_NAMES_ALT = "|".join(
     r'(?P<field>\w+) "(?P<value>[^"]*)"'
 )
 def step_then_process_event_has_str_field(context, evt_name, field, value):
-    assert context.pm_process_event_name == evt_name, (
-        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
-    )
+    assert (
+        context.pm_process_event_name == evt_name
+    ), f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
     actual = getattr(context.pm_process_event, field)
     if isinstance(actual, bytes):
-        assert actual == _bytes(value), (
-            f"{evt_name}.{field}: expected {value!r}, got {actual!r}"
-        )
+        assert actual == _bytes(
+            value
+        ), f"{evt_name}.{field}: expected {value!r}, got {actual!r}"
     else:
-        assert actual == value, (
-            f"{evt_name}.{field}: expected {value!r}, got {actual!r}"
-        )
+        assert (
+            actual == value
+        ), f"{evt_name}.{field}: expected {value!r}, got {actual!r}"
 
 
 @then(
@@ -1352,13 +1352,11 @@ def step_then_process_event_has_str_field(context, evt_name, field, value):
     r"(?P<field>\w+) (?P<value>-?\d+)"
 )
 def step_then_process_event_has_int_field(context, evt_name, field, value):
-    assert context.pm_process_event_name == evt_name, (
-        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
-    )
+    assert (
+        context.pm_process_event_name == evt_name
+    ), f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
     actual = getattr(context.pm_process_event, field)
-    assert actual == int(value), (
-        f"{evt_name}.{field}: expected {value}, got {actual}"
-    )
+    assert actual == int(value), f"{evt_name}.{field}: expected {value}, got {actual}"
 
 
 @then(
@@ -1366,9 +1364,9 @@ def step_then_process_event_has_int_field(context, evt_name, field, value):
     r"(?P<phase>\w+)"
 )
 def step_then_process_event_phase(context, evt_name, phase):
-    assert context.pm_process_event_name == evt_name, (
-        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
-    )
+    assert (
+        context.pm_process_event_name == evt_name
+    ), f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
     # phase lives under orch enums, BuyInPhase/RebuyPhase/RegistrationPhase
     # Build a lookup across all three
     actual = context.pm_process_event.phase
@@ -1386,9 +1384,9 @@ def step_then_process_event_phase(context, evt_name, phase):
         if found:
             break
     assert found, f"Could not resolve phase name {phase!r}"
-    assert actual == expected_val, (
-        f"{evt_name}.phase: expected {phase} ({expected_val}), got {actual}"
-    )
+    assert (
+        actual == expected_val
+    ), f"{evt_name}.phase: expected {phase} ({expected_val}), got {actual}"
 
 
 @then(
@@ -1396,13 +1394,13 @@ def step_then_process_event_phase(context, evt_name, phase):
     r"fee amount (?P<amount>-?\d+)"
 )
 def step_then_process_event_fee_amount(context, evt_name, amount):
-    assert context.pm_process_event_name == evt_name, (
-        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
-    )
+    assert (
+        context.pm_process_event_name == evt_name
+    ), f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
     actual = context.pm_process_event.fee.amount
-    assert actual == int(amount), (
-        f"{evt_name}.fee.amount: expected {amount}, got {actual}"
-    )
+    assert actual == int(
+        amount
+    ), f"{evt_name}.fee.amount: expected {amount}, got {actual}"
 
 
 @then(
@@ -1410,13 +1408,11 @@ def step_then_process_event_fee_amount(context, evt_name, amount):
     r'code is "(?P<code>[^"]+)"'
 )
 def step_then_process_event_failure_code(context, evt_name, code):
-    assert context.pm_process_event_name == evt_name, (
-        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
-    )
+    assert (
+        context.pm_process_event_name == evt_name
+    ), f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
     actual = context.pm_process_event.failure.code
-    assert actual == code, (
-        f"{evt_name}.failure.code: expected {code!r}, got {actual!r}"
-    )
+    assert actual == code, f"{evt_name}.failure.code: expected {code!r}, got {actual!r}"
 
 
 # --- Tournament state rebuild -----------------------------------------------
@@ -1499,10 +1495,7 @@ def step_when_apply_tournament_created(context, name, mp):
     )
 
 
-@when(
-    r'I apply a TournamentPlayerEnrolled event for player_root'
-    r' "(?P<pr>[^"]+)"'
-)
+@when(r"I apply a TournamentPlayerEnrolled event for player_root" r' "(?P<pr>[^"]+)"')
 def step_when_apply_player_enrolled(context, pr):
     tournament_state_rebuild(
         context.tournament_state_helper,
@@ -1514,9 +1507,7 @@ def step_when_apply_player_enrolled(context, pr):
 def step_then_ts_registration_open(context, val):
     expected = val == "true"
     actual = context.tournament_state_helper.registration_open
-    assert actual is expected, (
-        f"registration_open: expected {expected}, got {actual}"
-    )
+    assert actual is expected, f"registration_open: expected {expected}, got {actual}"
 
 
 def _ts_target(context):

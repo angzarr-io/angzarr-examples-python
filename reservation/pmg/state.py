@@ -10,7 +10,6 @@ from dataclasses import dataclass
 
 from angzarr_client.proto.examples import orchestration_pb2 as orch
 
-
 KIND_UNSPECIFIED = ""
 KIND_BUY_IN = "buy_in"
 KIND_REBUY = "rebuy"

@@ -35,7 +35,11 @@ if __name__ == "__main__":
     configure_logging()
     logger = structlog.get_logger()
     query_client = _build_query_client()
-    router = Router("reservation").with_handler(Reservation, lambda: Reservation(query_client=query_client)).build()
+    router = (
+        Router("reservation")
+        .with_handler(Reservation, lambda: Reservation(query_client=query_client))
+        .build()
+    )
     servicer = CommandHandlerGrpc(router)
     run_server(
         command_handler_pb2_grpc.add_CommandHandlerServiceServicer_to_server,

@@ -212,9 +212,7 @@ def step_given_tournament_registration_open(context):
     r"a tournament with max_players (?P<max_players>-?\d+) and "
     r"min_players (?P<min_players>-?\d+) and registration open"
 )
-def step_given_tournament_with_player_bounds_open(
-    context, max_players, min_players
-):
+def step_given_tournament_with_player_bounds_open(context, max_players, min_players):
     """Seed a tournament with specific max/min player bounds and open registration."""
     _append_created(
         context,
@@ -254,9 +252,7 @@ def step_given_player_enrolled(context, player_label):
     r"a running tournament with min_players (?P<min_players>-?\d+) and "
     r"max_players (?P<max_players>-?\d+) and (?P<n>\d+) enrolled players"
 )
-def step_given_running_tournament_with_n_players(
-    context, min_players, max_players, n
-):
+def step_given_running_tournament_with_n_players(context, min_players, max_players, n):
     """Seed a created+open+N-enrolled+started tournament."""
     _append_created(
         context,
@@ -358,9 +354,9 @@ def step_when_start_tournament(context):
 @then(r'the tournament event has name "(?P<name>[^"]*)"')
 def step_then_event_has_name(context, name):
     event = try_unpack(context.result_event_any, tournament.TournamentCreated)
-    assert event is not None, (
-        f"Not a TournamentCreated event: {context.result_event_any.type_url}"
-    )
+    assert (
+        event is not None
+    ), f"Not a TournamentCreated event: {context.result_event_any.type_url}"
     assert event.name == name, f"Expected name={name!r}, got {event.name!r}"
 
 
@@ -368,18 +364,16 @@ def step_then_event_has_name(context, name):
 def step_then_event_has_buy_in(context, buy_in):
     event = try_unpack(context.result_event_any, tournament.TournamentCreated)
     assert event is not None
-    assert event.buy_in == int(buy_in), (
-        f"Expected buy_in={buy_in}, got {event.buy_in}"
-    )
+    assert event.buy_in == int(buy_in), f"Expected buy_in={buy_in}, got {event.buy_in}"
 
 
 @then(r"the tournament event has starting_stack (?P<stack>-?\d+)")
 def step_then_event_has_starting_stack(context, stack):
     event = try_unpack(context.result_event_any, tournament.TournamentCreated)
     assert event is not None
-    assert event.starting_stack == int(stack), (
-        f"Expected starting_stack={stack}, got {event.starting_stack}"
-    )
+    assert event.starting_stack == int(
+        stack
+    ), f"Expected starting_stack={stack}, got {event.starting_stack}"
 
 
 @then(r'the tournament event has player_root "(?P<label>[^"]*)"')
@@ -393,22 +387,18 @@ def step_then_event_has_player_root(context, label):
         or try_unpack(event_any, tournament.PlayerEliminated)
     )
     assert event is not None, f"No player_root field on event: {event_any.type_url}"
-    assert event.player_root == label.encode("utf-8"), (
-        f"Expected player_root={label.encode('utf-8')!r}, got {event.player_root!r}"
-    )
+    assert event.player_root == label.encode(
+        "utf-8"
+    ), f"Expected player_root={label.encode('utf-8')!r}, got {event.player_root!r}"
 
 
 @then(r"the tournament event has fee_paid (?P<fee>-?\d+)")
 def step_then_event_has_fee_paid(context, fee):
-    event = try_unpack(
-        context.result_event_any, tournament.TournamentPlayerEnrolled
-    )
-    assert event is not None, (
-        f"Not a TournamentPlayerEnrolled event: {context.result_event_any.type_url}"
-    )
-    assert event.fee_paid == int(fee), (
-        f"Expected fee_paid={fee}, got {event.fee_paid}"
-    )
+    event = try_unpack(context.result_event_any, tournament.TournamentPlayerEnrolled)
+    assert (
+        event is not None
+    ), f"Not a TournamentPlayerEnrolled event: {context.result_event_any.type_url}"
+    assert event.fee_paid == int(fee), f"Expected fee_paid={fee}, got {event.fee_paid}"
 
 
 @then(r'the tournament event has reason containing "(?P<text>[^"]*)"')
@@ -418,20 +408,20 @@ def step_then_event_reason_contains(context, text):
         event_any, tournament.TournamentEnrollmentRejected
     ) or try_unpack(event_any, tournament.RebuyDenied)
     assert event is not None, f"No reason field on event: {event_any.type_url}"
-    assert text.lower() in event.reason.lower(), (
-        f"Expected reason to contain {text!r}, got {event.reason!r}"
-    )
+    assert (
+        text.lower() in event.reason.lower()
+    ), f"Expected reason to contain {text!r}, got {event.reason!r}"
 
 
 @then(r"the tournament event has total_players (?P<n>-?\d+)")
 def step_then_event_has_total_players(context, n):
     event = try_unpack(context.result_event_any, tournament.TournamentStarted)
-    assert event is not None, (
-        f"Not a TournamentStarted event: {context.result_event_any.type_url}"
-    )
-    assert event.total_players == int(n), (
-        f"Expected total_players={n}, got {event.total_players}"
-    )
+    assert (
+        event is not None
+    ), f"Not a TournamentStarted event: {context.result_event_any.type_url}"
+    assert event.total_players == int(
+        n
+    ), f"Expected total_players={n}, got {event.total_players}"
 
 
 @then(r'the command fails with status "(?P<status>[^"]+)"')
@@ -440,17 +430,17 @@ def step_then_command_fails_with_status(context, status):
     assert hasattr(
         context.error, "status_code"
     ), f"Error {type(context.error).__name__} has no status_code attribute"
-    assert context.error.status_code == status, (
-        f"Expected status {status}, got {context.error.status_code}"
-    )
+    assert (
+        context.error.status_code == status
+    ), f"Expected status {status}, got {context.error.status_code}"
 
 
 @then(r'the error message contains "(?P<text>[^"]+)"')
 def step_then_error_contains(context, text):
     assert context.error is not None, "Expected an error but got success"
-    assert text.lower() in context.error_message.lower(), (
-        f"Expected error to contain {text!r}, got {context.error_message!r}"
-    )
+    assert (
+        text.lower() in context.error_message.lower()
+    ), f"Expected error to contain {text!r}, got {context.error_message!r}"
 
 
 # =============================================================================
@@ -508,9 +498,7 @@ def _append_player_eliminated(context, player_label: str) -> None:
     context.events.append(make_event_page(event, seq=len(context.events)))
 
 
-def _append_enrollment_rejected(
-    context, player_label: str, reason: str
-) -> None:
+def _append_enrollment_rejected(context, player_label: str, reason: str) -> None:
     _ensure_events(context)
     event = tournament.TournamentEnrollmentRejected(
         player_root=player_label.encode("utf-8"),
@@ -725,17 +713,13 @@ def _running_with_rebuy_config(
         _append_rebuy_processed(context, "p0", rebuy_cost, _ + 1)
 
 
-@given(
-    r"a running tournament with rebuys enabled and "
-    r"(?P<n>-?\d+) enrolled player"
-)
+@given(r"a running tournament with rebuys enabled and " r"(?P<n>-?\d+) enrolled player")
 def step_given_running_with_rebuys_enabled(context, n):
     _running_with_rebuy_config(context, enabled=True, players=int(n))
 
 
 @given(
-    r"a running tournament with rebuys disabled and "
-    r"(?P<n>-?\d+) enrolled player"
+    r"a running tournament with rebuys disabled and " r"(?P<n>-?\d+) enrolled player"
 )
 def step_given_running_with_rebuys_disabled(context, n):
     _running_with_rebuy_config(context, enabled=False, players=int(n))
@@ -820,14 +804,11 @@ _EVENT_TYPES = {
 }
 
 
-@then(
-    r"the result is an? (?:angzarr_client\.proto\.)?examples\."
-    r"(?P<evt>\w+) event"
-)
+@then(r"the result is an? (?:angzarr_client\.proto\.)?examples\." r"(?P<evt>\w+) event")
 def step_then_result_is_event(context, evt):
-    assert context.result_event_any is not None, (
-        "No result event — command may have failed"
-    )
+    assert (
+        context.result_event_any is not None
+    ), "No result event — command may have failed"
     expected = f"angzarr_client.proto.examples.{evt}"
     actual = type_name_from_url(context.result_event_any.type_url)
     assert actual == expected, f"Expected {expected}, got {actual}"
@@ -853,9 +834,7 @@ def step_then_event_blind_level(context, lvl):
 @then(r"the tournament event has small_blind (?P<v>-?\d+)")
 def step_then_event_small_blind(context, v):
     evt = _unpack_result(context)
-    assert evt.small_blind == int(v), (
-        f"Expected small_blind={v}, got {evt.small_blind}"
-    )
+    assert evt.small_blind == int(v), f"Expected small_blind={v}, got {evt.small_blind}"
 
 
 @then(r"the tournament event has ante (?P<v>-?\d+)")
@@ -867,9 +846,9 @@ def step_then_event_ante(context, v):
 @then(r'the tournament event has hand_root "(?P<hand>[^"]+)"')
 def step_then_event_hand_root(context, hand):
     evt = _unpack_result(context)
-    assert evt.hand_root == hand.encode("utf-8"), (
-        f"Expected hand_root={hand!r}, got {evt.hand_root!r}"
-    )
+    assert evt.hand_root == hand.encode(
+        "utf-8"
+    ), f"Expected hand_root={hand!r}, got {evt.hand_root!r}"
 
 
 @then(r'the tournament event has reason "(?P<text>[^"]*)"')
@@ -881,33 +860,27 @@ def step_then_event_reason_exact(context, text):
 @then(r"the tournament event has total_registrations (?P<n>-?\d+)")
 def step_then_event_total_registrations(context, n):
     evt = _unpack_result(context)
-    assert evt.total_registrations == int(n), (
-        f"Expected total_registrations={n}, got {evt.total_registrations}"
-    )
+    assert evt.total_registrations == int(
+        n
+    ), f"Expected total_registrations={n}, got {evt.total_registrations}"
 
 
 @then(r"the tournament event has rebuy_cost (?P<v>-?\d+)")
 def step_then_event_rebuy_cost(context, v):
     evt = _unpack_result(context)
-    assert evt.rebuy_cost == int(v), (
-        f"Expected rebuy_cost={v}, got {evt.rebuy_cost}"
-    )
+    assert evt.rebuy_cost == int(v), f"Expected rebuy_cost={v}, got {evt.rebuy_cost}"
 
 
 @then(r"the tournament event has chips_added (?P<v>-?\d+)")
 def step_then_event_chips_added(context, v):
     evt = _unpack_result(context)
-    assert evt.chips_added == int(v), (
-        f"Expected chips_added={v}, got {evt.chips_added}"
-    )
+    assert evt.chips_added == int(v), f"Expected chips_added={v}, got {evt.chips_added}"
 
 
 @then(r"the tournament event has rebuy_count (?P<v>-?\d+)")
 def step_then_event_rebuy_count(context, v):
     evt = _unpack_result(context)
-    assert evt.rebuy_count == int(v), (
-        f"Expected rebuy_count={v}, got {evt.rebuy_count}"
-    )
+    assert evt.rebuy_count == int(v), f"Expected rebuy_count={v}, got {evt.rebuy_count}"
 
 
 # =============================================================================
@@ -927,105 +900,103 @@ _STATUS_NAME_TO_ENUM = {
 
 @then(r'the tournament state has tournament_id "(?P<tid>[^"]+)"')
 def step_then_state_tournament_id(context, tid):
-    assert context.agg._state.tournament_id == tid, (
-        f"Expected tournament_id={tid!r}, got {context.agg._state.tournament_id!r}"
-    )
+    assert (
+        context.agg._state.tournament_id == tid
+    ), f"Expected tournament_id={tid!r}, got {context.agg._state.tournament_id!r}"
 
 
 @then(r'the tournament state has name "(?P<name>[^"]+)"')
 def step_then_state_name(context, name):
-    assert context.agg._state.name == name, (
-        f"Expected name={name!r}, got {context.agg._state.name!r}"
-    )
+    assert (
+        context.agg._state.name == name
+    ), f"Expected name={name!r}, got {context.agg._state.name!r}"
 
 
 @then(r'the tournament state has status "(?P<status>[^"]+)"')
 def step_then_state_status(context, status):
     expected = _STATUS_NAME_TO_ENUM[status]
-    assert context.agg.status == expected, (
-        f"Expected status={status} ({expected}), got {context.agg.status}"
-    )
+    assert (
+        context.agg.status == expected
+    ), f"Expected status={status} ({expected}), got {context.agg.status}"
 
 
 @then(r"the tournament state has buy_in (?P<v>-?\d+)")
 def step_then_state_buy_in(context, v):
-    assert context.agg.buy_in == int(v), (
-        f"Expected buy_in={v}, got {context.agg.buy_in}"
-    )
+    assert context.agg.buy_in == int(
+        v
+    ), f"Expected buy_in={v}, got {context.agg.buy_in}"
 
 
 @then(r"the tournament state has starting_stack (?P<v>-?\d+)")
 def step_then_state_starting_stack(context, v):
-    assert context.agg.starting_stack == int(v), (
-        f"Expected starting_stack={v}, got {context.agg.starting_stack}"
-    )
+    assert context.agg.starting_stack == int(
+        v
+    ), f"Expected starting_stack={v}, got {context.agg.starting_stack}"
 
 
 @then(r"the tournament state has max_players (?P<v>-?\d+)")
 def step_then_state_max_players(context, v):
-    assert context.agg.max_players == int(v), (
-        f"Expected max_players={v}, got {context.agg.max_players}"
-    )
+    assert context.agg.max_players == int(
+        v
+    ), f"Expected max_players={v}, got {context.agg.max_players}"
 
 
 @then(r"the tournament state has min_players (?P<v>-?\d+)")
 def step_then_state_min_players(context, v):
-    assert context.agg.min_players == int(v), (
-        f"Expected min_players={v}, got {context.agg.min_players}"
-    )
+    assert context.agg.min_players == int(
+        v
+    ), f"Expected min_players={v}, got {context.agg.min_players}"
 
 
 @then(r"the tournament state has current_level (?P<v>-?\d+)")
 def step_then_state_current_level(context, v):
-    assert context.agg.current_level == int(v), (
-        f"Expected current_level={v}, got {context.agg.current_level}"
-    )
+    assert context.agg.current_level == int(
+        v
+    ), f"Expected current_level={v}, got {context.agg.current_level}"
 
 
 @then(r"the tournament state has blind_structure count (?P<v>-?\d+)")
 def step_then_state_blind_structure_count(context, v):
-    assert len(context.agg.blind_structure) == int(v), (
-        f"Expected blind_structure count={v}, got {len(context.agg.blind_structure)}"
-    )
+    assert len(context.agg.blind_structure) == int(
+        v
+    ), f"Expected blind_structure count={v}, got {len(context.agg.blind_structure)}"
 
 
 @then(r"the tournament state has total_prize_pool (?P<v>-?\d+)")
 def step_then_state_total_prize_pool(context, v):
-    assert context.agg.total_prize_pool == int(v), (
-        f"Expected total_prize_pool={v}, got {context.agg.total_prize_pool}"
-    )
+    assert context.agg.total_prize_pool == int(
+        v
+    ), f"Expected total_prize_pool={v}, got {context.agg.total_prize_pool}"
 
 
 @then(r"the tournament state has registered_players count (?P<v>-?\d+)")
 def step_then_state_registered_count(context, v):
-    assert len(context.agg.registered_players) == int(v), (
-        f"Expected registered count={v}, got {len(context.agg.registered_players)}"
-    )
+    assert len(context.agg.registered_players) == int(
+        v
+    ), f"Expected registered count={v}, got {len(context.agg.registered_players)}"
 
 
 @then(r"the tournament state has players_remaining (?P<v>-?\d+)")
 def step_then_state_players_remaining(context, v):
-    assert context.agg.players_remaining == int(v), (
-        f"Expected players_remaining={v}, got {context.agg.players_remaining}"
-    )
+    assert context.agg.players_remaining == int(
+        v
+    ), f"Expected players_remaining={v}, got {context.agg.players_remaining}"
 
 
 @then(
-    r'the tournament state has rebuys_used (?P<v>-?\d+) '
+    r"the tournament state has rebuys_used (?P<v>-?\d+) "
     r'for player "(?P<label>[^"]+)"'
 )
 def step_then_state_rebuys_used(context, v, label):
     player_hex = label.encode("utf-8").hex()
     reg = context.agg.registered_players.get(player_hex)
     assert reg is not None, f"Player {label!r} not registered"
-    assert reg.rebuys_used == int(v), (
-        f"Expected rebuys_used={v}, got {reg.rebuys_used}"
-    )
+    assert reg.rebuys_used == int(v), f"Expected rebuys_used={v}, got {reg.rebuys_used}"
 
 
 @then(r'the tournament state has no registered player "(?P<label>[^"]+)"')
 def step_then_state_no_player(context, label):
     player_hex = label.encode("utf-8").hex()
-    assert player_hex not in context.agg.registered_players, (
-        f"Expected {label!r} absent, but it is registered"
-    )
+    assert (
+        player_hex not in context.agg.registered_players
+    ), f"Expected {label!r} absent, but it is registered"

@@ -15,9 +15,7 @@ use_step_matcher("re")
 # --- Given steps ---
 
 
-@given(
-    r"current_bet is (?P<bet>-?\d+) and last_raise_increment is (?P<inc>-?\d+)"
-)
+@given(r"current_bet is (?P<bet>-?\d+) and last_raise_increment is (?P<inc>-?\d+)")
 def step_given_state(context, bet, inc):
     """Seed raise-tracking state on the context."""
     context.current_bet = int(bet)
@@ -90,9 +88,7 @@ def step_then_min_raise_to(context, expected):
     actual = getattr(
         context, "min_raise_to", context.current_bet + context.last_raise_increment
     )
-    assert actual == int(expected), (
-        f"Expected min_raise_to={expected}, got {actual}"
-    )
+    assert actual == int(expected), f"Expected min_raise_to={expected}, got {actual}"
 
 
 @then(r"last_raise_increment is (?P<expected>-?\d+)")
@@ -107,15 +103,15 @@ def step_then_last_raise_increment(context, expected):
 @then(r"current_bet is (?P<expected>-?\d+)")
 def step_then_current_bet(context, expected):
     """Verify current_bet."""
-    assert context.current_bet == int(expected), (
-        f"Expected current_bet={expected}, got {context.current_bet}"
-    )
+    assert context.current_bet == int(
+        expected
+    ), f"Expected current_bet={expected}, got {context.current_bet}"
 
 
 @then(r"the all-in amount is less than min_raise_to")
 def step_then_all_in_less_than_min_raise(context):
     """Verify the all-in amount is less than min_raise_to."""
     min_raise_to = context.current_bet + context.last_raise_increment
-    assert context.all_in_to < min_raise_to, (
-        f"all-in {context.all_in_to} is not less than min_raise_to {min_raise_to}"
-    )
+    assert (
+        context.all_in_to < min_raise_to
+    ), f"all-in {context.all_in_to} is not less than min_raise_to {min_raise_to}"

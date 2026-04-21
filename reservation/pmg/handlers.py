@@ -79,7 +79,6 @@ from tournament_state import (
     tournament_state_from_event_book,
 )
 
-
 PM_DOMAIN = "pmg-reservation"
 
 
@@ -438,9 +437,7 @@ class ReservationPM:
                     _seq(destinations, "reservation"),
                 ),
             ],
-            process_events=_event_book(
-                PM_DOMAIN, event.reservation_id, completed
-            ),
+            process_events=_event_book(PM_DOMAIN, event.reservation_id, completed),
         )
 
     @handles(buy_in.SeatingRejected)
@@ -472,9 +469,7 @@ class ReservationPM:
                     _seq(destinations, "reservation"),
                 ),
             ],
-            process_events=_event_book(
-                PM_DOMAIN, event.reservation_id, failed
-            ),
+            process_events=_event_book(PM_DOMAIN, event.reservation_id, failed),
         )
 
     @handles(buy_in.BuyInConfirmed)
@@ -665,9 +660,7 @@ class ReservationPM:
                     _seq(destinations, "reservation"),
                 ),
             ],
-            process_events=_event_book(
-                PM_DOMAIN, event.reservation_id, completed
-            ),
+            process_events=_event_book(PM_DOMAIN, event.reservation_id, completed),
         )
 
     @handles(tournament.RebuyDenied)
@@ -699,9 +692,7 @@ class ReservationPM:
                     _seq(destinations, "reservation"),
                 ),
             ],
-            process_events=_event_book(
-                PM_DOMAIN, event.reservation_id, failed
-            ),
+            process_events=_event_book(PM_DOMAIN, event.reservation_id, failed),
         )
 
     @handles(rebuy.RebuyFeeConfirmed)
@@ -862,9 +853,7 @@ class ReservationPM:
                     _seq(destinations, "reservation"),
                 ),
             ],
-            process_events=_event_book(
-                PM_DOMAIN, event.reservation_id, completed
-            ),
+            process_events=_event_book(PM_DOMAIN, event.reservation_id, completed),
         )
 
     @handles(tournament.TournamentEnrollmentRejected)
@@ -896,9 +885,7 @@ class ReservationPM:
                     _seq(destinations, "reservation"),
                 ),
             ],
-            process_events=_event_book(
-                PM_DOMAIN, event.reservation_id, failed
-            ),
+            process_events=_event_book(PM_DOMAIN, event.reservation_id, failed),
         )
 
     @handles(registration.RegistrationFeeConfirmed)
@@ -961,9 +948,7 @@ class ReservationPM:
         message: str,
         phase: str,
     ) -> ProcessManagerResponse:
-        release = buy_in.ReleaseBuyIn(
-            reservation_id=reservation_id, reason=message
-        )
+        release = buy_in.ReleaseBuyIn(reservation_id=reservation_id, reason=message)
         failed = _buy_in_failed_event(
             reservation_id, player_root, table_root, code, message, phase
         )
@@ -983,9 +968,7 @@ class ReservationPM:
         message: str,
         phase: str,
     ) -> ProcessManagerResponse:
-        release = rebuy.ReleaseRebuyFee(
-            reservation_id=reservation_id, reason=message
-        )
+        release = rebuy.ReleaseRebuyFee(reservation_id=reservation_id, reason=message)
         failed = _rebuy_failed_event(
             reservation_id, player_root, tournament_root, code, message, phase
         )

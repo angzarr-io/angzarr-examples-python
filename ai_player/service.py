@@ -341,7 +341,9 @@ class AiPlayerServicer:
         if not request.model_path:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             context.set_details("model_path is required")
-            return pb.ReloadModelResponse(success=False, message="model_path is required")
+            return pb.ReloadModelResponse(
+                success=False, message="model_path is required"
+            )
 
         try:
             self._model = PokerNet.load(request.model_path, device=self._config.device)

@@ -25,7 +25,6 @@ import secrets
 import string
 import sys
 
-
 DEFAULT_KEYS = ("db-password", "mq-password")
 # Symbols omitted intentionally: angzarr-db / angzarr-mq consume the
 # password via a URL (``postgres://user:password@host``), and URL-encoding

@@ -13,7 +13,6 @@ from google.protobuf import descriptor_pb2
 from grpc_health.v1 import health_pb2, health_pb2_grpc
 from grpc_reflection.v1alpha import reflection_pb2, reflection_pb2_grpc
 
-
 EXPECTED_RPCS = {
     "GetAction",
     "GetActionsBatch",
@@ -60,17 +59,21 @@ class TestReflection:
         assert "grpc.reflection.v1alpha.ServerReflection" in services
 
     def test_aisidecar_exposes_all_eight_rpcs(self, channel):
-        methods = _reflection_describe_methods(channel, "angzarr_client.proto.examples.AiSidecar")
-        assert methods == EXPECTED_RPCS, (
-            f"missing: {EXPECTED_RPCS - methods}, extra: {methods - EXPECTED_RPCS}"
+        methods = _reflection_describe_methods(
+            channel, "angzarr_client.proto.examples.AiSidecar"
         )
+        assert (
+            methods == EXPECTED_RPCS
+        ), f"missing: {EXPECTED_RPCS - methods}, extra: {methods - EXPECTED_RPCS}"
 
 
 class TestHealth:
     def test_standard_grpc_health_serving(self, channel):
         health_stub = health_pb2_grpc.HealthStub(channel)
         resp = health_stub.Check(
-            health_pb2.HealthCheckRequest(service="angzarr_client.proto.examples.AiSidecar")
+            health_pb2.HealthCheckRequest(
+                service="angzarr_client.proto.examples.AiSidecar"
+            )
         )
         assert resp.status == health_pb2.HealthCheckResponse.SERVING
 
@@ -100,9 +103,7 @@ class TestSessions:
         assert end.success is True
 
     def test_end_missing_session_returns_failure(self, stub, pb):
-        end = stub.EndSession(
-            pb.EndSessionRequest(session_id="nope-never-started")
-        )
+        end = stub.EndSession(pb.EndSessionRequest(session_id="nope-never-started"))
         assert end.success is False
 
 
@@ -111,7 +112,7 @@ class TestDecisioning:
         req = pb.ActionRequest(
             model_id="default",
             game_variant=1,  # TEXAS_HOLDEM
-            phase=1,         # PREFLOP
+            phase=1,  # PREFLOP
             pot_size=30,
             stack_size=1000,
             amount_to_call=10,
@@ -141,12 +142,20 @@ class TestDecisioning:
 
     def test_get_actions_batch_matches_input_size(self, stub, pb):
         req_one = pb.ActionRequest(
-            model_id="default", game_variant=1, phase=1,
-            pot_size=20, stack_size=1000, amount_to_call=10,
+            model_id="default",
+            game_variant=1,
+            phase=1,
+            pot_size=20,
+            stack_size=1000,
+            amount_to_call=10,
         )
         req_two = pb.ActionRequest(
-            model_id="default", game_variant=1, phase=2,
-            pot_size=100, stack_size=950, amount_to_call=0,
+            model_id="default",
+            game_variant=1,
+            phase=2,
+            pot_size=100,
+            stack_size=950,
+            amount_to_call=0,
         )
         resp = stub.GetActionsBatch(pb.BatchActionRequest(requests=[req_one, req_two]))
         assert len(resp.responses) == 2
@@ -156,9 +165,7 @@ class TestOpponentStats:
     def test_returns_empty_without_persistent_storage(self, stub, pb):
         # The default production container boots without DATABASE_URL set,
         # so the profile store is unconfigured and queries return empty.
-        resp = stub.GetOpponentStats(
-            pb.OpponentQuery(player_roots=[b"\xaa" * 32])
-        )
+        resp = stub.GetOpponentStats(pb.OpponentQuery(player_roots=[b"\xaa" * 32]))
         assert list(resp.profiles) == []
 
 
@@ -181,7 +188,5 @@ class TestModelReload:
 
     def test_nonexistent_path_returns_not_found(self, stub, pb):
         with pytest.raises(grpc.RpcError) as excinfo:
-            stub.ReloadModel(
-                pb.ReloadModelRequest(model_path="/no/such/checkpoint.pt")
-            )
+            stub.ReloadModel(pb.ReloadModelRequest(model_path="/no/such/checkpoint.pt"))
         assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND

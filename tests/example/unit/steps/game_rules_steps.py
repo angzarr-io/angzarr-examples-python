@@ -213,9 +213,7 @@ def step_when_create_another_deck_with_seed(context, seed):
     context.deck_b = context.rules.create_deck(seed.encode("utf-8"))
 
 
-@when(
-    r"I deal hole cards to (?P<n>\d+) players with seed \"(?P<seed>[^\"]*)\""
-)
+@when(r"I deal hole cards to (?P<n>\d+) players with seed \"(?P<seed>[^\"]*)\"")
 def step_when_deal_hole_cards_seeded(context, n, seed):
     players = [bytes([i + 1]) for i in range(int(n))]
     context.deal_result = context.rules.deal_hole_cards(
@@ -227,9 +225,7 @@ def step_when_deal_hole_cards_seeded(context, n, seed):
 @when(r"I deal hole cards to (?P<n>\d+) players from the existing deck")
 def step_when_deal_hole_cards_from_existing(context, n):
     players = [bytes([i + 1]) for i in range(int(n))]
-    context.deal_result = context.rules.deal_hole_cards(
-        context.existing_deck, players
-    )
+    context.deal_result = context.rules.deal_hole_cards(context.existing_deck, players)
     context.players = players
 
 
@@ -253,23 +249,21 @@ def step_when_get_game_rules_unknown(context):
 @then(r"the rank is (?P<rank>\w+)")
 def step_then_rank(context, rank):
     expected = _rank_type_from_name(rank)
-    assert context.rank == expected, (
-        f"Expected rank {rank}, got {_rank_name(context.rank)}"
-    )
+    assert (
+        context.rank == expected
+    ), f"Expected rank {rank}, got {_rank_name(context.rank)}"
 
 
 @then(r"the score is (?P<score>\d+)")
 def step_then_score(context, score):
-    assert context.score == int(score), (
-        f"Expected score {score}, got {context.score}"
-    )
+    assert context.score == int(score), f"Expected score {score}, got {context.score}"
 
 
 @then(r"the kicker count is (?P<n>\d+)")
 def step_then_kicker_count(context, n):
-    assert len(context.kickers) == int(n), (
-        f"Expected {n} kickers, got {len(context.kickers)}: {context.kickers}"
-    )
+    assert len(context.kickers) == int(
+        n
+    ), f"Expected {n} kickers, got {len(context.kickers)}: {context.kickers}"
 
 
 @then(r"the kickers are (?P<kicker_list>[\d, ]+)")
@@ -277,9 +271,9 @@ def step_then_kickers(context, kicker_list):
     """Pin the exact kicker rank ordering so kicker-filter mutations get caught
     (e.g. ``rank_counts[r] == 1`` → ``!= 1`` would silently change the kickers)."""
     expected = [int(k.strip()) for k in kicker_list.split(",")]
-    assert list(context.kickers) == expected, (
-        f"Expected kickers {expected}, got {list(context.kickers)}"
-    )
+    assert (
+        list(context.kickers) == expected
+    ), f"Expected kickers {expected}, got {list(context.kickers)}"
 
 
 # --- Then: variant property assertions ---
@@ -290,24 +284,24 @@ def step_then_variant(context, variant_name):
     # Works for both a plain `context.rules` and the factory result.
     rules = getattr(context, "factory_rules", None) or context.rules
     expected = getattr(poker_types, variant_name)
-    assert rules.variant == expected, (
-        f"Expected variant {variant_name} ({expected}), got {rules.variant}"
-    )
+    assert (
+        rules.variant == expected
+    ), f"Expected variant {variant_name} ({expected}), got {rules.variant}"
 
 
 @then(r"the hole card count is (?P<n>\d+)")
 def step_then_hole_card_count(context, n):
-    assert context.rules.hole_card_count == int(n), (
-        f"Expected hole_card_count={n}, got {context.rules.hole_card_count}"
-    )
+    assert context.rules.hole_card_count == int(
+        n
+    ), f"Expected hole_card_count={n}, got {context.rules.hole_card_count}"
 
 
 @then(r'the phases are "(?P<phases>[^"]+)"')
 def step_then_phases(context, phases):
     expected = [_phase_from_name(p) for p in phases.split(",")]
-    assert context.rules.phases == expected, (
-        f"Expected phases {phases}, got {context.rules.phases}"
-    )
+    assert (
+        context.rules.phases == expected
+    ), f"Expected phases {phases}, got {context.rules.phases}"
 
 
 # --- Then: phase transition assertions ---
@@ -317,9 +311,9 @@ def step_then_phases(context, phases):
 def step_then_next_phase(context, phase):
     assert context.next_result is not None, "Expected a phase, got None"
     expected = _phase_from_name(phase)
-    assert context.next_result.next_phase == expected, (
-        f"Expected next_phase {phase}, got {context.next_result.next_phase}"
-    )
+    assert (
+        context.next_result.next_phase == expected
+    ), f"Expected next_phase {phase}, got {context.next_result.next_phase}"
 
 
 @then(r"the community cards to deal is (?P<n>\d+)")
@@ -334,16 +328,15 @@ def step_then_deal_count(context, n):
 def step_then_is_showdown(context, flag):
     expected = flag == "True"
     assert context.next_result.is_showdown is expected, (
-        f"Expected is_showdown={expected}, "
-        f"got {context.next_result.is_showdown}"
+        f"Expected is_showdown={expected}, " f"got {context.next_result.is_showdown}"
     )
 
 
 @then(r"there is no next phase")
 def step_then_no_next_phase(context):
-    assert context.next_result is None, (
-        f"Expected None for terminal phase, got {context.next_result}"
-    )
+    assert (
+        context.next_result is None
+    ), f"Expected None for terminal phase, got {context.next_result}"
 
 
 # --- Then: draw assertions ---
@@ -376,25 +369,25 @@ def step_then_remaining_deck(context, n):
 @then(r'the new hand retains "(?P<card>[^"]+)"')
 def step_then_new_hand_retains(context, card):
     parsed = _parse_card(card)
-    assert parsed in context.draw_result.new_hole_cards, (
-        f"Expected card {card} in new hand, not found"
-    )
+    assert (
+        parsed in context.draw_result.new_hole_cards
+    ), f"Expected card {card} in new hand, not found"
 
 
 @then(r'the new hand does not contain "(?P<card>[^"]+)"')
 def step_then_new_hand_excludes(context, card):
     parsed = _parse_card(card)
-    assert parsed not in context.draw_result.new_hole_cards, (
-        f"Expected card {card} to be absent, but it is present"
-    )
+    assert (
+        parsed not in context.draw_result.new_hole_cards
+    ), f"Expected card {card} to be absent, but it is present"
 
 
 @then(r'the new hand equals "(?P<cards>[^"]*)"')
 def step_then_new_hand_equals(context, cards):
     expected = _parse_cards(cards)
-    assert context.draw_result.new_hole_cards == expected, (
-        f"Expected new hand {expected}, got {context.draw_result.new_hole_cards}"
-    )
+    assert (
+        context.draw_result.new_hole_cards == expected
+    ), f"Expected new hand {expected}, got {context.draw_result.new_hole_cards}"
 
 
 # --- Then: deck / deal assertions ---
@@ -402,25 +395,25 @@ def step_then_new_hand_equals(context, cards):
 
 @then(r"the deck has (?P<n>\d+) cards")
 def step_then_deck_size(context, n):
-    assert len(context.deck) == int(n), (
-        f"Expected {n} cards in deck, got {len(context.deck)}"
-    )
+    assert len(context.deck) == int(
+        n
+    ), f"Expected {n} cards in deck, got {len(context.deck)}"
 
 
 @then(r"the two decks are identical")
 def step_then_decks_identical(context):
-    assert context.deck_a == context.deck_b, (
-        "Seeded decks differ — shuffle is not deterministic"
-    )
+    assert (
+        context.deck_a == context.deck_b
+    ), "Seeded decks differ — shuffle is not deterministic"
 
 
 @then(r"each player has (?P<n>\d+) hole cards?")
 def step_then_each_player_hole_cards(context, n):
     for player_root in context.players:
         cards = context.deal_result.player_cards[player_root]
-        assert len(cards) == int(n), (
-            f"Player {player_root!r} got {len(cards)} cards, expected {n}"
-        )
+        assert len(cards) == int(
+            n
+        ), f"Player {player_root!r} got {len(cards)} cards, expected {n}"
 
 
 # --- Then: factory assertions ---
@@ -436,6 +429,6 @@ _CLASS_MAP = {
 @then(r"the rules class is (?P<cls>\w+)")
 def step_then_rules_class(context, cls):
     expected = _CLASS_MAP[cls]
-    assert isinstance(context.factory_rules, expected), (
-        f"Expected {cls}, got {type(context.factory_rules).__name__}"
-    )
+    assert isinstance(
+        context.factory_rules, expected
+    ), f"Expected {cls}, got {type(context.factory_rules).__name__}"

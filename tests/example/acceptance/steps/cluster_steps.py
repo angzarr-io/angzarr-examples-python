@@ -104,7 +104,10 @@ def _ping_player(context, name: str) -> bool:
     seq = context.players[name]["sequence"]
     try:
         context.client.send_command(
-            "player", root, packed, sequence=seq,
+            "player",
+            root,
+            packed,
+            sequence=seq,
             sync_mode=SyncMode.SYNC_MODE_SIMPLE,
         )
         return True
@@ -173,7 +176,10 @@ _DEAL_CARDS_EVIDENCE = (
     # targeting hand in this deploy).
     (
         f"{_COMPONENT_LABEL},{_DOMAIN_LABEL}=hand",
-        ("/angzarr.CommandHandlerCoordinatorService/HandleCommand", "Hand already dealt"),
+        (
+            "/angzarr.CommandHandlerCoordinatorService/HandleCommand",
+            "Hand already dealt",
+        ),
     ),
 )
 
@@ -214,6 +220,5 @@ def step_then_dealcards_routed_to_hand(context):
             f"(haystack tail: {haystack[-500:]!r})"
         )
     raise AssertionError(
-        "No evidence DealCards reached the hand coordinator:\n"
-        + "\n".join(failures)
+        "No evidence DealCards reached the hand coordinator:\n" + "\n".join(failures)
     )

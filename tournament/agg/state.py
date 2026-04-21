@@ -219,7 +219,10 @@ def build_state(state: TournamentState, events: list) -> TournamentState:
     from google.protobuf.any_pb2 import Any as AnyProto
 
     _appliers = {
-        "angzarr_client.proto.examples.TournamentCreated": (tournament.TournamentCreated, apply_created),
+        "angzarr_client.proto.examples.TournamentCreated": (
+            tournament.TournamentCreated,
+            apply_created,
+        ),
         "angzarr_client.proto.examples.RegistrationOpened": (
             tournament.RegistrationOpened,
             apply_registration_opened,
@@ -236,8 +239,14 @@ def build_state(state: TournamentState, events: list) -> TournamentState:
             tournament.TournamentEnrollmentRejected,
             apply_enrollment_rejected,
         ),
-        "angzarr_client.proto.examples.RebuyProcessed": (tournament.RebuyProcessed, apply_rebuy_processed),
-        "angzarr_client.proto.examples.RebuyDenied": (tournament.RebuyDenied, apply_rebuy_denied),
+        "angzarr_client.proto.examples.RebuyProcessed": (
+            tournament.RebuyProcessed,
+            apply_rebuy_processed,
+        ),
+        "angzarr_client.proto.examples.RebuyDenied": (
+            tournament.RebuyDenied,
+            apply_rebuy_denied,
+        ),
         "angzarr_client.proto.examples.BlindLevelAdvanced": (
             tournament.BlindLevelAdvanced,
             apply_blind_advanced,
@@ -246,9 +255,18 @@ def build_state(state: TournamentState, events: list) -> TournamentState:
             tournament.PlayerEliminated,
             apply_player_eliminated,
         ),
-        "angzarr_client.proto.examples.TournamentPaused": (tournament.TournamentPaused, apply_paused),
-        "angzarr_client.proto.examples.TournamentResumed": (tournament.TournamentResumed, apply_resumed),
-        "angzarr_client.proto.examples.TournamentStarted": (tournament.TournamentStarted, apply_started),
+        "angzarr_client.proto.examples.TournamentPaused": (
+            tournament.TournamentPaused,
+            apply_paused,
+        ),
+        "angzarr_client.proto.examples.TournamentResumed": (
+            tournament.TournamentResumed,
+            apply_resumed,
+        ),
+        "angzarr_client.proto.examples.TournamentStarted": (
+            tournament.TournamentStarted,
+            apply_started,
+        ),
         "angzarr_client.proto.examples.TournamentCompleted": (
             tournament.TournamentCompleted,
             apply_completed,

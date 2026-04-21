@@ -1529,14 +1529,14 @@ def step_when_deal_cards_no_players(context, variant):
     _execute_handler(context, "deal", cmd)
 
 
-@when(
-    r'I deal the same (?P<variant>\w+) hand twice with seed "(?P<seed>[^"]+)"'
-)
+@when(r'I deal the same (?P<variant>\w+) hand twice with seed "(?P<seed>[^"]+)"')
 def step_when_deal_twice_with_seed(context, variant, seed):
     """Deal the same hand twice with a deck_seed and compare outputs."""
     game_variant = getattr(poker_types, variant, poker_types.TEXAS_HOLDEM)
     players = [
-        hand.PlayerInHand(player_root=f"player-{i + 1}".encode(), position=i, stack=1000)
+        hand.PlayerInHand(
+            player_root=f"player-{i + 1}".encode(), position=i, stack=1000
+        )
         for i in range(2)
     ]
 
@@ -1579,9 +1579,7 @@ def step_when_post_blind_no_root(context, blind_type, amount):
     _execute_handler(context, "post_blind", cmd)
 
 
-@when(
-    r"I handle a PlayerAction command with no player_root action (?P<action>\w+)"
-)
+@when(r"I handle a PlayerAction command with no player_root action (?P<action>\w+)")
 def step_when_player_action_no_root(context, action):
     """Handle PlayerAction command without player_root."""
     action_type = getattr(poker_types, action, poker_types.FOLD)
@@ -1602,9 +1600,7 @@ def step_when_player_action_unknown(context, player_id):
     _execute_handler(context, "action", cmd)
 
 
-@when(
-    r'I handle a RevealCards command with no player_root and muck (?P<muck>\w+)'
-)
+@when(r"I handle a RevealCards command with no player_root and muck (?P<muck>\w+)")
 def step_when_reveal_cards_no_root(context, muck):
     """Handle RevealCards command without player_root."""
     cmd = hand.RevealCards(muck=(muck.lower() == "true"))
@@ -1622,9 +1618,9 @@ def step_when_award_pot_no_awards(context):
 def step_then_state_current_bet(context, bet):
     """Verify hand state current_bet."""
     assert context.agg is not None, "No hand aggregate"
-    assert context.agg.current_bet == int(bet), (
-        f"Expected current_bet={bet}, got {context.agg.current_bet}"
-    )
+    assert context.agg.current_bet == int(
+        bet
+    ), f"Expected current_bet={bet}, got {context.agg.current_bet}"
 
 
 @then(r"each player has bet_this_round (?P<amount>\d+)")
@@ -1644,9 +1640,7 @@ def step_then_player_has_stack(context, player_id, stack):
     assert context.agg is not None, "No hand aggregate"
     player = context.agg.get_player(player_id.encode())
     assert player is not None, f"Player {player_id} not found"
-    assert player.stack == int(stack), (
-        f"Expected stack={stack}, got {player.stack}"
-    )
+    assert player.stack == int(stack), f"Expected stack={stack}, got {player.stack}"
 
 
 @then(r'player "(?P<player_id>[^"]+)" is all-in')
@@ -1662,9 +1656,9 @@ def step_then_player_is_all_in(context, player_id):
 def step_then_state_hand_id(context, hid):
     """Verify hand id."""
     assert context.agg is not None, "No hand aggregate"
-    assert context.agg.hand_id == hid, (
-        f"Expected hand_id={hid}, got {context.agg.hand_id}"
-    )
+    assert (
+        context.agg.hand_id == hid
+    ), f"Expected hand_id={hid}, got {context.agg.hand_id}"
 
 
 @then(r"the hand event book has (?P<count>\d+) pages")
@@ -1672,33 +1666,33 @@ def step_then_event_book_pages(context, count):
     """Verify number of pages in the event book."""
     assert context.agg is not None, "No hand aggregate"
     book = context.agg.event_book()
-    assert len(book.pages) == int(count), (
-        f"Expected {count} pages, got {len(book.pages)}"
-    )
+    assert len(book.pages) == int(
+        count
+    ), f"Expected {count} pages, got {len(book.pages)}"
 
 
 @then(r"the hand state small_blind is (?P<amount>\d+)")
 def step_then_state_small_blind(context, amount):
     """Verify small_blind."""
-    assert context.agg.small_blind == int(amount), (
-        f"Expected small_blind={amount}, got {context.agg.small_blind}"
-    )
+    assert context.agg.small_blind == int(
+        amount
+    ), f"Expected small_blind={amount}, got {context.agg.small_blind}"
 
 
 @then(r"the hand state big_blind is (?P<amount>\d+)")
 def step_then_state_big_blind(context, amount):
     """Verify big_blind."""
-    assert context.agg.big_blind == int(amount), (
-        f"Expected big_blind={amount}, got {context.agg.big_blind}"
-    )
+    assert context.agg.big_blind == int(
+        amount
+    ), f"Expected big_blind={amount}, got {context.agg.big_blind}"
 
 
 @then(r"the hand state min_raise is (?P<amount>\d+)")
 def step_then_state_min_raise(context, amount):
     """Verify min_raise."""
-    assert context.agg.min_raise == int(amount), (
-        f"Expected min_raise={amount}, got {context.agg.min_raise}"
-    )
+    assert context.agg.min_raise == int(
+        amount
+    ), f"Expected min_raise={amount}, got {context.agg.min_raise}"
 
 
 @then(r"the hand state has (?P<count>\d+) active players")
@@ -1706,9 +1700,9 @@ def step_then_state_active_players(context, count):
     """Verify active player count."""
     assert context.agg is not None, "No hand aggregate"
     active = context.agg.get_active_players()
-    assert len(active) == int(count), (
-        f"Expected {count} active players, got {len(active)}"
-    )
+    assert len(active) == int(
+        count
+    ), f"Expected {count} active players, got {len(active)}"
 
 
 @then(r'player "(?P<player_id>[^"]+)" wins')

@@ -62,7 +62,10 @@ def _send_reservation_command(context, player_name, kind, cmd, type_name):
         # the test sees the rejection (e.g. player does not exist) before
         # moving on.
         response = context.client.send_command(
-            "reservation", root, packed, sequence=seq,
+            "reservation",
+            root,
+            packed,
+            sequence=seq,
             sync_mode=SyncMode.SYNC_MODE_SIMPLE,
         )
         context.last_response = response
@@ -177,17 +180,17 @@ def step_then_reservation_request_accepted(context):
     Requested event was emitted (success path). PM behavior beyond this
     is observed by the next scenario step.
     """
-    assert context.command_succeeded, (
-        f"Reservation Initiate* failed: {context.last_error}"
-    )
+    assert (
+        context.command_succeeded
+    ), f"Reservation Initiate* failed: {context.last_error}"
 
 
 @then(r"the reservation request was rejected")
 def step_then_reservation_request_rejected(context):
     """Assert the reservation aggregate rejected the Initiate*."""
-    assert not context.command_succeeded, (
-        "Expected reservation request to be rejected, but it succeeded"
-    )
+    assert (
+        not context.command_succeeded
+    ), "Expected reservation request to be rejected, but it succeeded"
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +209,10 @@ def _send_player_command(context, player_name, cmd, type_name):
     seq = context.players[player_name]["sequence"]
     try:
         response = context.client.send_command(
-            "player", root, packed, sequence=seq,
+            "player",
+            root,
+            packed,
+            sequence=seq,
             sync_mode=SyncMode.SYNC_MODE_SIMPLE,
         )
         context.last_response = response

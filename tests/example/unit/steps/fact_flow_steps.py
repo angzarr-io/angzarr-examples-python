@@ -55,7 +55,9 @@ def make_event_book(domain_name: str, root: bytes, pages: list) -> types.EventBo
 
 def _dispatch_single_saga(saga_instance, source: types.EventBook):
     """Run a one-off saga dispatch through a fresh Router."""
-    router = Router("test").with_handler(type(saga_instance), lambda: saga_instance).build()
+    router = (
+        Router("test").with_handler(type(saga_instance), lambda: saga_instance).build()
+    )
     return router.dispatch(SagaHandleRequest(source=source))
 
 

@@ -165,9 +165,7 @@ class SelfPlayGame:
         """
         ai_client = self._agent_clients.get(player.name)
         if ai_client is None:
-            raise RuntimeError(
-                f"no AiPlayerClient registered for player {player.name}"
-            )
+            raise RuntimeError(f"no AiPlayerClient registered for player {player.name}")
 
         snapshot = self._build_snapshot(player)
         game = self._base_game
@@ -398,8 +396,15 @@ class SelfPlayTrainer:
     def _init_agents(self) -> None:
         """Initialize player agents — each gets its own AiPlayerClient."""
         names = [
-            "Alice", "Bob", "Carol", "Dave", "Eve",
-            "Frank", "Grace", "Hank", "Ivan",
+            "Alice",
+            "Bob",
+            "Carol",
+            "Dave",
+            "Eve",
+            "Frank",
+            "Grace",
+            "Hank",
+            "Ivan",
         ]
 
         for i in range(self._config.num_players):
@@ -407,11 +412,13 @@ class SelfPlayTrainer:
             model_id = f"agent_{name.lower()}"
             address = self._config.sidecar_addresses[i]
 
-            client = AiPlayerClient(AiPlayerConfig(
-                address=address,
-                session_id=model_id,
-                player_root=b"",
-            ))
+            client = AiPlayerClient(
+                AiPlayerConfig(
+                    address=address,
+                    session_id=model_id,
+                    player_root=b"",
+                )
+            )
             self._registry.register(model_id, client)
 
             agent = PlayerAgent(
@@ -810,7 +817,9 @@ def main():
 
     args = parser.parse_args()
 
-    sidecar_addresses = [a.strip() for a in args.sidecar_addresses.split(",") if a.strip()]
+    sidecar_addresses = [
+        a.strip() for a in args.sidecar_addresses.split(",") if a.strip()
+    ]
 
     config = SelfPlayConfig(
         database_url=args.database_url,

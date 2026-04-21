@@ -228,5 +228,3 @@ class BettingRoundTester:
             current_seat = next_active_seat(current_seat)
             if current_seat is None or len(get_active_seats()) < 2:
                 break
-
-

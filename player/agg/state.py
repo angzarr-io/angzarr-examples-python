@@ -69,9 +69,7 @@ def apply_reserved(state: PlayerState, event: player.FundsReserved) -> None:
     amount = event.amount.amount if event.HasField("amount") else 0
     state.reserved_funds += amount
     bucket = event.key.hex()
-    state.table_reservations[bucket] = (
-        state.table_reservations.get(bucket, 0) + amount
-    )
+    state.table_reservations[bucket] = state.table_reservations.get(bucket, 0) + amount
 
 
 def apply_released(state: PlayerState, event: player.FundsReleased) -> None:
@@ -114,13 +112,34 @@ def build_state(state: PlayerState, events: list) -> PlayerState:
     from google.protobuf.any_pb2 import Any as AnyProto
 
     _appliers = {
-        "angzarr_client.proto.examples.PlayerRegistered": (player.PlayerRegistered, apply_registered),
-        "angzarr_client.proto.examples.FundsDeposited": (player.FundsDeposited, apply_deposited),
-        "angzarr_client.proto.examples.FundsWithdrawn": (player.FundsWithdrawn, apply_withdrawn),
-        "angzarr_client.proto.examples.FundsReserved": (player.FundsReserved, apply_reserved),
-        "angzarr_client.proto.examples.FundsReleased": (player.FundsReleased, apply_released),
-        "angzarr_client.proto.examples.FundsTransferred": (player.FundsTransferred, apply_transferred),
-        "angzarr_client.proto.examples.FundsDeducted": (player.FundsDeducted, apply_funds_deducted),
+        "angzarr_client.proto.examples.PlayerRegistered": (
+            player.PlayerRegistered,
+            apply_registered,
+        ),
+        "angzarr_client.proto.examples.FundsDeposited": (
+            player.FundsDeposited,
+            apply_deposited,
+        ),
+        "angzarr_client.proto.examples.FundsWithdrawn": (
+            player.FundsWithdrawn,
+            apply_withdrawn,
+        ),
+        "angzarr_client.proto.examples.FundsReserved": (
+            player.FundsReserved,
+            apply_reserved,
+        ),
+        "angzarr_client.proto.examples.FundsReleased": (
+            player.FundsReleased,
+            apply_released,
+        ),
+        "angzarr_client.proto.examples.FundsTransferred": (
+            player.FundsTransferred,
+            apply_transferred,
+        ),
+        "angzarr_client.proto.examples.FundsDeducted": (
+            player.FundsDeducted,
+            apply_funds_deducted,
+        ),
     }
 
     for event_any in events:

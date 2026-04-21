@@ -178,7 +178,9 @@ class PlayerAggregate:
 
 
 # Build the router with the aggregate handler instance.
-router = Router("player").with_handler(PlayerAggregate, lambda: PlayerAggregate()).build()
+router = (
+    Router("player").with_handler(PlayerAggregate, lambda: PlayerAggregate()).build()
+)
 # endregion
 
 

@@ -65,7 +65,9 @@ class TablePlayerSaga:
                     ),
                     pages=[
                         types.CommandPage(
-                            header=Destinations.deferred_header(source_cover, source_seq),
+                            header=Destinations.deferred_header(
+                                source_cover, source_seq
+                            ),
                             command=_pack(release),
                         )
                     ],
@@ -76,7 +78,11 @@ class TablePlayerSaga:
 
 
 if __name__ == "__main__":
-    router = Router("saga-table-player").with_handler(TablePlayerSaga, lambda: TablePlayerSaga()).build()
+    router = (
+        Router("saga-table-player")
+        .with_handler(TablePlayerSaga, lambda: TablePlayerSaga())
+        .build()
+    )
     servicer = SagaGrpc(router)
     run_server(
         saga_pb2_grpc.add_SagaServiceServicer_to_server,

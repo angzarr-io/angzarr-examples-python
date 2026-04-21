@@ -36,7 +36,6 @@ from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import table_pb2 as table
 
-
 _ACTION_NAME = {
     poker_types.FOLD: "folds",
     poker_types.CHECK: "checks",
@@ -202,7 +201,7 @@ class OutputProjector:
     def project_table_created(self, event: table.TableCreated) -> None:
         variant = _GAME_VARIANT_NAME.get(event.game_variant, str(event.game_variant))
         self._emit(
-            f"Table \"{event.table_name}\" created: {variant} "
+            f'Table "{event.table_name}" created: {variant} '
             f"{_format_currency(event.small_blind)}/"
             f"{_format_currency(event.big_blind)} "
             f"(buy-in: {_format_currency(event.min_buy_in)} - "
@@ -279,9 +278,7 @@ class OutputProjector:
         self._emit(msg)
 
     @handles(hand.CommunityCardsDealt)
-    def project_community_cards_dealt(
-        self, event: hand.CommunityCardsDealt
-    ) -> None:
+    def project_community_cards_dealt(self, event: hand.CommunityCardsDealt) -> None:
         phase_name = _PHASE_NAME.get(event.phase, "Street")
         self._board.extend(event.cards)
         cards_str = _format_cards(event.cards)
