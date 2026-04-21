@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Fire on all PRs so stacked PRs (base != main) get checks too.
+    branches: ['**']
   workflow_dispatch:  # Allow manual trigger
 
 env:
