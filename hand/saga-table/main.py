@@ -43,6 +43,7 @@ class HandTableSaga:
         event: hand.HandComplete,
         destinations: Destinations,
         source_cover: types.Cover = None,
+        source_seq: int = 0,
     ) -> types.CommandBook:
         results = [
             table.PotResult(
@@ -58,9 +59,6 @@ class HandTableSaga:
         end_hand = table.EndHand(hand_root=hand_root)
         end_hand.results.extend(results)
 
-        seq = destinations.sequence_for("table") if destinations else 0
-        seq = seq if seq is not None else 0
-
         return types.CommandBook(
             cover=types.Cover(
                 domain="table",
@@ -68,7 +66,7 @@ class HandTableSaga:
             ),
             pages=[
                 types.CommandPage(
-                    header=types.PageHeader(sequence=seq),
+                    header=Destinations.deferred_header(source_cover, source_seq),
                     command=_pack(end_hand),
                 )
             ],

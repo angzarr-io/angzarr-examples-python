@@ -4,7 +4,9 @@ Handles dealing, blinds, betting actions, community cards, showdown,
 pot calculations, and hand completion.
 """
 
-from behave import then, use_step_matcher, when
+import time
+
+from behave import given, then, use_step_matcher, when
 
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
@@ -811,3 +813,88 @@ def step_then_hand_same_hand_number(context):
 
 # Note: "the response includes successful projection updates" is in sync_steps.py
 # Note: "other sagas continue executing" is defined in sync_steps.py
+
+
+# ==========================================================================
+# Cluster-tier helpers — wait for saga-driven dealing, drive real
+# DealCommunityCards / RevealCards / AwardPot against the deterministic
+# hand_root captured by table_steps._start_hand.
+# ==========================================================================
+
+
+@given(r"the hand has been dealt at table \"(?P<table>[^\"]+)\"")
+@when(r"the hand has been dealt at table \"(?P<table>[^\"]+)\"")
+def step_wait_for_cards_dealt(context, table):
+    """Poll the hand aggregate until saga-table-hand has delivered
+    DealCards and a CardsDealt event is in the hand's event book.
+
+    Uses RevealCards(player_root=b"\\x00"*16, muck=true) as a probe — the
+    coordinator answers immediately with INVALID_ARGUMENT once the hand
+    exists (player not in hand) versus a not-found / empty-state error
+    before DealCards lands.
+    """
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        probe = hand.RevealCards(player_root=b"\x00" * 16, muck=True)
+        packed = pack_command(probe, "angzarr_client.proto.examples.RevealCards")
+        try:
+            context.client.send_command("hand", _hand_root(context), packed)
+        except Exception as e:
+            msg = str(e).lower()
+            # "hand not dealt" → still waiting; any other error → dealt.
+            if "not dealt" in msg or "does not exist" in msg:
+                time.sleep(0.2)
+                continue
+            return
+        return
+    raise AssertionError(
+        f"CardsDealt did not appear at hand_root within 10s for table {table!r}"
+    )
+
+
+@when(r"the dealer deals the flop")
+def step_when_deal_flop(context):
+    cmd = hand.DealCommunityCards(count=3)
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.DealCommunityCards")
+
+
+@when(r"the dealer deals the turn")
+def step_when_deal_turn(context):
+    cmd = hand.DealCommunityCards(count=1)
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.DealCommunityCards")
+
+
+@when(r"the dealer deals the river")
+def step_when_deal_river(context):
+    cmd = hand.DealCommunityCards(count=1)
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.DealCommunityCards")
+
+
+@when(r'"(?P<name>[^"]+)" reveals their cards')
+def step_when_reveal_cards(context, name):
+    from player_steps import _player_root
+
+    cmd = hand.RevealCards(player_root=_player_root(context, name), muck=False)
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.RevealCards")
+
+
+@when(r'"(?P<name>[^"]+)" mucks at showdown')
+def step_when_muck_at_showdown(context, name):
+    from player_steps import _player_root
+
+    cmd = hand.RevealCards(player_root=_player_root(context, name), muck=True)
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.RevealCards")
+
+
+@when(r'the pot is awarded to "(?P<name>[^"]+)" with amount (?P<amount>\d+)')
+def step_when_award_pot(context, name, amount):
+    """Send AwardPot to the actual hand_root the saga dealt to."""
+    from player_steps import _player_root
+
+    award = hand.PotAward(
+        player_root=_player_root(context, name),
+        amount=int(amount),
+        pot_type="main",
+    )
+    cmd = hand.AwardPot(awards=[award])
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.AwardPot")

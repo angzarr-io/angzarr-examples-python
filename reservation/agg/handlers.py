@@ -125,7 +125,10 @@ class Reservation:
 
     @handles(buy_in.InitiateBuyIn)
     def on_initiate_buy_in(
-        self, cmd: buy_in.InitiateBuyIn, state: ReservationState
+        self,
+        cmd: buy_in.InitiateBuyIn,
+        state: ReservationState,
+        seq: int | None = None,
     ) -> buy_in.BuyInRequested:
         """Open a buy-in pending record after sync DECISION on player funds."""
         if not cmd.player_root:
@@ -154,7 +157,10 @@ class Reservation:
 
     @handles(buy_in.ConfirmBuyIn)
     def on_confirm_buy_in(
-        self, cmd: buy_in.ConfirmBuyIn, state: ReservationState
+        self,
+        cmd: buy_in.ConfirmBuyIn,
+        state: ReservationState,
+        seq: int | None = None,
     ) -> buy_in.BuyInConfirmed:
         if not cmd.reservation_id:
             raise CommandRejectedError("reservation_id is required")
@@ -172,7 +178,10 @@ class Reservation:
 
     @handles(buy_in.ReleaseBuyIn)
     def on_release_buy_in(
-        self, cmd: buy_in.ReleaseBuyIn, state: ReservationState
+        self,
+        cmd: buy_in.ReleaseBuyIn,
+        state: ReservationState,
+        seq: int | None = None,
     ) -> buy_in.BuyInReservationReleased:
         if not cmd.reservation_id:
             raise CommandRejectedError("reservation_id is required")
@@ -220,6 +229,7 @@ class Reservation:
         self,
         cmd: registration.InitiateTournamentRegistration,
         state: ReservationState,
+        seq: int | None = None,
     ) -> registration.RegistrationRequested:
         """Fee comes from Tournament state via the PM later. We can't sync
         DECISION on funds here because the fee isn't known yet."""
@@ -244,6 +254,7 @@ class Reservation:
         self,
         cmd: registration.ConfirmRegistrationFee,
         state: ReservationState,
+        seq: int | None = None,
     ) -> registration.RegistrationFeeConfirmed:
         if not cmd.reservation_id:
             raise CommandRejectedError("reservation_id is required")
@@ -265,6 +276,7 @@ class Reservation:
         self,
         cmd: registration.ReleaseRegistrationFee,
         state: ReservationState,
+        seq: int | None = None,
     ) -> registration.RegistrationFeeReleased:
         if not cmd.reservation_id:
             raise CommandRejectedError("reservation_id is required")
@@ -316,7 +328,10 @@ class Reservation:
 
     @handles(rebuy.InitiateRebuy)
     def on_initiate_rebuy(
-        self, cmd: rebuy.InitiateRebuy, state: ReservationState
+        self,
+        cmd: rebuy.InitiateRebuy,
+        state: ReservationState,
+        seq: int | None = None,
     ) -> rebuy.RebuyRequested:
         """Fee comes from Tournament state via the PM later."""
         if not cmd.player_root:
@@ -341,7 +356,10 @@ class Reservation:
 
     @handles(rebuy.ConfirmRebuyFee)
     def on_confirm_rebuy(
-        self, cmd: rebuy.ConfirmRebuyFee, state: ReservationState
+        self,
+        cmd: rebuy.ConfirmRebuyFee,
+        state: ReservationState,
+        seq: int | None = None,
     ) -> rebuy.RebuyFeeConfirmed:
         if not cmd.reservation_id:
             raise CommandRejectedError("reservation_id is required")
@@ -360,7 +378,10 @@ class Reservation:
 
     @handles(rebuy.ReleaseRebuyFee)
     def on_release_rebuy(
-        self, cmd: rebuy.ReleaseRebuyFee, state: ReservationState
+        self,
+        cmd: rebuy.ReleaseRebuyFee,
+        state: ReservationState,
+        seq: int | None = None,
     ) -> rebuy.RebuyFeeReleased:
         if not cmd.reservation_id:
             raise CommandRejectedError("reservation_id is required")

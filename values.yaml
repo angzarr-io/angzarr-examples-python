@@ -112,6 +112,24 @@ applications:
         repository: ghcr.io/angzarr-io/poker-python-saga-table-player
         tag: latest
         pullPolicy: IfNotPresent
+    - name: saga-hand-table
+      domain: saga-hand-table
+      port: 50412
+      topics:
+        - "hand"  # subscribes to HandComplete -> emits EndHand on table
+      image:
+        repository: ghcr.io/angzarr-io/poker-python-saga-hand-table
+        tag: latest
+        pullPolicy: IfNotPresent
+    - name: saga-hand-player
+      domain: saga-hand-player
+      port: 50414
+      topics:
+        - "hand"  # subscribes to PotAwarded -> emits DepositFunds (winner credit)
+      image:
+        repository: ghcr.io/angzarr-io/poker-python-saga-hand-player
+        tag: latest
+        pullPolicy: IfNotPresent
 
   # Consolidated reservation process manager — replaces the former buy-in /
   # rebuy / registration PMs. Subscribes to reservation (for lifecycle

@@ -40,10 +40,12 @@ class HandPlayerSaga:
 
     @handles(hand.PotAwarded)
     def handle_pot_awarded(
-        self, event: hand.PotAwarded, destinations: Destinations
+        self,
+        event: hand.PotAwarded,
+        destinations: Destinations,
+        source_cover: types.Cover = None,
+        source_seq: int = 0,
     ) -> list[types.CommandBook]:
-        seq = destinations.sequence_for("player") if destinations else 0
-        seq = seq if seq is not None else 0
         books: list[types.CommandBook] = []
         for winner in event.winners:
             deposit = player.DepositFunds(
@@ -60,7 +62,7 @@ class HandPlayerSaga:
                     ),
                     pages=[
                         types.CommandPage(
-                            header=types.PageHeader(sequence=seq),
+                            header=Destinations.deferred_header(source_cover, source_seq),
                             command=_pack(deposit),
                         )
                     ],

@@ -144,6 +144,34 @@ def step_when_open_registration(context, name):
     context.tournaments[name]["status"] = "RegistrationOpen"
 
 
+@when(r'I close registration on tournament "(?P<name>[^"]+)"')
+def step_when_close_registration(context, name):
+    cmd = tournament.CloseRegistration()
+    _send_tournament_command(
+        context, name, cmd, "angzarr_client.proto.examples.CloseRegistration"
+    )
+
+
+@when(r'I pause tournament "(?P<name>[^"]+)"')
+def step_when_pause_tournament(context, name):
+    cmd = tournament.PauseTournament(reason="test pause")
+    _send_tournament_command(
+        context, name, cmd, "angzarr_client.proto.examples.PauseTournament"
+    )
+    if context.command_succeeded:
+        context.tournaments[name]["status"] = "Paused"
+
+
+@when(r'I resume tournament "(?P<name>[^"]+)"')
+def step_when_resume_tournament(context, name):
+    cmd = tournament.ResumeTournament()
+    _send_tournament_command(
+        context, name, cmd, "angzarr_client.proto.examples.ResumeTournament"
+    )
+    if context.command_succeeded:
+        context.tournaments[name]["status"] = "Running"
+
+
 @when(
     r'player "(?P<player>[^"]+)" registers for tournament "(?P<name>[^"]+)"'
 )

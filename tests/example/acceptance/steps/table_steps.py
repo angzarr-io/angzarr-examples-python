@@ -4,12 +4,28 @@ Handles table creation, player seating, and table state assertions
 by sending commands through the CommandClient abstraction.
 """
 
+import hashlib
+
 from behave import given, then, use_step_matcher, when
 
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import table_pb2 as table
 
 from common_steps import new_uuid_bytes, pack_command
+
+
+def _derive_hand_root(table_name: str, hand_number: int) -> bytes:
+    """Mirror the deterministic hand_root the table aggregate computes in
+    `handle_start_hand` (`table/agg/handlers/table.py:487`):
+
+        hand_root = sha256(f"angzarr.poker.hand.table_{table_name}.{n}")[:16]
+
+    Computing it client-side lets us send PostBlind / PlayerAction / AwardPot
+    to the same hand the saga-driven DealCards landed on, even when StartHand
+    is ASYNC (no event in the response to parse).
+    """
+    seed = f"angzarr.poker.hand.table_{table_name}.{hand_number}"
+    return hashlib.sha256(seed.encode()).digest()[:16]
 
 use_step_matcher("re")
 
@@ -118,7 +134,9 @@ def _start_hand(context, table_name: str, sync_mode=None, cascade_error_mode=Non
 
     context.tables[table_name]["sequence"] = seq + 1
     context.tables[table_name]["hand_count"] += 1
-    context.current_hand_root = new_uuid_bytes()
+    context.current_hand_root = _derive_hand_root(
+        table_name, context.tables[table_name]["hand_count"]
+    )
     context.current_table_name = table_name
 
     # Initialize hand tracking

@@ -52,11 +52,16 @@ class TableHandSaga:
         self,
         event: table.HandStarted,
         destinations: Destinations,
+        source_cover: types.Cover = None,
+        source_seq: int = 0,
     ) -> types.CommandBook:
-        """Translate HandStarted -> DealCards."""
-        dest_seq = destinations.sequence_for("hand") if destinations else 0
-        dest_seq = dest_seq if dest_seq is not None else 0
+        """Translate HandStarted -> DealCards.
 
+        Uses ``AngzarrDeferredSequence`` so AMQP redelivery of HandStarted
+        is recognized as a duplicate by the framework's
+        ``check_deferred_idempotency`` and short-circuits to the cached
+        DealCards events without re-invoking the hand handler.
+        """
         players = [
             hand.PlayerInHand(
                 player_root=seat.player_root,
@@ -66,6 +71,10 @@ class TableHandSaga:
             for seat in event.active_players
         ]
 
+        # Use the deterministic hand_root as deck_seed so the shuffle is
+        # reproducible across runs. Same hand_root (sha256(table_id, hand_n))
+        # always produces the same hole + community cards — required for
+        # deterministic acceptance tests.
         deal_cards = hand.DealCards(
             table_root=event.hand_root,
             hand_number=event.hand_number,
@@ -73,6 +82,7 @@ class TableHandSaga:
             dealer_position=event.dealer_position,
             small_blind=event.small_blind,
             big_blind=event.big_blind,
+            deck_seed=event.hand_root,
         )
         deal_cards.players.extend(players)
 
@@ -83,7 +93,7 @@ class TableHandSaga:
             ),
             pages=[
                 types.CommandPage(
-                    header=types.PageHeader(sequence=dest_seq),
+                    header=Destinations.deferred_header(source_cover, source_seq),
                     command=_pack(deal_cards),
                 )
             ],

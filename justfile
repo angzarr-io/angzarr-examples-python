@@ -42,6 +42,8 @@ _container +ARGS: _build-image
             -e PLAYER_URL="${PLAYER_URL:-}" \
             -e TABLE_URL="${TABLE_URL:-}" \
             -e HAND_URL="${HAND_URL:-}" \
+            -e TOURNAMENT_URL="${TOURNAMENT_URL:-}" \
+            -e RESERVATION_URL="${RESERVATION_URL:-}" \
             -e KUBECONFIG=/home/user/.kube/config \
             -v "{{ANGZARR_ROOT}}:/angzarr" \
             -v "{{ROOT}}/justfile.container:/angzarr/examples-python/main/justfile:ro" \
@@ -120,6 +122,8 @@ HAND_IMAGE := "ghcr.io/angzarr-io/poker-python-hand"
 AI_IMAGE := "ghcr.io/angzarr-io/poker-python-ai-player"
 SAGA_TABLE_HAND_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-table-hand"
 SAGA_TABLE_PLAYER_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-table-player"
+SAGA_HAND_TABLE_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-hand-table"
+SAGA_HAND_PLAYER_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-hand-player"
 TOURNAMENT_IMAGE := "ghcr.io/angzarr-io/poker-python-tournament"
 RESERVATION_IMAGE := "ghcr.io/angzarr-io/poker-python-reservation"
 PMG_RESERVATION_IMAGE := "ghcr.io/angzarr-io/poker-python-pmg-reservation"
@@ -130,9 +134,48 @@ AI_CHART := ROOT + "/deploy/k8s/helm/ai-player"
 # =============================================================================
 
 # Deploy everything to kind cluster (repeatable)
-up: kind-create seed-secrets build-images load-images deploy-infra deploy-apps deploy-ai
+up: kind-create seed-secrets seed-gateway-descriptor build-images load-images load-coordinators-local deploy-infra deploy-apps deploy-ai
     @echo "=== Deployment complete ==="
     @just status
+
+# Load locally-built coordinator images into kind so the deploy doesn't fall
+# back to the published :latest from GHCR (which can be stale relative to
+# core/main HEAD — recently the published aggregate sidecar served gRPC
+# routes that returned UNIMPLEMENTED, blocking acceptance tests). Skips
+# silently if a tag isn't present locally so a fresh checkout still works
+# off the published images.
+load-coordinators-local:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    coordinators=(angzarr-aggregate angzarr-saga angzarr-process-manager angzarr-projector)
+    for name in "${coordinators[@]}"; do
+        img="ghcr.io/angzarr-io/${name}:latest"
+        if docker image inspect "$img" >/dev/null 2>&1; then
+            echo "Loading local $img into kind..."
+            kind load docker-image "$img" --name {{KIND_CLUSTER}}
+        else
+            echo "Skipping $img (not built locally; will pull from registry on deploy)"
+        fi
+    done
+
+# Build the gRPC gateway's protobuf descriptor with `buf build` and load it
+# as a ConfigMap. The gateway pod mounts this to transcode HTTP/JSON → gRPC;
+# without it the pod is stuck in ContainerCreating and the helm `--wait`
+# in `deploy-apps` times out. CI does the equivalent step (see ci.yml).
+# `kubectl create` (not `apply`) — the descriptor exceeds the 256KiB
+# last-applied-configuration annotation cap; recreate is fine, the gateway
+# rereads on container restart.
+seed-gateway-descriptor: kind-create
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Building gateway descriptor ==="
+    tmp=$(mktemp --suffix=.bin)
+    trap 'rm -f "$tmp"' EXIT
+    (cd {{ROOT}}/angzarr-project/proto && buf build -o "$tmp")
+    kubectl delete configmap gateway-descriptor -n {{NAMESPACE}} --ignore-not-found
+    kubectl create configmap gateway-descriptor \
+        --from-file=types.bin="$tmp" \
+        --namespace {{NAMESPACE}}
 
 # Generate random db/mq passwords and store them as a K8s Secret in the
 # cluster. Idempotent: re-running rotates the passwords, so run this
@@ -182,6 +225,8 @@ build-images:
     echo "=== Building poker sagas ==="
     docker build -t {{SAGA_TABLE_HAND_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-table-hand {{ROOT}}
     docker build -t {{SAGA_TABLE_PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-table-player {{ROOT}}
+    docker build -t {{SAGA_HAND_TABLE_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-hand-table {{ROOT}}
+    docker build -t {{SAGA_HAND_PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-hand-player {{ROOT}}
     echo "=== Building AI player ==="
     docker build -t {{AI_IMAGE}}:latest -f {{ROOT}}/ai_player/Containerfile --target production {{ROOT}}
 
@@ -198,6 +243,8 @@ load-images:
     kind load docker-image {{PMG_RESERVATION_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{SAGA_TABLE_HAND_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{SAGA_TABLE_PLAYER_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{SAGA_HAND_TABLE_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{SAGA_HAND_PLAYER_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{AI_IMAGE}}:latest --name {{KIND_CLUSTER}}
 
 # Pull and load coordinator images into kind

@@ -119,7 +119,7 @@ class GrpcClient(CommandClient):
         kwargs = {
             "command": book,
             "sync_mode": (
-                sync_mode if sync_mode is not None else SyncMode.SYNC_MODE_SIMPLE
+                sync_mode if sync_mode is not None else SyncMode.SYNC_MODE_ASYNC
             ),
         }
         if cascade_error_mode is not None:

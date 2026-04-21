@@ -179,6 +179,32 @@ ENV PATH=/app/.venv/bin:$PATH \
 EXPOSE 50413
 CMD ["python", "/app/table/saga-player/main.py"]
 
+# hand → table: HandComplete (hand) → EndHand (table). Required for the
+# table-side hand-lifecycle to close after a real betting hand finishes.
+FROM runtime-base AS saga-hand-table
+COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
+COPY --from=source --chown=angzarr:angzarr /app/hand /app/hand
+COPY --from=source --chown=angzarr:angzarr /app/table /app/table
+COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
+ENV PATH=/app/.venv/bin:$PATH \
+    PORT=50412
+EXPOSE 50412
+CMD ["python", "/app/hand/saga-table/main.py"]
+
+# hand → player: PotAwarded (hand) → DepositFunds (player). Credits pot
+# winners' bankrolls.
+FROM runtime-base AS saga-hand-player
+COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
+COPY --from=source --chown=angzarr:angzarr /app/hand /app/hand
+COPY --from=source --chown=angzarr:angzarr /app/player /app/player
+COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
+ENV PATH=/app/.venv/bin:$PATH \
+    PORT=50414
+EXPOSE 50414
+CMD ["python", "/app/hand/saga-player/main.py"]
+
 # ============================================================================
 # Projectors
 # ============================================================================

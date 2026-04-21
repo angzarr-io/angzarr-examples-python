@@ -6,6 +6,7 @@ sending commands through the CommandClient abstraction.
 
 from behave import given, then, use_step_matcher, when
 
+from angzarr_client.proto.angzarr import SyncMode
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
@@ -27,7 +28,12 @@ def _player_root(context, name: str) -> bytes:
 
 
 def _register_player(context, name: str, email: str):
-    """Register a player and update tracked state."""
+    """Register a player and update tracked state.
+
+    Wrapped in send_with_retry so a transient UNAVAILABLE (player
+    coordinator just rolled, channel still draining) doesn't fail the
+    very-first scenario step.
+    """
     root = _player_root(context, name)
     cmd = player.RegisterPlayer(
         display_name=name,
@@ -37,7 +43,7 @@ def _register_player(context, name: str, email: str):
     packed = pack_command(cmd, "angzarr_client.proto.examples.RegisterPlayer")
     seq = context.players[name]["sequence"]
 
-    response = context.client.send_command("player", root, packed, sequence=seq)
+    response = send_with_retry(context, "player", root, packed, seq)
     context.last_response = response
     context.last_error = None
     context.players[name]["sequence"] = seq + 1
@@ -45,7 +51,12 @@ def _register_player(context, name: str, email: str):
 
 
 def _deposit_funds(context, name: str, amount: int, sync_mode=None):
-    """Deposit funds for a player and update tracked state."""
+    """Deposit funds for a player and update tracked state.
+
+    DepositFunds is a financial command — default to SYNC_MODE_SIMPLE so the
+    aggregate write is durable before the test moves on. Game-state commands
+    use the GrpcClient default (ASYNC).
+    """
     root = _player_root(context, name)
     cmd = player.DepositFunds(
         amount=poker_types.Currency(amount=amount, currency_code="USD"),
@@ -53,11 +64,10 @@ def _deposit_funds(context, name: str, amount: int, sync_mode=None):
     packed = pack_command(cmd, "angzarr_client.proto.examples.DepositFunds")
     seq = context.players[name]["sequence"]
 
-    kwargs = {"sequence": seq}
-    if sync_mode is not None:
-        kwargs["sync_mode"] = sync_mode
-
-    response = send_with_retry(context, "player", root, packed, seq)
+    effective_sync = sync_mode if sync_mode is not None else SyncMode.SYNC_MODE_SIMPLE
+    response = send_with_retry(
+        context, "player", root, packed, seq, sync_mode=effective_sync
+    )
     context.last_response = response
     context.last_error = None
     context.players[name]["sequence"] = seq + 1

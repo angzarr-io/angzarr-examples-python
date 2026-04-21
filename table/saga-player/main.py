@@ -47,9 +47,9 @@ class TablePlayerSaga:
         self,
         event: table.HandEnded,
         destinations: Destinations,
+        source_cover: types.Cover = None,
+        source_seq: int = 0,
     ) -> list[types.CommandBook]:
-        dest_seq = destinations.sequence_for("player") if destinations else 0
-        dest_seq = dest_seq if dest_seq is not None else 0
         commands: list[types.CommandBook] = []
 
         for player_hex in event.stack_changes:
@@ -65,7 +65,7 @@ class TablePlayerSaga:
                     ),
                     pages=[
                         types.CommandPage(
-                            header=types.PageHeader(sequence=dest_seq),
+                            header=Destinations.deferred_header(source_cover, source_seq),
                             command=_pack(release),
                         )
                     ],

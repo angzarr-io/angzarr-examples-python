@@ -61,12 +61,15 @@ def proto_uuid(raw_bytes: bytes):
     return UUID(value=raw_bytes)
 
 
-def send_with_retry(context, domain, root, packed, seq, max_attempts=10):
+def send_with_retry(context, domain, root, packed, seq, max_attempts=10, sync_mode=None):
     """Send a command with retry logic for eventual consistency."""
     last_err = None
+    kwargs = {"sequence": seq}
+    if sync_mode is not None:
+        kwargs["sync_mode"] = sync_mode
     for attempt in range(1, max_attempts + 1):
         try:
-            response = context.client.send_command(domain, root, packed, sequence=seq)
+            response = context.client.send_command(domain, root, packed, **kwargs)
             return response
         except Exception as e:
             last_err = e
