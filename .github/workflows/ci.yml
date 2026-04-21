@@ -88,6 +88,8 @@ jobs:
           - agg-player
           - agg-table
           - agg-hand
+          - agg-reservation
+          - pmg-reservation
           - prj-training
     steps:
       - uses: actions/checkout@v4

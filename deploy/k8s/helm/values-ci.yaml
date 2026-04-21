@@ -46,7 +46,28 @@ applications:
       domain: "hand"
       port: 50303
 
+    - name: poker-reservation
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-agg-reservation
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "reservation"
+      port: 50305
+
   sagas: []
+
+  processManagers:
+    - name: pmg-reservation
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-pmg-reservation
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "pmg-reservation"
+      port: 50395
+      topics:
+        - "reservation"
+        - "table"
+        - "tournament"
 
   projectors:
     - name: prj-training
