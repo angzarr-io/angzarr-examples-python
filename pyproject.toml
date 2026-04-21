@@ -86,6 +86,13 @@ also_copy = [
     "registration/",
     "reservation/",
     "angzarr-project/",
+    # behave --stage unit/acceptance walks up from submodule features to
+    # find these; mutmut's mutants/ workdir must contain them or step
+    # discovery fails with "No steps directory".
+    "unit_steps/",
+    "unit_environment.py",
+    "acceptance_steps/",
+    "acceptance_environment.py",
 ]
 pytest_add_cli_args_test_selection = [
     "--ignore=tests/integration",
