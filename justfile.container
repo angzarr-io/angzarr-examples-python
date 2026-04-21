@@ -12,25 +12,34 @@ proto-gen:
     buf generate
     find poker/proto -name "*.py" -exec sed -i 's/from poker import/from poker.proto.poker import/g' {} \;
 
-# Install dependencies (use --no-sources in CI to skip local paths)
-install *FLAGS:
+# Generate AI Player protos (runs buf inside ai_player/). Generated files are
+# gitignored; regenerate here whenever the ai_sidecar.proto contract changes.
+ai-proto:
+    cd ai_player && buf generate
+
+# Install dependencies AND regenerate protos (generated code is not committed).
+install *FLAGS: proto-gen ai-proto
     uv sync {{FLAGS}}
 
-# Run unit tests (uses testpaths from pyproject.toml)
-test-unit:
+# Run plain pytest unit/integration tests (uses testpaths from pyproject.toml)
+test-pytest:
     uv run pytest -v
 
-# Run acceptance tests (Gherkin/behave) against deployed system or in-process
-# PLAYER_URL set → GrpcClient to coordinator; unset → InProcessClient
-test-acceptance:
-    PLAYER_URL="${PLAYER_URL:-}" uv run behave tests/acceptance/features/ --tags="~@wip"
+# Unit-example cucumber: poker handler logic, direct invocation, no infra.
+# Feature files live in angzarr-project/features/example/unit/ (submodule).
+# behave's --stage mechanism finds unit_environment.py + unit_steps/ at this
+# repo root via walk-up from the feature files — no symlinks needed.
+test-example-unit:
+    uv run behave --stage unit angzarr-project/features/example/unit/ --tags="~@wip"
 
-# Run unit-level behave specs (existing feature files)
-test-behave-unit:
-    uv run behave features/specs/ --tags="~@wip"
+# Acceptance-example cucumber: poker E2E via CommandClient (gRPC).
+# PLAYER_URL picks the coordinator; defaults to localhost:1310.
+# --stage acceptance resolves acceptance_environment.py + acceptance_steps/.
+test-example-acceptance:
+    PLAYER_URL="${PLAYER_URL:-}" uv run behave --stage acceptance angzarr-project/features/example/acceptance/ --tags="~@wip"
 
 # Run all tests
-test: test-unit test-behave-unit test-acceptance
+test: test-pytest test-example-unit test-example-acceptance
 
 # Format code (use --check for CI)
 fmt *FLAGS:
@@ -59,6 +68,29 @@ run-hand:
 # Run game with AI Player service
 run-game-ai *ARGS:
     uv run python run_game.py --ai-player localhost:50500 --no-standalone {{ARGS}}
+
+# Run mutation testing with mutmut (80% kill threshold)
+mutation-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf mutants
+    uv run mutmut run
+    uv run mutmut results
+    uv run mutmut export-cicd-stats
+    # Check survival rate is below 20% (i.e., 80%+ killed)
+    TOTAL=$(python -c "import json; d=json.load(open('mutants/mutmut-cicd-stats.json')); print(d['total'])")
+    SURVIVED=$(python -c "import json; d=json.load(open('mutants/mutmut-cicd-stats.json')); print(d['survived'])")
+    if [ "$TOTAL" -eq 0 ]; then
+        echo "ERROR: No mutants were generated"
+        exit 1
+    fi
+    SURVIVAL_RATE=$((SURVIVED * 100 / TOTAL))
+    echo "Survival rate: ${SURVIVAL_RATE}% (${SURVIVED}/${TOTAL})"
+    if [ "$SURVIVAL_RATE" -gt 20 ]; then
+        echo "FAIL: Survival rate ${SURVIVAL_RATE}% exceeds 20% threshold (need 80%+ killed)"
+        exit 1
+    fi
+    echo "PASS: Mutation testing threshold met"
 
 # Auto-format code
 fmt-fix:

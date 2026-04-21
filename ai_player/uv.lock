@@ -339,6 +339,19 @@ wheels = [
 ]
 
 [[package]]
+name = "grpcio-reflection"
+version = "1.71.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "grpcio" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/14/4e5f8e902fa9461abae292773b921a578f68333c7c3e731bcff7514f78cd/grpcio_reflection-1.71.2.tar.gz", hash = "sha256:bedfac3d2095d6c066b16b66bfce85b4be3e92dc9f3b7121e6f019d24a9c09c0", size = 18798, upload-time = "2025-06-28T04:24:06.019Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/89/c99ff79b90315cf47dbcdd86babb637764e5f14f523d622020bfee57dc4d/grpcio_reflection-1.71.2-py3-none-any.whl", hash = "sha256:c4f1a0959acb94ec9e1369bb7dab827cc9a6efcc448bdb10436246c8e52e2f57", size = 22684, upload-time = "2025-06-28T04:23:44.759Z" },
+]
+
+[[package]]
 name = "grpcio-tools"
 version = "1.71.2"
 source = { registry = "https://pypi.org/simple" }
@@ -855,6 +868,7 @@ dependencies = [
     { name = "angzarr-client" },
     { name = "grpcio" },
     { name = "grpcio-health-checking" },
+    { name = "grpcio-reflection" },
     { name = "grpcio-tools" },
     { name = "numpy" },
     { name = "pgvector" },
@@ -883,6 +897,7 @@ requires-dist = [
     { name = "angzarr-client", editable = "../angzarr-client-python" },
     { name = "grpcio", specifier = ">=1.60.0" },
     { name = "grpcio-health-checking", specifier = ">=1.60.0" },
+    { name = "grpcio-reflection", specifier = ">=1.60.0" },
     { name = "grpcio-tools", specifier = ">=1.60.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pgvector", specifier = ">=0.2.0" },

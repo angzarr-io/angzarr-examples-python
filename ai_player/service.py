@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import grpc
 import structlog
 
 from ai_player.models.encoder import ActionContextEncoder
 from ai_player.models.poker_net import PokerNet
+from ai_player.proto.examples import ai_sidecar_pb2 as pb
 from ai_player.state.persistence import ExperienceStore, OpponentProfileStore
 from ai_player.state.session import SessionManager
-
-if TYPE_CHECKING:
-    from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
 
 logger = structlog.get_logger()
 
@@ -87,9 +84,9 @@ class AiPlayerServicer:
 
     def GetAction(
         self,
-        request: ai_player_pb2.ActionRequest,
+        request: pb.ActionRequest,
         context: grpc.ServicerContext,
-    ) -> ai_player_pb2.ActionResponse:
+    ) -> pb.ActionResponse:
         """Get recommended action for the current game state.
 
         Args:
@@ -99,8 +96,6 @@ class AiPlayerServicer:
         Returns:
             ActionResponse with recommended action and probabilities.
         """
-        from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
-
         start_time = time.time()
         self._requests_served += 1
 
@@ -132,7 +127,7 @@ class AiPlayerServicer:
 
         inference_time_ms = int((time.time() - start_time) * 1000)
 
-        return ai_player_pb2.ActionResponse(
+        return pb.ActionResponse(
             recommended_action=action,
             amount=amount,
             fold_probability=probabilities[0],
@@ -144,9 +139,9 @@ class AiPlayerServicer:
 
     def RecordExperience(
         self,
-        request: ai_player_pb2.Experience,
+        request: pb.Experience,
         context: grpc.ServicerContext,
-    ) -> ai_player_pb2.RecordResponse:
+    ) -> pb.RecordResponse:
         """Record experience for training.
 
         Args:
@@ -156,33 +151,31 @@ class AiPlayerServicer:
         Returns:
             RecordResponse indicating success.
         """
-        from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
-
         if not self._experience_store:
-            return ai_player_pb2.RecordResponse(
+            return pb.RecordResponse(
                 success=False,
                 message="No database configured for experience storage",
             )
 
         try:
             experience_id = self._experience_store.store(request)
-            return ai_player_pb2.RecordResponse(
+            return pb.RecordResponse(
                 success=True,
                 message="Experience recorded",
                 experience_id=experience_id,
             )
         except Exception as e:
             logger.error("experience_store_failed", error=str(e))
-            return ai_player_pb2.RecordResponse(
+            return pb.RecordResponse(
                 success=False,
                 message=f"Failed to store experience: {e}",
             )
 
     def GetOpponentStats(
         self,
-        request: ai_player_pb2.OpponentQuery,
+        request: pb.OpponentQuery,
         context: grpc.ServicerContext,
-    ) -> ai_player_pb2.OpponentStatsResponse:
+    ) -> pb.OpponentStatsResponse:
         """Query opponent statistics from persistent storage.
 
         Args:
@@ -192,13 +185,11 @@ class AiPlayerServicer:
         Returns:
             OpponentStatsResponse with profiles for requested players.
         """
-        from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
-
         if not self._opponent_store:
-            return ai_player_pb2.OpponentStatsResponse(profiles=[])
+            return pb.OpponentStatsResponse(profiles=[])
 
         profiles = self._opponent_store.get_profiles(list(request.player_roots))
-        return ai_player_pb2.OpponentStatsResponse(
+        return pb.OpponentStatsResponse(
             profiles=[
                 self._convert_profile_to_proto(root, profile)
                 for root, profile in profiles.items()
@@ -209,11 +200,9 @@ class AiPlayerServicer:
         self,
         player_root: bytes,
         profile: dict,
-    ) -> ai_player_pb2.OpponentProfile:
+    ) -> pb.OpponentProfile:
         """Convert internal profile dict to proto message."""
-        from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
-
-        return ai_player_pb2.OpponentProfile(
+        return pb.OpponentProfile(
             player_root=player_root,
             total_hands=profile.get("total_hands", 0),
             vpip=profile.get("vpip", 0.0),
@@ -227,9 +216,9 @@ class AiPlayerServicer:
 
     def StartSession(
         self,
-        request: ai_player_pb2.StartSessionRequest,
+        request: pb.StartSessionRequest,
         context: grpc.ServicerContext,
-    ) -> ai_player_pb2.StartSessionResponse:
+    ) -> pb.StartSessionResponse:
         """Start a new session explicitly.
 
         Args:
@@ -239,15 +228,13 @@ class AiPlayerServicer:
         Returns:
             StartSessionResponse with session details.
         """
-        from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
-
         session = self._session_manager.create(
             session_id=request.session_id,
             player_root=request.ai_player_root,
             model_id=request.model_id,
         )
 
-        return ai_player_pb2.StartSessionResponse(
+        return pb.StartSessionResponse(
             success=True,
             session_id=session.session_id,
             model_version=self._model.version if self._model else "random",
@@ -255,9 +242,9 @@ class AiPlayerServicer:
 
     def EndSession(
         self,
-        request: ai_player_pb2.EndSessionRequest,
+        request: pb.EndSessionRequest,
         context: grpc.ServicerContext,
-    ) -> ai_player_pb2.EndSessionResponse:
+    ) -> pb.EndSessionResponse:
         """End session and optionally persist state.
 
         Args:
@@ -267,11 +254,9 @@ class AiPlayerServicer:
         Returns:
             EndSessionResponse with session summary.
         """
-        from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
-
         session = self._session_manager.get(request.session_id)
         if not session:
-            return ai_player_pb2.EndSessionResponse(
+            return pb.EndSessionResponse(
                 success=False,
                 hands_played=0,
                 total_result=0,
@@ -288,7 +273,7 @@ class AiPlayerServicer:
         # Remove session
         self._session_manager.remove(request.session_id)
 
-        return ai_player_pb2.EndSessionResponse(
+        return pb.EndSessionResponse(
             success=True,
             hands_played=hands_played,
             total_result=total_result,
@@ -296,9 +281,9 @@ class AiPlayerServicer:
 
     def Health(
         self,
-        request: ai_player_pb2.HealthRequest,
+        request: pb.HealthRequest,
         context: grpc.ServicerContext,
-    ) -> ai_player_pb2.HealthResponse:
+    ) -> pb.HealthResponse:
         """Health check endpoint.
 
         Args:
@@ -308,15 +293,13 @@ class AiPlayerServicer:
         Returns:
             HealthResponse with service status.
         """
-        from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
-
         if self._experience_store:
             self._experience_store.count()
         if self._opponent_store:
             self._opponent_store.count()
 
         # Note: ai_sidecar_pb2.HealthResponse only has these fields
-        return ai_player_pb2.HealthResponse(
+        return pb.HealthResponse(
             healthy=True,
             model_id=self._config.model_path or "random",
             model_version=self._model.version if self._model else "random",
@@ -326,9 +309,9 @@ class AiPlayerServicer:
 
     def GetActionsBatch(
         self,
-        request: ai_player_pb2.BatchActionRequest,
+        request: pb.BatchActionRequest,
         context: grpc.ServicerContext,
-    ) -> ai_player_pb2.BatchActionResponse:
+    ) -> pb.BatchActionResponse:
         """Batch inference for training/simulation.
 
         Args:
@@ -338,11 +321,48 @@ class AiPlayerServicer:
         Returns:
             BatchActionResponse with responses for each request.
         """
-        from ai_player.proto.examples import ai_sidecar_pb2 as ai_player_pb2
-
         responses = []
         for req in request.requests:
             response = self.GetAction(req, context)
             responses.append(response)
 
-        return ai_player_pb2.BatchActionResponse(responses=responses)
+        return pb.BatchActionResponse(responses=responses)
+
+    def ReloadModel(
+        self,
+        request: pb.ReloadModelRequest,
+        context: grpc.ServicerContext,
+    ) -> pb.ReloadModelResponse:
+        """Hot-reload model weights from a checkpoint path.
+
+        Used by the offline trainer to publish updated weights without
+        restarting the container.
+        """
+        if not request.model_path:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("model_path is required")
+            return pb.ReloadModelResponse(
+                success=False, message="model_path is required"
+            )
+
+        try:
+            self._model = PokerNet.load(request.model_path, device=self._config.device)
+            self._config.model_path = request.model_path
+            logger.info("model_reloaded", path=request.model_path)
+            return pb.ReloadModelResponse(
+                success=True,
+                message="reloaded",
+                model_version=self._model.version if self._model else "",
+            )
+        except FileNotFoundError:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"checkpoint not found: {request.model_path}")
+            return pb.ReloadModelResponse(
+                success=False,
+                message=f"checkpoint not found: {request.model_path}",
+            )
+        except Exception as e:
+            logger.error("model_reload_failed", error=str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return pb.ReloadModelResponse(success=False, message=str(e))

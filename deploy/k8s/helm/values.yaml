@@ -80,7 +80,12 @@ storage:
   postgres:
     host: "angzarr-db"
     port: 5432
-    uri: "postgres://angzarr:angzarr@angzarr-db:5432/angzarr"
+    # Overridden at deploy time from the K8s Secret
+    # ``angzarr-credentials``. Sentinel is intentionally invalid so a
+    # forgotten override surfaces as a pod-level auth failure instead of
+    # silently connecting. See tools/generate_secrets.py +
+    # ``just seed-secrets`` in the repo root.
+    uri: "UNUSED_REPLACED_AT_DEPLOY"
 
 # Messaging configuration
 # Requires: helm install angzarr-mq ./deploy/k8s/helm/rabbitmq -n angzarr
@@ -90,12 +95,12 @@ messaging:
     enabled: true
     host: "angzarr-mq"
     port: 5672
-    url: "amqp://angzarr:angzarr@angzarr-mq:5672/%2F"
+    url: "UNUSED_REPLACED_AT_DEPLOY"
 
-# AMQP event bus
+# AMQP event bus (same override rule as messaging.amqp.url)
 amqp:
   enabled: true
-  url: "amqp://angzarr:angzarr@angzarr-mq:5672/%2F"
+  url: "UNUSED_REPLACED_AT_DEPLOY"
 
 # External secrets disabled for local dev
 externalSecrets:

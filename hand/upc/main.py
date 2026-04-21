@@ -1,19 +1,18 @@
 """Hand domain upcaster gRPC server.
 
-Uses function-based pattern with UpcasterRouter.
+Uses class-based pattern with @upcaster decorator.
 Passthrough upcaster - no transformations yet.
-Add @upcaster decorated functions when schema evolution is needed.
+Add @upcasts decorated methods when schema evolution is needed.
 
 Example transformation (when needed):
-    @upcaster(CardsDealtV1, CardsDealt)
-    def upcast_cards_dealt(old: CardsDealtV1) -> CardsDealt:
+    @upcasts(CardsDealtV1, CardsDealt)
+    def upcast_cards_dealt(self, old: CardsDealtV1) -> CardsDealt:
         return CardsDealt(
             table_root=old.table_root,
             hand_number=old.hand_number,
             game_variant=GameVariant.TEXAS_HOLDEM,  # New field with default
             ...
         )
-    router.on(upcast_cards_dealt)
 """
 
 import sys
@@ -23,8 +22,8 @@ import structlog
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "angzarr"))
 
-from angzarr_client import UpcasterHandler, UpcasterRouter, run_upcaster_server
-from angzarr_client.proto.angzarr import types_pb2 as types
+from angzarr_client import Router, UpcasterGrpc, run_server, upcaster
+from angzarr_client.proto.angzarr import upcaster_pb2_grpc
 
 structlog.configure(
     processors=[
@@ -39,22 +38,34 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
-router = UpcasterRouter("hand")
 
-# Example (uncomment when needed):
-# @upcaster(CardsDealtV1, CardsDealt)
-# def upcast_cards_dealt(old: CardsDealtV1) -> CardsDealt:
-#     return CardsDealt(...)
-# router.on(upcast_cards_dealt)
+@upcaster(name="upcaster-hand", domain="hand")
+class HandUpcaster:
+    """Hand domain upcaster.
+
+    Add @upcasts decorated methods here when schema evolution is needed.
+    Events without matching handlers pass through unchanged.
+    """
+
+    # Example (uncomment when needed):
+    # @upcasts(CardsDealtV1, CardsDealt)
+    # def upcast_cards_dealt(self, old: CardsDealtV1) -> CardsDealt:
+    #     return CardsDealt(...)
+    pass
 
 
-def handle_upcast(events: list[types.EventPage]) -> list[types.EventPage]:
-    """Delegate to router for transformations."""
-    return router.upcast(events)
-
-
-handler = UpcasterHandler("upcaster-hand", "hand").with_handle(handle_upcast)
+router = (
+    Router("upcaster-hand").with_handler(HandUpcaster, lambda: HandUpcaster()).build()
+)
+servicer = UpcasterGrpc(router)
 
 
 if __name__ == "__main__":
-    run_upcaster_server("upcaster-hand", "50421", handler, logger=logger)
+    run_server(
+        upcaster_pb2_grpc.add_UpcasterServiceServicer_to_server,
+        servicer,
+        service_name="upcaster-hand",
+        domain="hand",
+        default_port="50421",
+        logger=logger,
+    )

@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 import structlog
 
-if TYPE_CHECKING:
-    from ai_player.proto.examples import ai_player_pb2
+from ai_player.proto.examples import ai_sidecar_pb2 as pb
 
 logger = structlog.get_logger()
 
@@ -101,7 +99,7 @@ class SessionState:
     # Action history for current hand
     action_history: list = field(default_factory=list)
 
-    def update_from_events(self, events: list[ai_player_pb2.HandEvent]) -> None:
+    def update_from_events(self, events: list[pb.HandEvent]) -> None:
         """Update session state from hand events.
 
         Args:
@@ -124,28 +122,31 @@ class SessionState:
                 phase=action_hist.phase,
             )
 
-    def _process_event(self, event: ai_player_pb2.HandEvent) -> None:
+    def _process_event(self, event: pb.HandEvent) -> None:
         """Process a single hand event.
 
-        Args:
-            event: Hand event to process.
+        The proto uses a oneof over canonical hand-domain events from
+        hand.proto, so discrimination is via WhichOneof, and each case
+        accesses the populated sub-message directly.
         """
-        # Import proto enums
-        from ai_player.proto.examples import ai_player_pb2
+        case = event.WhichOneof("event")
 
-        event_type = event.event_type
-
-        if event_type == ai_player_pb2.CARDS_DEALT:
-            # New hand started
-            self.hole_cards = list(event.cards_dealt.cards)
+        if case == "cards_dealt":
+            # hand.CardsDealt holds hole cards for all players; pick ours.
+            cards_dealt = event.cards_dealt
+            self.hole_cards = []
+            for player_cards in cards_dealt.player_cards:
+                if player_cards.player_root == self.player_root:
+                    self.hole_cards = list(player_cards.cards)
+                    break
             self.community_cards = []
             self.pot_committed = 0
             self.action_history = []
 
-        elif event_type == ai_player_pb2.COMMUNITY_DEALT:
+        elif case == "community_dealt":
             self.community_cards.extend(event.community_dealt.cards)
 
-        elif event_type == ai_player_pb2.ACTION_TAKEN:
+        elif case == "action_taken":
             action_event = event.action_taken
             self._record_action(
                 player_root=action_event.player_root,
@@ -154,13 +155,16 @@ class SessionState:
                 phase=action_event.phase,
             )
 
-        elif event_type == ai_player_pb2.SHOWDOWN:
-            for player_showdown in event.showdown.players:
-                self._record_showdown(player_showdown.player_root)
+        elif case == "showdown":
+            # hand.ShowdownStarted carries players_to_show as repeated bytes.
+            for player_root in event.showdown.players_to_show:
+                self._record_showdown(player_root)
 
-        elif event_type == ai_player_pb2.POT_AWARDED:
-            if event.pot_awarded.winner_root == self.player_root:
-                self.total_result += event.pot_awarded.amount
+        elif case == "pot_awarded":
+            # hand.PotAwarded carries repeated PotWinner; credit our own wins.
+            for winner in event.pot_awarded.winners:
+                if winner.player_root == self.player_root:
+                    self.total_result += winner.amount
             self.hands_played += 1
 
     def _record_action(

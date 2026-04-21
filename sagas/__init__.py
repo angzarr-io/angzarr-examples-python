@@ -1,13 +1,17 @@
-"""Saga module - event-to-command translators for domain bridging."""
+"""Saga module - event-to-command translators for domain bridging.
 
-from .base import Saga, SagaContext, SagaRouter
-from .hand_results_saga import HandResultsSaga
-from .table_sync_saga import TableSyncSaga
+The previous local ``Saga`` / ``SagaContext`` / ``SagaRouter`` abstractions
+have been removed in favour of the unified ``@saga`` decorator and
+``angzarr_client.Router`` from the client library.
+"""
+
+from .hand_results_saga import HandPayoutSaga, HandResultsSaga
+from .table_sync_saga import TableSyncCompleteSaga, TableSyncSaga, TableSyncStartSaga
 
 __all__ = [
-    "Saga",
-    "SagaContext",
-    "SagaRouter",
     "TableSyncSaga",
+    "TableSyncStartSaga",
+    "TableSyncCompleteSaga",
     "HandResultsSaga",
+    "HandPayoutSaga",
 ]

@@ -1,6 +1,6 @@
 """Player domain upcaster gRPC server.
 
-Uses OO pattern with Upcaster ABC.
+Uses class-based pattern with @upcaster decorator.
 Passthrough upcaster - no transformations yet.
 Add @upcasts methods when schema evolution is needed.
 
@@ -23,7 +23,8 @@ import structlog
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "angzarr"))
 
-from angzarr_client import Upcaster, UpcasterHandler, run_upcaster_server
+from angzarr_client import Router, UpcasterGrpc, run_server, upcaster
+from angzarr_client.proto.angzarr import upcaster_pb2_grpc
 
 structlog.configure(
     processors=[
@@ -39,26 +40,35 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
-class PlayerUpcaster(Upcaster):
+@upcaster(name="upcaster-player", domain="player")
+class PlayerUpcaster:
     """Player domain upcaster.
 
     Add @upcasts decorated methods here when schema evolution is needed.
     Events without matching handlers pass through unchanged.
     """
 
-    name = "upcaster-player"
-    domain = "player"
-
     # Example (uncomment when needed):
     # @upcasts(PlayerRegisteredV1, PlayerRegistered)
     # def upcast_registered(self, old: PlayerRegisteredV1) -> PlayerRegistered:
     #     return PlayerRegistered(...)
+    pass
 
 
-handler = UpcasterHandler("upcaster-player", "player").with_handle(
-    PlayerUpcaster.handle
+router = (
+    Router("upcaster-player")
+    .with_handler(PlayerUpcaster, lambda: PlayerUpcaster())
+    .build()
 )
+servicer = UpcasterGrpc(router)
 
 
 if __name__ == "__main__":
-    run_upcaster_server("upcaster-player", "50411", handler, logger=logger)
+    run_server(
+        upcaster_pb2_grpc.add_UpcasterServiceServicer_to_server,
+        servicer,
+        service_name="upcaster-player",
+        domain="player",
+        default_port="50411",
+        logger=logger,
+    )

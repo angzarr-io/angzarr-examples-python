@@ -36,6 +36,12 @@ FROM base AS dependencies
 # Copy dependency files
 COPY ai_player/pyproject.toml ai_player/uv.lock* ./
 
+# The ai_player uv source block pins angzarr-client to the sibling submodule
+# via `path = "../angzarr-client-python"`. WORKDIR is /app, so uv resolves
+# that to /angzarr-client-python — it must exist at that path for --frozen
+# to find the editable distribution.
+COPY angzarr-client-python/ /angzarr-client-python/
+
 # Install dependencies (using CPU-only PyTorch via pyproject.toml index)
 RUN uv sync --no-dev --frozen
 
@@ -46,6 +52,11 @@ FROM dependencies AS proto
 
 # Copy buf config
 COPY ai_player/buf.gen.yaml ./
+
+# The buf.gen.yaml references the angzarr-project submodule at
+# ../angzarr-project/proto (relative to the ai_player dir). WORKDIR is /app
+# so uv/buf looks at /angzarr-project/proto — provide it in the build context.
+COPY angzarr-project/ /angzarr-project/
 
 # Generate protos from buf registry
 RUN uv run buf generate

@@ -1,26 +1,22 @@
-"""Saga: Table -> Player (OO Pattern)
+"""Saga: Table -> Player (unified Router API).
 
-Reacts to HandEnded events from Table domain.
-Sends ReleaseFunds commands to Player domain.
-
-Uses the OO-style implementation with the Saga base class
-and @domain, @output_domain, @prepares, and @handles decorators.
+Reacts to HandEnded events from Table domain and emits ReleaseFunds commands
+to the Player domain (one command per player in ``stack_changes``).
 """
 
 import sys
 from pathlib import Path
 
 import structlog
-from google.protobuf.any_pb2 import Any
+from google.protobuf.any_pb2 import Any as ProtoAny
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from angzarr_client import destination_map, next_sequence
+from angzarr_client import Destinations, Router, SagaGrpc, handles, run_server, saga
+from angzarr_client.proto.angzarr import saga_pb2_grpc
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import table_pb2 as table
-from angzarr_client.saga import Saga, domain, handles, output_domain, prepares
-from angzarr_client.saga_handler import SagaHandler, run_saga_server
 
 structlog.configure(
     processors=[
@@ -36,64 +32,43 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
-@domain("table")
-@output_domain("player")
-class TablePlayerSaga(Saga):
-    """Saga that translates HandEnded events to ReleaseFunds commands.
+def _pack(msg) -> ProtoAny:
+    any_msg = ProtoAny()
+    any_msg.Pack(msg, type_url_prefix="type.googleapis.com/")
+    return any_msg
 
-    Uses the OO pattern with @domain, @output_domain, @prepares, and @handles decorators.
-    This saga produces multiple commands (one per player).
-    """
 
-    name = "saga-table-player"
-
-    @prepares(table.HandEnded)
-    def prepare_hand_ended(self, event: table.HandEnded) -> list[types.Cover]:
-        """Declare all players in StackChanges as destinations."""
-        covers = []
-        for player_hex in event.stack_changes:
-            player_root = bytes.fromhex(player_hex)
-            covers.append(
-                types.Cover(
-                    domain="player",
-                    root=types.UUID(value=player_root),
-                )
-            )
-        return covers
+@saga(name="saga-table-player", source="table", target="player")
+class TablePlayerSaga:
+    """Saga that translates HandEnded events to ReleaseFunds commands."""
 
     @handles(table.HandEnded)
     def handle_hand_ended(
         self,
         event: table.HandEnded,
-        destinations: list[types.EventBook],
+        destinations: Destinations,
+        source_cover: types.Cover = None,
+        source_seq: int = 0,
     ) -> list[types.CommandBook]:
-        """Translate HandEnded -> ReleaseFunds for each player."""
-        dest_map = destination_map(destinations)
-        commands = []
+        commands: list[types.CommandBook] = []
 
-        # Create ReleaseFunds commands for all players
         for player_hex in event.stack_changes:
             player_root = bytes.fromhex(player_hex)
-            dest_seq = next_sequence(dest_map.get(player_hex))
-
-            release_funds = player.ReleaseFunds(
+            release = player.ReleaseFunds(
                 table_root=event.hand_root,
             )
-
-            cmd_any = Any()
-            cmd_any.Pack(release_funds, type_url_prefix="type.googleapis.com/")
-
             commands.append(
                 types.CommandBook(
                     cover=types.Cover(
                         domain="player",
                         root=types.UUID(value=player_root),
-                        correlation_id=self.context.correlation_id,
                     ),
                     pages=[
                         types.CommandPage(
-                            sequence=dest_seq,
-                            command=cmd_any,
+                            header=Destinations.deferred_header(
+                                source_cover, source_seq
+                            ),
+                            command=_pack(release),
                         )
                     ],
                 )
@@ -103,5 +78,17 @@ class TablePlayerSaga(Saga):
 
 
 if __name__ == "__main__":
-    handler = SagaHandler(TablePlayerSaga)
-    run_saga_server("saga-table-player", "50413", handler, logger=logger)
+    router = (
+        Router("saga-table-player")
+        .with_handler(TablePlayerSaga, lambda: TablePlayerSaga())
+        .build()
+    )
+    servicer = SagaGrpc(router)
+    run_server(
+        saga_pb2_grpc.add_SagaServiceServicer_to_server,
+        servicer,
+        service_name="saga-table-player",
+        domain="table",
+        default_port="50413",
+        logger=logger,
+    )

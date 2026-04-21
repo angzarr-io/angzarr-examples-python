@@ -1,7 +1,8 @@
-"""Tournament state - functional pattern using StateRouter.
+"""Tournament state and event appliers (pure-function form).
 
-This file defines the tournament state and event appliers as pure functions.
-Follows the same pattern as player/agg/state.py.
+The live state + applier logic now lives on the ``Tournament`` class in
+``tournament/agg/handlers.py``. This module retains the same contents in
+pure-function form for reuse (e.g. projections or docs examples).
 """
 
 from dataclasses import dataclass, field
@@ -218,37 +219,55 @@ def build_state(state: TournamentState, events: list) -> TournamentState:
     from google.protobuf.any_pb2 import Any as AnyProto
 
     _appliers = {
-        "examples.TournamentCreated": (tournament.TournamentCreated, apply_created),
-        "examples.RegistrationOpened": (
+        "angzarr_client.proto.examples.TournamentCreated": (
+            tournament.TournamentCreated,
+            apply_created,
+        ),
+        "angzarr_client.proto.examples.RegistrationOpened": (
             tournament.RegistrationOpened,
             apply_registration_opened,
         ),
-        "examples.RegistrationClosed": (
+        "angzarr_client.proto.examples.RegistrationClosed": (
             tournament.RegistrationClosed,
             apply_registration_closed,
         ),
-        "examples.TournamentPlayerEnrolled": (
+        "angzarr_client.proto.examples.TournamentPlayerEnrolled": (
             tournament.TournamentPlayerEnrolled,
             apply_player_enrolled,
         ),
-        "examples.TournamentEnrollmentRejected": (
+        "angzarr_client.proto.examples.TournamentEnrollmentRejected": (
             tournament.TournamentEnrollmentRejected,
             apply_enrollment_rejected,
         ),
-        "examples.RebuyProcessed": (tournament.RebuyProcessed, apply_rebuy_processed),
-        "examples.RebuyDenied": (tournament.RebuyDenied, apply_rebuy_denied),
-        "examples.BlindLevelAdvanced": (
+        "angzarr_client.proto.examples.RebuyProcessed": (
+            tournament.RebuyProcessed,
+            apply_rebuy_processed,
+        ),
+        "angzarr_client.proto.examples.RebuyDenied": (
+            tournament.RebuyDenied,
+            apply_rebuy_denied,
+        ),
+        "angzarr_client.proto.examples.BlindLevelAdvanced": (
             tournament.BlindLevelAdvanced,
             apply_blind_advanced,
         ),
-        "examples.PlayerEliminated": (
+        "angzarr_client.proto.examples.PlayerEliminated": (
             tournament.PlayerEliminated,
             apply_player_eliminated,
         ),
-        "examples.TournamentPaused": (tournament.TournamentPaused, apply_paused),
-        "examples.TournamentResumed": (tournament.TournamentResumed, apply_resumed),
-        "examples.TournamentStarted": (tournament.TournamentStarted, apply_started),
-        "examples.TournamentCompleted": (
+        "angzarr_client.proto.examples.TournamentPaused": (
+            tournament.TournamentPaused,
+            apply_paused,
+        ),
+        "angzarr_client.proto.examples.TournamentResumed": (
+            tournament.TournamentResumed,
+            apply_resumed,
+        ),
+        "angzarr_client.proto.examples.TournamentStarted": (
+            tournament.TournamentStarted,
+            apply_started,
+        ),
+        "angzarr_client.proto.examples.TournamentCompleted": (
             tournament.TournamentCompleted,
             apply_completed,
         ),

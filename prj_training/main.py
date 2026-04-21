@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+import grpc
 import structlog
 
 # Add paths for imports
@@ -15,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from prj_training.projector import TrainingProjector
 
-from angzarr_client.projector_handler import ProjectorHandler, run_projector_server
+from angzarr_client import run_server
+from angzarr_client.proto.angzarr import projector_pb2_grpc
+from angzarr_client.proto.angzarr import types_pb2 as types
 
 structlog.configure(
     processors=[
@@ -38,6 +41,28 @@ DATABASE_URL = os.environ.get(
 PORT = os.environ.get("PORT", "50491")
 
 
+class _TrainingProjectorServicer(projector_pb2_grpc.ProjectorServiceServicer):
+    """gRPC adapter for the stateful TrainingProjector.
+
+    The TrainingProjector requires book-level cover metadata (hand_root,
+    edition) that the generic Router per-event dispatch does not propagate.
+    This servicer forwards whole EventBooks to the projector's handle method.
+    """
+
+    def __init__(self, projector: TrainingProjector) -> None:
+        self._projector = projector
+
+    def Handle(
+        self, request: types.EventBook, context: grpc.ServicerContext
+    ) -> types.Projection:
+        return self._projector.handle(request)
+
+    def HandleSpeculative(
+        self, request: types.EventBook, context: grpc.ServicerContext
+    ) -> types.Projection:
+        return self._projector.handle(request)
+
+
 def main():
     """Run the training projector gRPC service."""
     logger.info(
@@ -46,19 +71,15 @@ def main():
         port=PORT,
     )
 
-    # Create the projector with database connection
-    projector = TrainingProjector(DATABASE_URL)
+    projector_instance = TrainingProjector(DATABASE_URL)
+    servicer = _TrainingProjectorServicer(projector_instance)
 
-    # Create handler that subscribes to hand domain
-    handler = ProjectorHandler(
-        "prj-training",
-        "hand",  # Subscribe to hand domain events
-    ).with_handle(projector.handle)
-
-    run_projector_server(
-        name="prj-training",
+    run_server(
+        projector_pb2_grpc.add_ProjectorServiceServicer_to_server,
+        servicer,
+        service_name="prj-training",
+        domain="hand",
         default_port=PORT,
-        handler=handler,
         logger=logger,
     )
 

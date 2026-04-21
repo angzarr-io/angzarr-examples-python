@@ -10,16 +10,36 @@ Same pattern for SitIn/PlayerReturningToPlay → PlayerSatIn.
 
 from google.protobuf.any_pb2 import Any as ProtoAny
 
-from angzarr_client import Destinations, now
+from angzarr_client import Destinations, handles, now, saga
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import table_pb2 as table
-from angzarr_client.saga import Saga, domain, handles, output_domain
 
 
-@domain("player")
-@output_domain("table")
-class PlayerTableSaga(Saga):
+def _pack_fact(fact, table_root: bytes, external_id: str) -> types.EventBook:
+    cover = types.Cover(
+        domain="table",
+        root=types.UUID(value=table_root),
+    )
+    fact_any = ProtoAny()
+    fact_any.Pack(fact, type_url_prefix="type.googleapis.com/")
+    return types.EventBook(
+        cover=cover,
+        pages=[
+            types.EventPage(
+                header=types.PageHeader(
+                    external_deferred=types.ExternalDeferredSequence(
+                        external_id=external_id,
+                    )
+                ),
+                event=fact_any,
+            )
+        ],
+    )
+
+
+@saga(name="saga-player-table", source="player", target="table")
+class PlayerTableSaga:
     """Saga that propagates player sit-out intent to table as facts.
 
     Player owns the intent to sit out/in. The table aggregate must accept
@@ -27,78 +47,40 @@ class PlayerTableSaga(Saga):
     own participation state.
     """
 
-    name = "saga-player-table"
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._current_root: bytes = b""
-
-    def dispatch(
-        self,
-        event_any,
-        root: bytes = None,
-        correlation_id: str = "",
-        destination_sequences: dict[str, int] = None,
-    ) -> list[types.CommandBook]:
-        """Override to store source root for handler access."""
-        self._current_root = root or b""
-        return super().dispatch(event_any, root, correlation_id, destination_sequences)
-
     @handles(player.PlayerSittingOut)
-    def handle_sitting_out(
+    def handle_player_sitting_out(
         self,
         event: player.PlayerSittingOut,
-        destinations: Destinations = None,
-    ) -> None:
+        destinations: Destinations,
+        source_cover: types.Cover = None,
+    ) -> types.EventBook:
         """Propagate PlayerSittingOut as PlayerSatOut fact to table."""
+        player_root = source_cover.root.value if source_cover is not None else b""
         fact = table.PlayerSatOut(
-            player_root=self._current_root,
+            player_root=player_root,
             sat_out_at=event.sat_out_at or now(),
         )
-        self._emit_table_fact(
-            fact, event.table_root, f"sitout-{self._current_root.hex()}"
+        return _pack_fact(
+            fact,
+            event.table_root,
+            f"sitout-{player_root.hex()}",
         )
-        return None
 
     @handles(player.PlayerReturningToPlay)
-    def handle_returning_to_play(
+    def handle_player_returning_to_play(
         self,
         event: player.PlayerReturningToPlay,
-        destinations: Destinations = None,
-    ) -> None:
+        destinations: Destinations,
+        source_cover: types.Cover = None,
+    ) -> types.EventBook:
         """Propagate PlayerReturningToPlay as PlayerSatIn fact to table."""
+        player_root = source_cover.root.value if source_cover is not None else b""
         fact = table.PlayerSatIn(
-            player_root=self._current_root,
+            player_root=player_root,
             sat_in_at=event.sat_in_at or now(),
         )
-        self._emit_table_fact(
-            fact, event.table_root, f"sitin-{self._current_root.hex()}"
+        return _pack_fact(
+            fact,
+            event.table_root,
+            f"sitin-{player_root.hex()}",
         )
-        return None
-
-    def _emit_table_fact(self, fact, table_root: bytes, external_id: str) -> None:
-        """Emit a fact to the table aggregate."""
-        cover = types.Cover(
-            domain="table",
-            root=types.UUID(value=table_root),
-        )
-
-        fact_any = ProtoAny()
-        fact_any.Pack(fact, type_url_prefix="type.googleapis.com/")
-
-        # Use ExternalDeferredSequence for external_id (idempotency)
-        fact_book = types.EventBook(
-            cover=cover,
-            pages=[
-                types.EventPage(
-                    header=types.PageHeader(
-                        external_deferred=types.ExternalDeferredSequence(
-                            external_id=external_id
-                        )
-                    ),
-                    event=fact_any,
-                )
-            ],
-        )
-
-        self.emit_event(fact_book)

@@ -19,13 +19,13 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
-    "pytest-bdd>=7.0.0",
     "debugpy>=1.8.0",
     "black>=24.0.0",
     "ruff>=0.4.0",
     "mypy>=1.10.0",
     "pytest-cov>=7.0.0",
     "pytest-timeout>=2.3.0",
+    "mutmut>=3.2.0",
 ]
 
 [tool.uv.sources]
@@ -41,10 +41,62 @@ packages = ["angzarr", "agg-player", "agg-table", "agg-hand"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-v --ignore=tests/features --ignore=tests/acceptance"
+# Integration tests need a running container and are opt-in via `just test-integration-ai`
+# (which sets -p no:cacheprovider and points pytest at tests/integration/ explicitly).
+addopts = "-v --ignore=tests/integration"
+markers = [
+    "integration: requires a running sidecar container (see tests/integration/)",
+]
 
 [tool.black]
 target-version = ["py311"]
+# Submodules have their own formatting rules + CI.
+extend-exclude = '''
+(
+    angzarr-client-python
+    | angzarr-project
+    | mutants
+)
+'''
+
+[tool.mutmut]
+paths_to_mutate = [
+    "player/agg/handlers.py",
+    "table/agg/handlers/table.py",
+    "hand/agg/handlers/hand.py",
+    "hand/agg/handlers/game_rules.py",
+    "tournament/agg/handlers.py",
+]
+# Copy sibling source files that tests/unit/test_*.py import alongside
+# the mutated handlers — without these, mutmut's ``mutants/`` workdir
+# can't resolve ``from player.agg.state import ...`` etc. at collection.
+also_copy = [
+    "player/",
+    "table/",
+    "hand/",
+    "tournament/",
+    "tests/",
+    "sagas/",
+    "hand-flow/",
+    "hand-flow-oo/",
+    "prj-output/",
+    "prj_training/",
+    "buy_in/",
+    "rebuy/",
+    "registration/",
+    "reservation/",
+    "angzarr-project/",
+    # behave --stage unit/acceptance walks up from submodule features to
+    # find these; mutmut's mutants/ workdir must contain them or step
+    # discovery fails with "No steps directory".
+    "unit_steps/",
+    "unit_environment.py",
+    "acceptance_steps/",
+    "acceptance_environment.py",
+]
+pytest_add_cli_args_test_selection = [
+    "--ignore=tests/integration",
+]
 
 [tool.ruff]
 extend-exclude = ["**/*_pb2.py", "**/*_pb2_grpc.py", "**/angzarr-core", "**/angzarr-core/**"]

@@ -12,8 +12,15 @@ storage:
     port: 5432
     database: "angzarr"
     username: "angzarr"
-    password: "angzarr"
-    uri: "postgres://angzarr:angzarr@angzarr-db:5432/angzarr"
+    # Sensitive fields MUST be overridden at deploy time. The sentinel
+    # is intentionally invalid as a password/URI — if it ever reaches a
+    # running pod, the pod fails loudly on DB connect. ``just deploy-apps``
+    # reads the real values from the K8s Secret ``angzarr-credentials``
+    # (created by ``just seed-secrets``) and passes them via
+    # ``--set-string``. No credentials live in this file under any
+    # circumstance.
+    password: "UNUSED_REPLACED_AT_DEPLOY"
+    uri: "UNUSED_REPLACED_AT_DEPLOY"
 
 messaging:
   type: amqp
@@ -21,7 +28,10 @@ messaging:
     enabled: true
     host: "angzarr-mq"
     port: 5672
-    url: "amqp://angzarr:zqbWyxab55QQ55bhXNxVwKTTiOWQqiRg@angzarr-mq:5672/%2F"
+    # Same rule as storage.postgres: overridden at deploy time from the
+    # K8s Secret. Sentinel is intentionally invalid so a missing override
+    # fails the connecting pod loudly rather than silently.
+    url: "UNUSED_REPLACED_AT_DEPLOY"
 
 # Poker domain aggregates
 applications:
@@ -59,20 +69,93 @@ applications:
         enabled: true
         nodePort: 31322  # localhost:1322 via Kind port mapping
 
-  # Sagas to be added later
-  sagas: []
-
-  # Projectors
-  projectors:
-    - name: prj-training
-      domain: hand
-      port: 50491
-      topics:
-        - "hand"  # Subscribe to hand domain events
+    - name: poker-tournament
+      domain: tournament
+      port: 50304
       image:
-        repository: ghcr.io/angzarr-io/poker-python-prj-training
+        repository: ghcr.io/angzarr-io/poker-python-tournament
         tag: latest
         pullPolicy: IfNotPresent
+      debug:
+        enabled: true
+        nodePort: 31323
+
+    - name: poker-reservation
+      domain: reservation
+      port: 50305
+      image:
+        repository: ghcr.io/angzarr-io/poker-python-reservation
+        tag: latest
+        pullPolicy: IfNotPresent
+      debug:
+        enabled: true
+        nodePort: 31324
+
+  # Sagas — stateless event→command translators, deployed as their own pods
+  # alongside an angzarr-saga sidecar that consumes from AMQP topics.
+  sagas:
+    - name: saga-table-hand
+      domain: saga-table-hand
+      port: 50411
+      topics:
+        - "table"  # subscribes to HandStarted from the table aggregate
+      image:
+        repository: ghcr.io/angzarr-io/poker-python-saga-table-hand
+        tag: latest
+        pullPolicy: IfNotPresent
+    - name: saga-table-player
+      domain: saga-table-player
+      port: 50413
+      topics:
+        - "table"  # subscribes to HandEnded from the table aggregate
+      image:
+        repository: ghcr.io/angzarr-io/poker-python-saga-table-player
+        tag: latest
+        pullPolicy: IfNotPresent
+    - name: saga-hand-table
+      domain: saga-hand-table
+      port: 50412
+      topics:
+        - "hand"  # subscribes to HandComplete -> emits EndHand on table
+      image:
+        repository: ghcr.io/angzarr-io/poker-python-saga-hand-table
+        tag: latest
+        pullPolicy: IfNotPresent
+    - name: saga-hand-player
+      domain: saga-hand-player
+      port: 50414
+      topics:
+        - "hand"  # subscribes to PotAwarded -> emits DepositFunds (winner credit)
+      image:
+        repository: ghcr.io/angzarr-io/poker-python-saga-hand-player
+        tag: latest
+        pullPolicy: IfNotPresent
+
+  # Consolidated reservation process manager — replaces the former buy-in /
+  # rebuy / registration PMs. Subscribes to reservation (for lifecycle
+  # events), table (for seating + chip-add confirmations), and tournament
+  # (for enrollment + rebuy results); fans commands back to player
+  # (ReserveFunds / DeductReservedFunds / ReleaseFunds), reservation
+  # (Confirm* / Release*), table (SeatPlayer / AddRebuyChips), and
+  # tournament (EnrollPlayer / ProcessRebuy). Uses QueryClient for sync
+  # cross-aggregate reads (table capacity, tournament fee / phase) rather
+  # than embedding destination state in the request.
+  processManagers:
+    - name: pmg-reservation
+      domain: pmg-reservation
+      port: 50395
+      topics:
+        - "reservation"
+        - "table"
+        - "tournament"
+      image:
+        repository: ghcr.io/angzarr-io/poker-python-pmg-reservation
+        tag: latest
+        pullPolicy: IfNotPresent
+
+  # Projectors — prj-training image isn't built by `just build-images` and
+  # isn't published; left empty for now since acceptance tests don't need it.
+  projectors: []
 
 # Infrastructure settings
 infrastructure:

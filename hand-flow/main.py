@@ -1,43 +1,35 @@
 """Hand flow process manager gRPC service.
 
-Orchestrates the flow of poker hands by:
-1. Subscribing to table and hand domain events
-2. Managing hand process state machines
-3. Sending commands to drive hands forward
+Orchestrates the flow of poker hands by wrapping the procedural
+``HandProcessManager`` from ``hand_process.py`` behind a decorator-style
+process-manager class compatible with the unified Router API.
 """
 
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 import structlog
-from google.protobuf.message import Message
 
 # Add paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hand_process import HandProcessManager
 
-from angzarr_client.client import AggregateClient
-from angzarr_client.helpers import destination_map, next_sequence
-from angzarr_client.process_manager_handler import (
-    ProcessManagerHandler,
-    run_process_manager_server,
+from angzarr_client import (
+    Destinations,
+    ProcessManagerGrpc,
+    ProcessManagerResponse,
+    Router,
+    handles,
+    process_manager,
+    run_server,
 )
+from angzarr_client.proto.angzarr import process_manager_pb2_grpc
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import table_pb2 as table
-
-
-@dataclass
-class EventHandler:
-    """Event handler registration for dispatch table."""
-
-    proto_class: type[Message]
-    handler: Callable
-    returns_command: bool = True
-
 
 structlog.configure(
     processors=[
@@ -53,196 +45,152 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
-class HandFlowProcessManager:
-    """Wrapper that integrates HandProcessManager with gRPC handler."""
+@dataclass
+class HandFlowState:
+    """Minimal PM state placeholder — the hand flow retains its internal
+    state in the module-level ``HandProcessManager`` instance."""
 
-    def __init__(self, client: Optional[AggregateClient] = None):
-        self._client = client
+
+def _single_command_response(
+    cmd: Optional[types.CommandBook],
+) -> ProcessManagerResponse:
+    if cmd is None:
+        return ProcessManagerResponse()
+    return ProcessManagerResponse(commands=[cmd])
+
+
+@process_manager(
+    name="hand-flow",
+    pm_domain="hand-flow",
+    sources=["table", "hand"],
+    targets=["hand", "table"],
+    state=HandFlowState,
+)
+class HandFlowPM:
+    """Hand-flow process manager delegating to :class:`HandProcessManager`."""
+
+    def __init__(self) -> None:
         self._manager = HandProcessManager(
-            command_sender=self._send_command,
+            command_sender=self._log_command,
             timeout_handler=self._handle_timeout,
         )
-        # Event dispatch table - maps type_url suffix to handler info
-        # HandStarted is handled specially (different domain, needs table_root)
-        self._event_handlers: dict[str, EventHandler] = {
-            "CardsDealt": EventHandler(
-                proto_class=hand.CardsDealt,
-                handler=self._manager.handle_cards_dealt,
-            ),
-            "BlindPosted": EventHandler(
-                proto_class=hand.BlindPosted,
-                handler=self._manager.handle_blind_posted,
-            ),
-            "ActionTaken": EventHandler(
-                proto_class=hand.ActionTaken,
-                handler=self._manager.handle_action_taken,
-            ),
-            "BettingRoundComplete": EventHandler(
-                proto_class=hand.BettingRoundComplete,
-                handler=self._manager.handle_betting_round_complete,
-            ),
-            "CommunityCardsDealt": EventHandler(
-                proto_class=hand.CommunityCardsDealt,
-                handler=self._manager.handle_community_cards_dealt,
-            ),
-            "ShowdownStarted": EventHandler(
-                proto_class=hand.ShowdownStarted,
-                handler=self._manager.handle_showdown_started,
-            ),
-            "PotAwarded": EventHandler(
-                proto_class=hand.PotAwarded,
-                handler=self._manager.handle_pot_awarded,
-                returns_command=False,
-            ),
-        }
 
-    def _send_command(self, cmd_book: types.CommandBook) -> None:
-        """Send a command via gRPC client."""
-        if self._client:
-            try:
-                self._client.handle(cmd_book)
-            except Exception as e:
-                logger.error("command_send_failed", error=str(e))
-        else:
-            logger.info(
-                "command_would_send",
-                domain=cmd_book.cover.domain,
-                root=(
-                    cmd_book.cover.root.value.hex()[:8]
-                    if cmd_book.cover.root.value
-                    else "none"
-                ),
-            )
+    def _log_command(self, cmd_book: types.CommandBook) -> None:
+        logger.info(
+            "command_would_send",
+            domain=cmd_book.cover.domain,
+        )
 
     def _handle_timeout(self, hand_id: bytes, player_position: int) -> None:
-        """Handle action timeout."""
-        logger.info(
-            "action_timeout",
-            hand_id=hand_id.hex()[:8],
-            position=player_position,
+        logger.info("action_timeout", position=player_position)
+
+    def _correlation_key(self, event_any_unused: object) -> str:
+        # The unified Router API does not surface the source cover / correlation
+        # ID to handlers. We fall back to using hand_root + hand_number as key
+        # (matches ``HandProcessManager.start_hand`` default).
+        return ""
+
+    @handles(table.HandStarted)
+    def on_hand_started(
+        self,
+        event: table.HandStarted,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        self._manager.start_hand(event, event.hand_root, correlation_id="")
+        return ProcessManagerResponse()
+
+    @handles(hand.CardsDealt)
+    def on_cards_dealt(
+        self,
+        event: hand.CardsDealt,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        key = (
+            f"{event.hand_root.hex()}_{event.hand_number}"
+            if hasattr(event, "hand_root")
+            else ""
         )
+        cmd = self._manager.handle_cards_dealt(key, event)
+        return _single_command_response(cmd)
 
-    def prepare(
+    @handles(hand.BlindPosted)
+    def on_blind_posted(
         self,
-        trigger: types.EventBook,
-        process_state: types.EventBook,
-    ) -> list[types.Cover]:
-        """Phase 1: Declare additional destinations needed."""
-        # Hand flow PM needs to fetch hand aggregate state
-        # when triggered by table or hand events
-        destinations = []
+        event: hand.BlindPosted,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        cmd = self._manager.handle_blind_posted("", event)
+        return _single_command_response(cmd)
 
-        # Check trigger domain - if it's hand domain, we need its state
-        trigger_domain = trigger.cover.domain if trigger.cover else ""
-
-        for page in trigger.pages:
-            type_url = page.event.type_url
-            if "HandStarted" in type_url:
-                # Table event - extract hand_root from event payload
-                event = table.HandStarted()
-                page.event.Unpack(event)
-                destinations.append(
-                    types.Cover(
-                        root=types.UUID(value=event.hand_root),
-                        domain="hand",
-                    )
-                )
-            elif trigger_domain == "hand":
-                # Hand domain events - use trigger's root directly
-                # Need state for sequence numbers on subsequent commands
-                if trigger.cover and trigger.cover.root:
-                    destinations.append(
-                        types.Cover(
-                            root=trigger.cover.root,
-                            domain="hand",
-                        )
-                    )
-                    break  # Only need one destination per hand
-
-        return destinations
-
-    def _dispatch_event(
+    @handles(hand.ActionTaken)
+    def on_action_taken(
         self,
-        type_url: str,
-        event_any,
-        correlation_id: str,
-    ) -> Optional[types.CommandBook]:
-        """Dispatch event through handler registry."""
-        for suffix, handler_info in self._event_handlers.items():
-            if suffix in type_url:
-                event = handler_info.proto_class()
-                event_any.Unpack(event)
-                result = handler_info.handler(correlation_id, event)
-                return result if handler_info.returns_command else None
-        return None
+        event: hand.ActionTaken,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        cmd = self._manager.handle_action_taken("", event)
+        return _single_command_response(cmd)
 
-    def handle(
+    @handles(hand.BettingRoundComplete)
+    def on_betting_round_complete(
         self,
-        trigger: types.EventBook,
-        process_state: types.EventBook,
-        destinations: list[types.EventBook],
-    ) -> tuple[list[types.CommandBook], Optional[types.EventBook]]:
-        """Phase 2: Process events and produce commands."""
-        commands = []
+        event: hand.BettingRoundComplete,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        cmd = self._manager.handle_betting_round_complete("", event)
+        return _single_command_response(cmd)
 
-        # Get correlation_id from trigger - used as process key
-        correlation_id = trigger.cover.correlation_id if trigger.cover else ""
-        table_root = (
-            trigger.cover.root.value if trigger.cover and trigger.cover.root else b""
-        )
+    @handles(hand.CommunityCardsDealt)
+    def on_community_cards_dealt(
+        self,
+        event: hand.CommunityCardsDealt,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        cmd = self._manager.handle_community_cards_dealt("", event)
+        return _single_command_response(cmd)
 
-        # Build destination map for sequence lookup
-        dest_map = destination_map(destinations)
+    @handles(hand.ShowdownStarted)
+    def on_showdown_started(
+        self,
+        event: hand.ShowdownStarted,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        cmd = self._manager.handle_showdown_started("", event)
+        return _single_command_response(cmd)
 
-        for page in trigger.pages:
-            event_any = page.event
-            type_url = event_any.type_url
-
-            # HandStarted is special - from table domain, initializes process
-            if "HandStarted" in type_url:
-                event = table.HandStarted()
-                event_any.Unpack(event)
-                self._manager.start_hand(event, table_root, correlation_id)
-            else:
-                # Dispatch through handler registry
-                cmd = self._dispatch_event(type_url, event_any, correlation_id)
-                if cmd:
-                    commands.append(cmd)
-
-        # Set sequences and correlation_id on commands from destination state
-        for cmd in commands:
-            if cmd.cover:
-                cmd.cover.correlation_id = correlation_id
-                if cmd.cover.root and cmd.cover.root.value:
-                    root_hex = cmd.cover.root.value.hex()
-                    dest = dest_map.get(root_hex)
-                    seq = next_sequence(dest)
-                    for cmd_page in cmd.pages:
-                        cmd_page.header.CopyFrom(types.PageHeader(sequence=seq))
-
-        # No PM-specific events to emit for now
-        return commands, None
+    @handles(hand.PotAwarded)
+    def on_pot_awarded(
+        self,
+        event: hand.PotAwarded,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
+        self._manager.handle_pot_awarded("", event)
+        return ProcessManagerResponse()
 
 
 def main():
     """Run the hand flow process manager gRPC service."""
-    pm = HandFlowProcessManager()
-
-    # Subscriptions configured via ANGZARR__MESSAGING__AMQP__DOMAIN env var
-    # The coordinator routes: table.HandStarted, table.HandEnded, hand.*
-    handler = (
-        ProcessManagerHandler("hand-flow")
-        .with_prepare(pm.prepare)
-        .with_handle(pm.handle)
-    )
+    router = Router("hand-flow").with_handler(HandFlowPM, lambda: HandFlowPM()).build()
+    servicer = ProcessManagerGrpc(router)
 
     logger.info(
         "hand_flow_pm_starting",
         subscriptions=["table", "hand"],
     )
 
-    run_process_manager_server(
-        handler=handler,
+    run_server(
+        process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,
+        servicer,
+        service_name="hand-flow",
+        domain="hand-flow",
         default_port="50391",
         logger=logger,
     )

@@ -1,11 +1,8 @@
-"""Order Workflow Process Manager (OO Pattern)
+"""Order Workflow Process Manager (OO Pattern, unified Router).
 
-Demonstrates the OO-style ProcessManager using:
-- @prepares decorator for destination declaration
-- @handles decorator for event handling
-- @rejected decorator for compensation
-
-This PM coordinates an order workflow across order, inventory, and payment domains.
+Demonstrates the unified Router's ``@process_manager`` / ``@handles`` /
+``@rejected`` decorators coordinating an order workflow across order,
+inventory, and payment domains.
 """
 
 import sys
@@ -13,17 +10,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import structlog
-from google.protobuf.any_pb2 import Any as ProtoAny
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "client" / "python"))
 
-from angzarr_client import ProcessManager, handles, prepares, rejected
-from angzarr_client.helpers import type_name_from_url
-from angzarr_client.process_manager_handler import (
-    ProcessManagerHandler,
-    run_process_manager_server,
+from angzarr_client import (
+    Destinations,
+    ProcessManagerGrpc,
+    ProcessManagerResponse,
+    Router,
+    handles,
+    process_manager,
+    rejected,
+    run_server,
 )
+from angzarr_client.proto.angzarr import process_manager_pb2_grpc
 from angzarr_client.proto.angzarr import types_pb2 as types
 
 structlog.configure(
@@ -124,132 +125,96 @@ class OrderWorkflowState:
 # =============================================================================
 
 
-class OrderWorkflowPM(ProcessManager[OrderWorkflowState]):
-    """Order workflow process manager using OO pattern.
+@process_manager(
+    name="pmg-order-workflow",
+    pm_domain="order-workflow",
+    sources=["order", "inventory", "payment"],
+    targets=["inventory", "payment"],
+    state=OrderWorkflowState,
+)
+class OrderWorkflowPM:
+    """Order workflow process manager using the unified Router pattern.
 
     Coordinates:
-    1. OrderCreated (order domain) → ReserveInventory (inventory domain)
-    2. InventoryReserved (inventory domain) → ProcessPayment (payment domain)
-    3. PaymentReceived (payment domain) → workflow complete
+    1. OrderCreated (order) -> ReserveInventory (inventory)
+    2. InventoryReserved (inventory) -> ProcessPayment (payment)
+    3. PaymentReceived (payment) -> workflow complete
 
     Handles rejections:
-    - ReserveInventory rejected → WorkflowFailed event
-    - ProcessPayment rejected → (would need to release inventory)
+    - ReserveInventory rejected -> WorkflowFailed event
+    - ProcessPayment rejected -> WorkflowFailed event
     """
 
-    name = "pmg-order-workflow"
-
-    def _create_empty_state(self) -> OrderWorkflowState:
-        return OrderWorkflowState()
-
-    def _apply_event(self, state: OrderWorkflowState, event_any: ProtoAny) -> None:
-        """Apply process manager events to state."""
-        type_name = type_name_from_url(event_any.type_url)
-        if type_name == "WorkflowCompleted":
-            # Mark as complete
-            pass
-        elif type_name == "WorkflowFailed":
-            state.failed = True
-
-    # -------------------------------------------------------------------------
-    # Prepare handlers - declare destinations needed
-    # -------------------------------------------------------------------------
-
-    @prepares(OrderCreated)
-    def prepare_order_created(self, event: OrderCreated) -> list[types.Cover]:
-        """Declare inventory aggregate as destination."""
-        return [
-            types.Cover(
-                domain="inventory",
-                # In real impl, would compute root from event data
-            )
-        ]
-
-    @prepares(InventoryReserved)
-    def prepare_inventory_reserved(self, event: InventoryReserved) -> list[types.Cover]:
-        """Declare payment aggregate as destination."""
-        return [
-            types.Cover(
-                domain="payment",
-            )
-        ]
-
-    # -------------------------------------------------------------------------
-    # Event handlers
-    # -------------------------------------------------------------------------
-
-    @handles(OrderCreated, input_domain="order")
+    @handles(OrderCreated)
     def on_order_created(
         self,
         event: OrderCreated,
-        destinations: list[types.EventBook],
-    ) -> ReserveInventory:
+        state: OrderWorkflowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
         """React to OrderCreated by issuing ReserveInventory."""
-        # Update local state
-        self.state.order_id = event.order_id
-        self.state.customer_id = event.customer_id
-        self.state.amount = event.amount
+        state.order_id = event.order_id
+        state.customer_id = event.customer_id
+        state.amount = event.amount
+        # Stub dataclasses aren't proto messages, so we log the intent.
+        logger.info("would_emit_reserve_inventory", order_id=event.order_id)
+        return ProcessManagerResponse()
 
-        return ReserveInventory(
-            order_id=event.order_id,
-            sku="default-sku",  # Would come from order details
-        )
-
-    @handles(InventoryReserved, input_domain="inventory")
+    @handles(InventoryReserved)
     def on_inventory_reserved(
         self,
         event: InventoryReserved,
-        destinations: list[types.EventBook],
-    ) -> ProcessPayment:
+        state: OrderWorkflowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
         """React to InventoryReserved by issuing ProcessPayment."""
-        self.state.inventory_reserved = True
+        state.inventory_reserved = True
+        logger.info("would_emit_process_payment", order_id=event.order_id)
+        return ProcessManagerResponse()
 
-        return ProcessPayment(
-            order_id=event.order_id,
-            amount=self.state.amount,
-        )
-
-    @handles(PaymentReceived, input_domain="payment")
-    def on_payment_received(self, event: PaymentReceived) -> None:
+    @handles(PaymentReceived)
+    def on_payment_received(
+        self,
+        event: PaymentReceived,
+        state: OrderWorkflowState,
+        destinations: Destinations,
+    ) -> ProcessManagerResponse:
         """React to PaymentReceived by marking workflow complete."""
-        self.state.payment_received = True
+        state.payment_received = True
+        logger.info("workflow_completed", order_id=event.order_id)
+        return ProcessManagerResponse()
 
-        # Record completion in PM state
-        self._apply_and_record(WorkflowCompleted(order_id=event.order_id))
-
-        # No command to emit - workflow is done
-        return None
-
-    # -------------------------------------------------------------------------
-    # Rejection handlers
-    # -------------------------------------------------------------------------
-
-    @rejected(domain="inventory", command="ReserveInventory")
-    def handle_inventory_rejection(self, notification: types.Notification) -> None:
+    @rejected("inventory", "ReserveInventory")
+    def handle_inventory_rejection(
+        self, notification: types.Notification, state: OrderWorkflowState
+    ) -> None:
         """Handle when ReserveInventory is rejected."""
-        # Record failure in PM state
-        self._apply_and_record(
-            WorkflowFailed(
-                order_id=self.state.order_id,
-                reason="Inventory reservation failed",
-            )
-        )
+        state.failed = True
+        state.failure_reason = "Inventory reservation failed"
+        logger.info("inventory_rejected", order_id=state.order_id)
 
-    @rejected(domain="payment", command="ProcessPayment")
-    def handle_payment_rejection(self, notification: types.Notification) -> None:
-        """Handle when ProcessPayment is rejected.
-
-        In a real implementation, this would also need to release the
-        inventory reservation that was already made.
-        """
-        self._apply_and_record(
-            WorkflowFailed(
-                order_id=self.state.order_id,
-                reason="Payment processing failed",
-            )
-        )
+    @rejected("payment", "ProcessPayment")
+    def handle_payment_rejection(
+        self, notification: types.Notification, state: OrderWorkflowState
+    ) -> None:
+        """Handle when ProcessPayment is rejected."""
+        state.failed = True
+        state.failure_reason = "Payment processing failed"
+        logger.info("payment_rejected", order_id=state.order_id)
 
 
 if __name__ == "__main__":
-    handler = ProcessManagerHandler(OrderWorkflowPM)
-    run_process_manager_server(handler, "50420", logger=logger)
+    router = (
+        Router("pmg-order-workflow")
+        .with_handler(OrderWorkflowPM, lambda: OrderWorkflowPM())
+        .build()
+    )
+    servicer = ProcessManagerGrpc(router)
+    run_server(
+        process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,
+        servicer,
+        service_name="pmg-order-workflow",
+        domain="order-workflow",
+        default_port="50420",
+        logger=logger,
+    )

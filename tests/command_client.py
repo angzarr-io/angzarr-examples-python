@@ -1,22 +1,24 @@
-"""CommandClient abstraction for acceptance tests.
+"""CommandClient for acceptance tests.
 
-Provides two implementations:
-- InProcessClient: wraps handler functions directly (no gRPC, for unit/local tests)
-- GrpcClient: connects to a running coordinator via gRPC (for acceptance tests)
+Sends commands to running angzarr coordinators via gRPC. Routes by domain:
+PLAYER_URL, TABLE_URL, HAND_URL, TOURNAMENT_URL, RESERVATION_URL — each
+falls back to PLAYER_URL if unset.
 
-The factory function `create_client()` checks the PLAYER_URL env var:
-- If set: returns a GrpcClient connected to that endpoint
-- If not set: returns an InProcessClient
+Default sync_mode is SYNC_MODE_ASYNC so cluster scenarios can observe
+downstream saga/PM propagation via ``within N seconds`` rather than
+blocking on each command; financial commands override per-call.
+
+Use `create_client()` to build one; defaults to localhost:1310.
 """
 
 import os
 import uuid
-from abc import ABC, abstractmethod
 
 import grpc
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client.proto.angzarr import (
+    UUID,
     CommandBook,
     CommandHandlerCoordinatorServiceStub,
     CommandPage,
@@ -28,58 +30,30 @@ from angzarr_client.proto.angzarr import (
 )
 
 
-class CommandClient(ABC):
-    """Abstract base class for sending commands to aggregates."""
-
-    @abstractmethod
-    def send_command(
-        self,
-        domain: str,
-        root: bytes,
-        command: ProtoAny,
-        sequence: int = 0,
-    ) -> CommandResponse:
-        """Send a command to the given domain/root.
-
-        Args:
-            domain: Aggregate domain (e.g. "player", "table").
-            root: Proto UUID for the aggregate root.
-            command: Packed protobuf command as Any.
-            sequence: Expected sequence number for optimistic concurrency.
-
-        Returns:
-            CommandResponse from the coordinator.
-        """
-        ...
-
-    @abstractmethod
-    def close(self) -> None:
-        """Release any resources (channels, connections)."""
-        ...
-
-
 def _ensure_proto_uuid(root):
-    """Convert root to proto UUID if needed."""
-    from angzarr_client.proto.angzarr import UUID
-
     if isinstance(root, bytes):
         return UUID(value=root)
     return root
 
 
-class GrpcClient(CommandClient):
+class CommandClient:
     """Sends commands to running angzarr coordinators via gRPC.
 
-    Routes by domain: PLAYER_URL, TABLE_URL, HAND_URL.
+    Routes by domain: player/table/hand/tournament/reservation, each from
+    its own *_URL env var (all default to ``player_url``).
     """
 
     def __init__(self, player_url: str):
         table_url = os.environ.get("TABLE_URL", player_url)
         hand_url = os.environ.get("HAND_URL", player_url)
+        tournament_url = os.environ.get("TOURNAMENT_URL", player_url)
+        reservation_url = os.environ.get("RESERVATION_URL", player_url)
         self._channels = {
             "player": grpc.insecure_channel(player_url),
             "table": grpc.insecure_channel(table_url),
             "hand": grpc.insecure_channel(hand_url),
+            "tournament": grpc.insecure_channel(tournament_url),
+            "reservation": grpc.insecure_channel(reservation_url),
         }
         self._stubs = {
             domain: CommandHandlerCoordinatorServiceStub(ch)
@@ -115,7 +89,7 @@ class GrpcClient(CommandClient):
         kwargs = {
             "command": book,
             "sync_mode": (
-                sync_mode if sync_mode is not None else SyncMode.SYNC_MODE_SIMPLE
+                sync_mode if sync_mode is not None else SyncMode.SYNC_MODE_ASYNC
             ),
         }
         if cascade_error_mode is not None:
@@ -131,6 +105,6 @@ class GrpcClient(CommandClient):
 
 
 def create_client() -> CommandClient:
-    """Factory: create GrpcClient from PLAYER_URL (default localhost:1310)."""
+    """Factory: create CommandClient from PLAYER_URL (default localhost:1310)."""
     player_url = os.environ.get("PLAYER_URL", "localhost:1310")
-    return GrpcClient(player_url)
+    return CommandClient(player_url)

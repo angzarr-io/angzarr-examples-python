@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Fire on all PRs so stacked PRs (base != main) get checks too.
+    branches: ['**']
   workflow_dispatch:  # Allow manual trigger
 
 env:
@@ -28,10 +29,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
 
       - name: Configure git safe directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Init nested angzarr-project (non-recursive, avoids circular submodule ref)
+        run: |
+          cd angzarr-client-python
+          git submodule update --init angzarr-project
 
       - name: Use container justfile
         run: cp justfile.container justfile
@@ -55,8 +61,14 @@ jobs:
       - name: Install dependencies
         run: just install
 
-      - name: Test (unit)
-        run: just test-unit
+      - name: Test (pytest)
+        run: just test-pytest
+
+      - name: Test (example unit behave)
+        run: just test-example-unit
+
+      - name: Mutation test
+        run: just mutation-test
 
       - name: Lint
         run: just lint
@@ -77,11 +89,18 @@ jobs:
           - agg-player
           - agg-table
           - agg-hand
+          - agg-reservation
+          - pmg-reservation
           - prj-training
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+
+      - name: Init nested angzarr-project (non-recursive, avoids circular submodule ref)
+        run: |
+          cd angzarr-client-python
+          git submodule update --init angzarr-project
 
       - name: Install buf
         uses: bufbuild/buf-action@v1
@@ -152,7 +171,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+
+      - name: Init nested angzarr-project (non-recursive, avoids circular submodule ref)
+        run: |
+          cd angzarr-client-python
+          git submodule update --init angzarr-project
 
       - name: Generate image tag
         id: tag
@@ -362,10 +386,9 @@ jobs:
           export PLAYER_URL=localhost:1310
           export TABLE_URL=localhost:1311
           export HAND_URL=localhost:1312
-          uv run behave angzarr-project/features/acceptance/ \
-            --steps-dir tests/acceptance/steps \
-            --environment-file tests/acceptance/environment.py \
-            --tags="~@wip" --no-capture --no-strict || true
+          uv run behave --stage acceptance \
+            angzarr-project/features/example/acceptance/ \
+            --tags="~@wip" --no-capture
 
       - name: Show logs on failure
         if: failure()

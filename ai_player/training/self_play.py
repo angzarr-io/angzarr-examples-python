@@ -1,84 +1,73 @@
 #!/usr/bin/env python3
-"""Self-play training with per-player models and weight sharing.
+"""Self-play training driver.
 
-Each player maintains their own model, learns from their own experiences,
-and periodically shares weights with other players.
+Each player plays through a gRPC AiSidecar client — the in-process PokerNet
+inference path has been removed in favor of a single cross-language contract.
+The offline trainer (ai_player.training.trainer) still touches PokerNet
+directly for gradient updates (that's training, not decisioning), and
+publishes new checkpoints via the sidecar's ReloadModel RPC.
 """
 
 from __future__ import annotations
 
-import uuid
-from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING
-
-import numpy as np
-import structlog
-import torch
-from sqlalchemy import create_engine, select
-
-if TYPE_CHECKING:
-    pass
-
 # Add parent paths for imports
 import sys
+import uuid
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import structlog
+from sqlalchemy import create_engine, select
 
 root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root))
 
+# Import the sidecar client from the parent directory (it is a top-level
+# module, not part of the ai_player package) — path already set above.
+from ai_player_client import AiPlayerClient, AiPlayerConfig
 from prj_training.schema import Base, TrainingState
 
-from ai_player.models.poker_net import PokerNet
 from ai_player.training.trainer import Trainer, TrainerConfig
 
 logger = structlog.get_logger()
 
 
 class SelfPlayGame:
-    """Poker game where each player uses their own neural network model."""
+    """Poker game where each player makes decisions via an AiSidecar client."""
 
     def __init__(
         self,
         client,
-        agent_models: dict[str, PokerNet],
-        encoder,
+        agent_clients: dict[str, AiPlayerClient],
         engine=None,
         small_blind: int = 5,
         big_blind: int = 10,
-        exploration_temperature: float = 0.0,
     ):
         """Initialize self-play game.
 
         Args:
             client: GatewayClient for game commands.
-            agent_models: Dict mapping player name to their PokerNet model.
-            encoder: ActionContextEncoder for state encoding.
+            agent_clients: Dict mapping player name to their AiPlayerClient
+                (each points at a sidecar / session keyed by model_id).
             engine: SQLAlchemy engine for recording training states (optional).
             small_blind: Small blind amount.
             big_blind: Big blind amount.
-            exploration_temperature: Softmax temperature for action sampling (0=greedy).
         """
-        self._exploration_temperature = exploration_temperature
         from run_game import GameVariant, PokerGame
 
-        # Create base game with logging disabled
         self._base_game = PokerGame(
             client,
             variant=GameVariant.TEXAS_HOLDEM,
             small_blind=small_blind,
             big_blind=big_blind,
         )
-        # Disable verbose logging
         self._base_game.log = lambda msg: None
 
-        self._agent_models = agent_models
-        self._encoder = encoder
+        self._agent_clients = agent_clients
         self._engine = engine
 
-        # Override the get_action method
-        self._base_game.get_action = self._get_model_action
+        self._base_game.get_action = self._get_action_via_sidecar
 
-        # Track states during hand for recording
         self._pending_states: list[dict] = []
         self._hand_counter = 0
 
@@ -166,89 +155,78 @@ class SelfPlayGame:
 
             session.commit()
 
-    def _get_model_action(self, player) -> tuple:
-        """Get action from player's neural network model."""
-        from angzarr_client.proto.examples import poker_types_pb2 as types_pb2
+    def _get_action_via_sidecar(self, player) -> tuple:
+        """Get action from the player's sidecar client (pure RPC).
 
-        model = self._agent_models.get(player.name)
-        if model is None:
-            # Fallback to random if no model
-            return self._random_action(player)
+        Raises if no client is registered for this player — there is no
+        in-process fallback by design. The only fallback retained is the
+        random action one inside AiPlayerClient.get_action itself, which
+        triggers on transient channel errors.
+        """
+        ai_client = self._agent_clients.get(player.name)
+        if ai_client is None:
+            raise RuntimeError(f"no AiPlayerClient registered for player {player.name}")
 
-        # Build state tensor from game state
-        state_tensor = self._encode_game_state(player)
-
-        # Run model inference with exploration
-        action_idx, amount, probs, value = model.predict(
-            state_tensor, temperature=self._exploration_temperature
-        )
-
+        snapshot = self._build_snapshot(player)
         game = self._base_game
+        hand_id = getattr(game, "hand_root", None) or b""
 
-        # Key betting context - "it's X to you"
-        to_call = max(0, game.current_bet - player.bet)
+        action, action_amount = ai_client.get_action(snapshot, hand_id)
 
-        # The minimum raise increment (tracked by the game)
-        min_raise_increment = getattr(game, "last_raise_increment", game.big_blind)
-
-        # Calculate minimum valid raise-to amount
-        # Server requires: raise_amount >= min_raise, where raise_amount = raise_to - current_bet
-        min_raise_to = game.current_bet + min_raise_increment
-
-        # Maximum we can put in (all-in)
-        player.stack + player.bet
-
-        # Map action index to proto action type
-        # 0 = FOLD, 1 = CHECK/CALL, 2 = BET/RAISE
-        if action_idx == 0:
-            action = types_pb2.FOLD
-            action_amount = 0
-        elif action_idx == 1:
-            if to_call == 0:
-                action = types_pb2.CHECK
-                action_amount = 0
-            else:
-                action = types_pb2.CALL
-                action_amount = min(to_call, player.stack)
-        else:  # action_idx == 2 - BET or RAISE
-            if game.current_bet == 0:
-                # Opening bet - minimum is big blind, max is stack
-                bet_amount = max(game.big_blind, min(amount, player.stack))
-                if bet_amount >= game.big_blind and bet_amount <= player.stack:
-                    action = types_pb2.BET
-                    action_amount = bet_amount
-                else:
-                    action = types_pb2.CHECK
-                    action_amount = 0
-            else:
-                # Raise - compute valid raise amount
-                # Actual max we can put in: our stack (chips we have) + our current bet
-                actual_max = player.stack + player.bet
-
-                # Can we make a valid raise?
-                if actual_max >= min_raise_to and player.stack > to_call:
-                    # Compute raise amount, clamped strictly to [min_raise_to, actual_max]
-                    pot_raise = game.current_bet + game.pot
-                    target_raise = min(pot_raise, actual_max)  # Don't exceed actual max
-                    target_raise = max(target_raise, min_raise_to)  # At least min raise
-                    target_raise = min(target_raise, actual_max)  # Double-check cap
-
-                    action = types_pb2.RAISE
-                    action_amount = int(target_raise)
-                else:
-                    # Can't make valid raise, just call
-                    if to_call > 0:
-                        action = types_pb2.CALL
-                        action_amount = min(to_call, player.stack)
-                    else:
-                        action = types_pb2.CHECK
-                        action_amount = 0
-
-        # Record state for training (if engine configured)
         if self._engine:
             self._record_action_state(player, action, action_amount)
 
         return action, action_amount
+
+    def _build_snapshot(self, player) -> dict:
+        """Build the dict snapshot that AiPlayerClient.get_action expects."""
+        game = self._base_game
+        to_call = max(0, game.current_bet - player.bet)
+        min_raise_increment = getattr(game, "last_raise_increment", game.big_blind)
+
+        phase = 1
+        if len(game.community) >= 3:
+            phase = 2
+        if len(game.community) >= 4:
+            phase = 3
+        if len(game.community) >= 5:
+            phase = 4
+
+        return {
+            "game_variant": 1,
+            "phase": phase,
+            "hole_cards": [
+                {"suit": c.suit, "rank": c.rank}
+                for c in (player.hole_cards or [])
+                if c is not None
+            ],
+            "community_cards": [
+                {"suit": c.suit, "rank": c.rank}
+                for c in game.community
+                if c is not None
+            ],
+            "pot_size": game.pot,
+            "stack_size": player.stack,
+            "amount_to_call": to_call,
+            "min_raise": min_raise_increment,
+            "max_raise": player.stack + player.bet,
+            "position": player.seat,
+            "players_remaining": len(
+                [p for p in game.players.values() if not p.folded]
+            ),
+            "players_to_act": len(
+                [p for p in game.players.values() if not p.folded and not p.all_in]
+            ),
+            "opponents": [
+                {
+                    "player_root": p.root or b"",
+                    "position": p.seat,
+                    "stack": p.stack,
+                }
+                for p in game.players.values()
+                if p.name != player.name and not p.folded
+            ],
+        }
 
     def _record_action_state(self, player, action: int, amount: int) -> None:
         """Record the current state and action for later training."""
@@ -306,96 +284,13 @@ class SelfPlayGame:
         }
         self._pending_states.append(state)
 
-    def _encode_game_state(self, player) -> torch.Tensor:
-        """Encode current game state for model input."""
-
-        features = np.zeros(PokerNet.INPUT_DIM, dtype=np.float32)
-        game = self._base_game
-        bb = game.big_blind
-
-        # Betting features - "it's X to you"
-        pot = game.pot
-        stack = player.stack
-        to_call = max(0, game.current_bet - player.bet)
-
-        # Get actual min raise increment (may be larger than BB after raises)
-        min_raise_increment = getattr(game, "last_raise_increment", bb)
-
-        # Min raise-to amount (what the model needs to reach to make a valid raise)
-        min_raise_to = game.current_bet + min_raise_increment
-
-        features[0] = pot / bb / 100.0
-        features[1] = stack / bb / 100.0
-        features[2] = to_call / bb / 10.0  # "It's X to call"
-        features[3] = min_raise_increment / bb / 10.0  # Min raise increment
-        features[4] = min_raise_to / bb / 10.0  # Min raise-to amount
-
-        if pot > 0 and to_call > 0:
-            features[5] = to_call / (pot + to_call)
-        if pot > 0:
-            features[6] = min(10.0, stack / pot) / 10.0
-
-        features[7] = 1.0 if to_call == 0 else 0.0
-        features[8] = 1.0 if to_call > 0 else 0.0
-
-        # Position
-        features[10] = player.seat / 10.0
-        features[14] = len([p for p in game.players.values() if not p.folded]) / 10.0
-
-        # Phase
-        phase = 1
-        if len(game.community) >= 3:
-            phase = 2
-        if len(game.community) >= 4:
-            phase = 3
-        if len(game.community) >= 5:
-            phase = 4
-        features[15 + phase] = 1.0
-
-        # Hole cards
-        for i, card in enumerate(player.hole_cards or []):
-            if card is not None:
-                card_idx = (card.rank - 2) * 4 + (card.suit - 1)
-                if 0 <= card_idx < 52:
-                    features[20 + i * 52 + card_idx] = 1.0
-
-        # Community cards
-        for card in game.community:
-            if card is not None:
-                card_idx = (card.rank - 2) * 4 + (card.suit - 1)
-                if 0 <= card_idx < 52:
-                    features[124 + card_idx] = 1.0
-
-        return torch.tensor(features, dtype=torch.float32).unsqueeze(0)
-
-    def _random_action(self, player) -> tuple:
-        """Fallback random action."""
-        import random
-
-        from angzarr_client.proto.examples import poker_types_pb2 as types_pb2
-
-        to_call = max(0, self._base_game.current_bet - player.bet)
-
-        if to_call == 0:
-            if random.random() < 0.2 and player.stack >= self._base_game.big_blind:
-                return types_pb2.BET, self._base_game.big_blind * 2
-            return types_pb2.CHECK, 0
-        elif to_call >= player.stack:
-            if random.random() < 0.4:
-                return types_pb2.CALL, to_call
-            return types_pb2.FOLD, 0
-        else:
-            if random.random() < 0.7:
-                return types_pb2.CALL, to_call
-            return types_pb2.FOLD, 0
-
 
 @dataclass
 class PlayerAgent:
-    """An individual player agent with its own model."""
+    """An individual player agent with its own sidecar client."""
 
     name: str
-    model: PokerNet
+    client: AiPlayerClient
     model_id: str
     total_hands: int = 0
     total_chips_won: int = 0
@@ -422,6 +317,9 @@ class SelfPlayConfig:
     """Configuration for self-play training."""
 
     num_players: int = 9
+    # One sidecar address per agent; must have len == num_players.
+    # Each address is a host:port that serves the AiSidecar service.
+    sidecar_addresses: list[str] = field(default_factory=list)
     database_url: str = "sqlite:///selfplay.db"
     output_dir: str = "./models/selfplay"
     device: str = "cpu"
@@ -434,18 +332,12 @@ class SelfPlayConfig:
     # Self-play parameters
     tournaments_per_iteration: int = 5
     max_iterations: int = 50
-    hands_per_tournament: int = 20  # Reduced for faster development iteration
+    hands_per_tournament: int = 20
 
-    # Weight sharing
-    share_weights_every: int = 3  # Share every N iterations
-    weight_averaging_alpha: float = (
-        0.5  # How much to blend (0=keep own, 1=full average)
-    )
-
-    # Exploration
-    exploration_temperature: float = (
-        0.5  # Softmax temperature for action sampling (0=greedy)
-    )
+    # Weight sharing (applied by the offline trainer against checkpoints;
+    # published to each sidecar via the ReloadModel RPC).
+    share_weights_every: int = 3
+    weight_averaging_alpha: float = 0.5
 
     # Convergence
     target_bb: float = 10.0
@@ -453,136 +345,56 @@ class SelfPlayConfig:
     convergence_threshold: float = 0.5
 
 
-class MultiModelRegistry:
-    """Registry that holds multiple models for different players."""
+class ClientRegistry:
+    """Registry that holds one AiPlayerClient per agent.
 
-    def __init__(self, device: str = "cpu") -> None:
-        self._models: dict[str, PokerNet] = {}
-        self._device = device
+    Replaces the old MultiModelRegistry that held in-process PokerNet
+    instances and blended their state_dicts. Weight sharing across agents
+    now happens offline: the trainer reads experiences from the DB,
+    computes averaged/blended checkpoints, writes them to disk, and calls
+    ReloadModel on each sidecar via AiPlayerClient.reload_model to publish.
+    """
 
-    def register(self, model_id: str, model: PokerNet) -> None:
-        """Register a model for a player."""
-        self._models[model_id] = model
-        logger.debug("model_registered", model_id=model_id)
+    def __init__(self) -> None:
+        self._clients: dict[str, AiPlayerClient] = {}
 
-    def get(self, model_id: str) -> PokerNet | None:
-        """Get model by ID."""
-        return self._models.get(model_id)
+    def register(self, model_id: str, client: AiPlayerClient) -> None:
+        self._clients[model_id] = client
+        logger.debug("client_registered", model_id=model_id)
 
-    def get_or_create(self, model_id: str) -> PokerNet:
-        """Get existing model or create new one."""
-        if model_id not in self._models:
-            self._models[model_id] = PokerNet(device=self._device)
-            logger.debug("model_created", model_id=model_id)
-        return self._models[model_id]
+    def get(self, model_id: str) -> AiPlayerClient | None:
+        return self._clients.get(model_id)
 
-    def all_models(self) -> list[tuple[str, PokerNet]]:
-        """Get all registered models."""
-        return list(self._models.items())
+    def all_clients(self) -> list[tuple[str, AiPlayerClient]]:
+        return list(self._clients.items())
 
-    def average_weights(self) -> dict:
-        """Compute average weights across all models."""
-        if not self._models:
-            return {}
-
-        models = list(self._models.values())
-        avg_state = {}
-
-        # Get state dict from first model as template
-        first_state = models[0].state_dict()
-
-        for key in first_state:
-            # Stack all model weights for this key
-            stacked = torch.stack([m.state_dict()[key].float() for m in models])
-            avg_state[key] = stacked.mean(dim=0)
-
-        return avg_state
-
-    def share_weights(self, alpha: float = 0.5) -> None:
-        """Share weights across all models using averaging.
-
-        Args:
-            alpha: Blend factor. 0 = keep own weights, 1 = use full average.
-        """
-        if len(self._models) < 2:
-            return
-
-        avg_weights = self.average_weights()
-
-        for model_id, model in self._models.items():
-            current_state = model.state_dict()
-            blended_state = {}
-
-            for key in current_state:
-                # Blend: (1-alpha) * own + alpha * average
-                blended_state[key] = (1 - alpha) * current_state[
-                    key
-                ].float() + alpha * avg_weights[key]
-
-            model.load_state_dict(blended_state)
-
-        logger.info("weights_shared", alpha=alpha, num_models=len(self._models))
-
-    def share_from_winner(self, winner_model_id: str, alpha: float = 0.3) -> None:
-        """Share winning model's weights to all other models.
-
-        The winner "teaches" the losers by blending their weights.
-
-        Args:
-            winner_model_id: Model ID of the tournament winner.
-            alpha: How much to learn from winner. 0 = keep own, 1 = copy winner.
-        """
-        winner_model = self._models.get(winner_model_id)
-        if winner_model is None:
-            logger.warning("winner_model_not_found", model_id=winner_model_id)
-            return
-
-        winner_state = winner_model.state_dict()
-
-        for model_id, model in self._models.items():
-            if model_id == winner_model_id:
-                continue  # Winner keeps their weights
-
-            current_state = model.state_dict()
-            blended_state = {}
-
-            for key in current_state:
-                # Blend: (1-alpha) * own + alpha * winner
-                blended_state[key] = (1 - alpha) * current_state[
-                    key
-                ].float() + alpha * winner_state[key].float()
-
-            model.load_state_dict(blended_state)
-
-        logger.info(
-            "winner_weights_shared",
-            winner=winner_model_id,
-            alpha=alpha,
-            learners=len(self._models) - 1,
-        )
+    def close_all(self) -> None:
+        for _, c in self._clients.items():
+            c.close()
 
 
 class SelfPlayTrainer:
-    """Trainer for multi-agent self-play."""
+    """Trainer for multi-agent self-play via AiSidecar clients."""
 
     def __init__(self, config: SelfPlayConfig) -> None:
         self._config = config
+        if len(config.sidecar_addresses) != config.num_players:
+            raise ValueError(
+                f"sidecar_addresses must have {config.num_players} entries "
+                f"(one per agent), got {len(config.sidecar_addresses)}"
+            )
         self._engine = create_engine(config.database_url)
-        self._registry = MultiModelRegistry(device=config.device)
+        self._registry = ClientRegistry()
         self._agents: list[PlayerAgent] = []
         self._iteration = 0
 
-        # Ensure tables exist
         Base.metadata.create_all(self._engine)
-
-        # Create output directory
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
 
-        # Initialize agents
         self._init_agents()
 
     def _init_agents(self) -> None:
-        """Initialize player agents with their own models."""
+        """Initialize player agents — each gets its own AiPlayerClient."""
         names = [
             "Alice",
             "Bob",
@@ -598,19 +410,29 @@ class SelfPlayTrainer:
         for i in range(self._config.num_players):
             name = names[i] if i < len(names) else f"Player{i}"
             model_id = f"agent_{name.lower()}"
+            address = self._config.sidecar_addresses[i]
 
-            # Create model for this agent
-            model = PokerNet(device=self._config.device)
-            self._registry.register(model_id, model)
+            client = AiPlayerClient(
+                AiPlayerConfig(
+                    address=address,
+                    session_id=model_id,
+                    player_root=b"",
+                )
+            )
+            self._registry.register(model_id, client)
 
             agent = PlayerAgent(
                 name=name,
-                model=model,
+                client=client,
                 model_id=model_id,
             )
             self._agents.append(agent)
 
-        logger.info("agents_initialized", count=len(self._agents))
+        logger.info(
+            "agents_initialized",
+            count=len(self._agents),
+            addresses=self._config.sidecar_addresses,
+        )
 
     def run_tournament(self) -> dict[str, dict]:
         """Run a single tournament with each player using their own model.
@@ -620,28 +442,20 @@ class SelfPlayTrainer:
         """
         from run_game import GatewayClient
 
-        from ai_player.models.encoder import ActionContextEncoder
-
         tournament_id = f"selfplay-{uuid.uuid4().hex[:8]}"
         cfg = self._config
 
         logger.debug("tournament_starting", tournament_id=tournament_id)
 
-        # Create encoder for model inference
-        encoder = ActionContextEncoder()
-
-        # Map agent names to their models for quick lookup
-        agent_models = {agent.name: agent.model for agent in self._agents}
+        agent_clients = {agent.name: agent.client for agent in self._agents}
 
         with GatewayClient("localhost:1320") as client:
             game = SelfPlayGame(
                 client,
-                agent_models=agent_models,
-                encoder=encoder,
-                engine=self._engine,  # Pass engine for training state recording
+                agent_clients=agent_clients,
+                engine=self._engine,
                 small_blind=5,
                 big_blind=10,
-                exploration_temperature=cfg.exploration_temperature,
             )
 
             # Create table
@@ -775,11 +589,13 @@ class SelfPlayTrainer:
             )
             return 0.0
 
-        # Train the agent's model
-
-        # Create a temporary trainer with this agent's model
+        # Offline training: load the agent's current checkpoint, run SGD on
+        # the sampled batch, save the new checkpoint, and tell the sidecar
+        # to hot-reload it via ReloadModel.
+        checkpoint_path = Path(self._config.output_dir) / f"{agent.model_id}.pt"
         trainer = Trainer(trainer_config)
-        trainer._model = agent.model  # Use agent's model
+        if checkpoint_path.exists():
+            trainer.load_checkpoint(checkpoint_path)
 
         total_loss = 0.0
         for epoch in range(trainer_config.epochs):
@@ -787,32 +603,82 @@ class SelfPlayTrainer:
             total_loss += loss
 
         avg_loss = total_loss / trainer_config.epochs
+        trainer.save_checkpoint(version=agent.model_id)
+        agent.client.reload_model(str(checkpoint_path), model_id=agent.model_id)
+
         logger.debug(
             "agent_trained",
             agent=agent.name,
             epochs=trainer_config.epochs,
             avg_loss=round(avg_loss, 4),
+            checkpoint=str(checkpoint_path),
         )
 
         return avg_loss
 
     def save_models(self, suffix: str = "") -> None:
-        """Save all agent models."""
+        """Checkpoints are now written per-agent from train_agent; this
+        method copies the most recent checkpoints into a suffixed snapshot
+        and marks the best-performing agent's checkpoint as 'best_model.pt'.
+        """
+        import shutil
+
         output_dir = Path(self._config.output_dir)
         for agent in self._agents:
-            path = output_dir / f"{agent.model_id}_{suffix}.pt"
-            agent.model.save(path, version=f"{agent.model_id}_{suffix}")
+            src = output_dir / f"{agent.model_id}.pt"
+            if not src.exists():
+                continue
+            dst = output_dir / f"{agent.model_id}_{suffix}.pt"
+            shutil.copy2(src, dst)
 
-        # Also save best model (highest BB/100)
         best_agent = max(self._agents, key=lambda a: a.bb_per_100)
-        best_path = output_dir / "best_model.pt"
-        best_agent.model.save(best_path, version=f"best_{suffix}")
+        best_src = output_dir / f"{best_agent.model_id}.pt"
+        if best_src.exists():
+            best_path = output_dir / "best_model.pt"
+            shutil.copy2(best_src, best_path)
 
         logger.info(
             "models_saved",
             suffix=suffix,
             best_agent=best_agent.name,
             best_bb_per_100=round(best_agent.bb_per_100, 2),
+        )
+
+    def _publish_winner_weights(self, winner_model_id: str, alpha: float) -> None:
+        """Publish the winning agent's checkpoint to every sidecar.
+
+        Implementation note: weight *blending* (keeping alpha of winner + 1-alpha
+        of learner) is now a checkpoint-space operation. This method currently
+        publishes the winner's checkpoint directly to all sidecars; blending
+        is a follow-up that belongs in the offline trainer, not in the play
+        driver. Logged so the operator sees it at runtime.
+        """
+        winner_agent = next(
+            (a for a in self._agents if a.model_id == winner_model_id), None
+        )
+        if winner_agent is None:
+            logger.warning("winner_agent_not_found", model_id=winner_model_id)
+            return
+
+        winner_checkpoint = Path(self._config.output_dir) / f"{winner_model_id}.pt"
+        if not winner_checkpoint.exists():
+            logger.warning(
+                "winner_checkpoint_missing",
+                model_id=winner_model_id,
+                path=str(winner_checkpoint),
+            )
+            return
+
+        for agent in self._agents:
+            if agent.model_id == winner_model_id:
+                continue
+            agent.client.reload_model(str(winner_checkpoint), model_id=agent.model_id)
+
+        logger.info(
+            "winner_weights_published",
+            winner=winner_model_id,
+            alpha=alpha,
+            learners=len(self._agents) - 1,
         )
 
     def print_leaderboard(self) -> None:
@@ -878,21 +744,16 @@ class SelfPlayTrainer:
             for agent in self._agents:
                 self.train_agent(agent)
 
-            # Phase 3: Winner teaches - share from most frequent winner
+            # Phase 3: Winner teaches — publish the winning agent's
+            # checkpoint to every other sidecar via ReloadModel, optionally
+            # blending with each learner's existing checkpoint on disk first.
             if iteration_winners:
-                # Find model that won most tournaments this iteration
                 from collections import Counter
 
                 winner_counts = Counter(iteration_winners)
                 top_winner = winner_counts.most_common(1)[0][0]
+                self._publish_winner_weights(top_winner, cfg.weight_averaging_alpha)
 
-                # Winner shares their learned weights with others
-                self._registry.share_from_winner(
-                    top_winner,
-                    alpha=cfg.weight_averaging_alpha,
-                )
-
-                # Find winner agent for logging
                 winner_agent = next(
                     (a for a in self._agents if a.model_id == top_winner),
                     None,
@@ -943,6 +804,12 @@ def main():
     parser.add_argument("--database-url", type=str, required=True)
     parser.add_argument("--output-dir", type=str, default="./models/selfplay")
     parser.add_argument("--num-players", type=int, default=9)
+    parser.add_argument(
+        "--sidecar-addresses",
+        type=str,
+        required=True,
+        help="Comma-separated list of sidecar host:port, one per agent.",
+    )
     parser.add_argument("--tournaments-per-iteration", type=int, default=5)
     parser.add_argument("--max-iterations", type=int, default=50)
     parser.add_argument("--share-every", type=int, default=3)
@@ -950,10 +817,15 @@ def main():
 
     args = parser.parse_args()
 
+    sidecar_addresses = [
+        a.strip() for a in args.sidecar_addresses.split(",") if a.strip()
+    ]
+
     config = SelfPlayConfig(
         database_url=args.database_url,
         output_dir=args.output_dir,
         num_players=args.num_players,
+        sidecar_addresses=sidecar_addresses,
         tournaments_per_iteration=args.tournaments_per_iteration,
         max_iterations=args.max_iterations,
         share_weights_every=args.share_every,

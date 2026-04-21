@@ -108,8 +108,8 @@ class TrainingProjector:
         if event_book.cover and event_book.cover.root and event_book.cover.root.value:
             hand_root = event_book.cover.root.value.hex()
 
-        # Get edition from cover (defaults to "angzarr" for main timeline)
-        edition = "angzarr"
+        # Get edition from cover ("" for main timeline; named editions populate it).
+        edition = ""
         if (
             event_book.cover
             and event_book.cover.HasField("edition")

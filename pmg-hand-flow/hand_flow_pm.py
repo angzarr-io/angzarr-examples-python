@@ -1,28 +1,31 @@
-"""Hand Flow Process Manager - OO Pattern.
+"""Hand Flow Process Manager - OO Pattern (unified Router).
 
 This PM coordinates the workflow between table and hand domains using
-the decorator-based OO pattern with @handles, @prepares, and @output_domain.
+the decorator-based Router pattern.
 """
 
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from google.protobuf.any_pb2 import Any
+from google.protobuf.any_pb2 import Any as ProtoAny
 
-from angzarr_client import run_process_manager_server
-from angzarr_client.process_manager import (
-    ProcessManager,
+from angzarr_client import (
+    Destinations,
+    ProcessManagerGrpc,
+    ProcessManagerResponse,
+    Router,
     handles,
-    output_domain,
-    prepares,
+    process_manager,
+    run_server,
 )
-from angzarr_client.proto.angzarr.types_pb2 import Cover, EventBook, Uuid
+from angzarr_client.proto.angzarr import process_manager_pb2_grpc
+from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import table_pb2 as table
 
 
-# docs:start:pm_state_oo
+# region pm_state
 class HandPhase(Enum):
     AWAITING_DEAL = "awaiting_deal"
     DEALING = "dealing"
@@ -40,74 +43,105 @@ class HandFlowState:
     player_count: int = 0
 
 
-# docs:end:pm_state_oo
+# endregion
 
 
-# docs:start:pm_handler_oo
-class HandFlowPM(ProcessManager[HandFlowState]):
-    """OO-style process manager using decorators."""
+def _pack(msg) -> ProtoAny:
+    any_msg = ProtoAny()
+    any_msg.Pack(msg, type_url_prefix="type.googleapis.com/")
+    return any_msg
 
-    name = "pmg-hand-flow"
 
-    def _create_empty_state(self) -> HandFlowState:
-        return HandFlowState()
-
-    def _apply_event(self, state: HandFlowState, event_any: Any) -> None:
-        """Apply PM's own events to rebuild state."""
-        type_url = event_any.type_url
-
-        if type_url.endswith("HandFlowStarted"):
-            # In production, unpack and apply
-            pass
-        elif type_url.endswith("PhaseTransitioned"):
-            pass
-
-    @prepares(table.HandStarted)
-    def prepare_hand_started(self, event: table.HandStarted) -> list[Cover]:
-        """Declare hand destination needed when hand starts."""
-        return [
-            Cover(
-                domain="hand",
-                root=Uuid(value=event.hand_root),
+def _command_book(domain: str, cmd, sequence: int = 0) -> types.CommandBook:
+    return types.CommandBook(
+        cover=types.Cover(domain=domain),
+        pages=[
+            types.CommandPage(
+                header=types.PageHeader(sequence=sequence),
+                command=_pack(cmd),
             )
-        ]
+        ],
+    )
 
-    @output_domain("hand")
-    @handles(table.HandStarted, input_domain="table")
+
+# region pm_handler
+@process_manager(
+    name="pmg-hand-flow",
+    pm_domain="hand-flow",
+    sources=["table", "hand"],
+    targets=["hand", "table"],
+    state=HandFlowState,
+)
+class HandFlowPM:
+    """OO-style process manager using unified Router decorators."""
+
+    @handles(table.HandStarted)
     def on_hand_started(
-        self, event: table.HandStarted, destinations: list[EventBook]
-    ) -> Optional[hand.DealCards]:
+        self,
+        event: table.HandStarted,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> Optional[ProcessManagerResponse]:
         """Table started a hand -> send DealCards to hand domain."""
-        # Update local state
-        self.state.hand_id = event.hand_id
-        self.state.phase = HandPhase.DEALING
-        self.state.player_count = event.player_count
+        state.hand_id = event.hand_id
+        state.phase = HandPhase.DEALING
+        state.player_count = event.player_count
 
-        return hand.DealCards(
+        deal_cards = hand.DealCards(
             hand_id=event.hand_id,
             player_count=event.player_count,
         )
+        seq = destinations.sequence_for("hand") if destinations else 0
+        return ProcessManagerResponse(
+            commands=[_command_book("hand", deal_cards, seq or 0)]
+        )
 
-    @output_domain("hand")
-    @handles(hand.CardsDealt, input_domain="hand")
-    def on_cards_dealt(self, event: hand.CardsDealt) -> Optional[hand.PostBlinds]:
+    @handles(hand.CardsDealt)
+    def handle_cards_dealt(
+        self,
+        event: hand.CardsDealt,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> Optional[ProcessManagerResponse]:
         """Cards dealt -> post blinds."""
-        self.state.phase = HandPhase.BLINDS
-        return hand.PostBlinds(hand_id=self.state.hand_id)
+        state.phase = HandPhase.BLINDS
+        post_blinds = hand.PostBlinds(hand_id=state.hand_id)
+        seq = destinations.sequence_for("hand") if destinations else 0
+        return ProcessManagerResponse(
+            commands=[_command_book("hand", post_blinds, seq or 0)]
+        )
 
-    @output_domain("table")
-    @handles(hand.HandComplete, input_domain="hand")
-    def on_hand_complete(self, event: hand.HandComplete) -> Optional[table.EndHand]:
+    @handles(hand.HandComplete)
+    def handle_hand_complete(
+        self,
+        event: hand.HandComplete,
+        state: HandFlowState,
+        destinations: Destinations,
+    ) -> Optional[ProcessManagerResponse]:
         """Hand complete -> end hand on table."""
-        self.state.phase = HandPhase.COMPLETE
-        return table.EndHand(
-            hand_id=self.state.hand_id,
+        state.phase = HandPhase.COMPLETE
+        end_hand = table.EndHand(
+            hand_id=state.hand_id,
             winner_id=event.winner_id,
+        )
+        seq = destinations.sequence_for("table") if destinations else 0
+        return ProcessManagerResponse(
+            commands=[_command_book("table", end_hand, seq or 0)]
         )
 
 
-# docs:end:pm_handler_oo
+# endregion
 
 
 if __name__ == "__main__":
-    run_process_manager_server("pmg-hand-flow", 50391, HandFlowPM)
+    router = (
+        Router("pmg-hand-flow").with_handler(HandFlowPM, lambda: HandFlowPM()).build()
+    )
+    servicer = ProcessManagerGrpc(router)
+    run_server(
+        process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server,
+        servicer,
+        service_name="pmg-hand-flow",
+        domain="hand-flow",
+        default_port="50396",
+    )

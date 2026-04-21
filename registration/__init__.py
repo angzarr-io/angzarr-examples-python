@@ -1,1 +1,0 @@
-"""Registration orchestration module."""

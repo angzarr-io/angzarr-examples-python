@@ -11,9 +11,9 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from ai_player.db.schema import Base, ExperienceReplay, HandHistory, PlayerProfile
+from ai_player.proto.examples import ai_sidecar_pb2 as pb
 
 if TYPE_CHECKING:
-    from ai_player.proto.examples import ai_player_pb2
     from ai_player.state.session import SessionState
 
 logger = structlog.get_logger()
@@ -32,7 +32,7 @@ class ExperienceStore:
         Base.metadata.create_all(self._engine)
         logger.info("experience_store_initialized")
 
-    def store(self, experience: ai_player_pb2.Experience) -> int:
+    def store(self, experience: pb.Experience) -> int:
         """Store an experience record.
 
         Args:
@@ -57,7 +57,7 @@ class ExperienceStore:
             session.commit()
             return record.id
 
-    def _serialize_context(self, context: ai_player_pb2.ActionContext) -> str:
+    def _serialize_context(self, context: pb.ActionContext) -> str:
         """Serialize action context to JSON.
 
         Args:
