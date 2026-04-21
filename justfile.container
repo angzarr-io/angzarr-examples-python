@@ -26,23 +26,17 @@ test-pytest:
     uv run pytest -v
 
 # Unit-example cucumber: poker handler logic, direct invocation, no infra.
-# Feature files live in angzarr-project/features/example/unit/ (git submodule);
-# behave discovers steps/ + environment.py via relative sibling symlinks.
+# Feature files live in angzarr-project/features/example/unit/ (submodule).
+# behave's --stage mechanism finds unit_environment.py + unit_steps/ at this
+# repo root via walk-up from the feature files — no symlinks needed.
 test-example-unit:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    ln -sfn ../../../../tests/example/unit/steps angzarr-project/features/example/unit/steps
-    ln -sfn ../../../../tests/example/unit/environment.py angzarr-project/features/example/unit/environment.py
-    uv run behave angzarr-project/features/example/unit/ --tags="~@wip"
+    uv run behave --stage unit angzarr-project/features/example/unit/ --tags="~@wip"
 
-# Acceptance-example cucumber: poker E2E via CommandClient.
-# PLAYER_URL set → GrpcClient to coordinator; unset → InProcessClient.
+# Acceptance-example cucumber: poker E2E via CommandClient (gRPC).
+# PLAYER_URL picks the coordinator; defaults to localhost:1310.
+# --stage acceptance resolves acceptance_environment.py + acceptance_steps/.
 test-example-acceptance:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    ln -sfn ../../../../tests/example/acceptance/steps angzarr-project/features/example/acceptance/steps
-    ln -sfn ../../../../tests/example/acceptance/environment.py angzarr-project/features/example/acceptance/environment.py
-    PLAYER_URL="${PLAYER_URL:-}" uv run behave angzarr-project/features/example/acceptance/ --tags="~@wip"
+    PLAYER_URL="${PLAYER_URL:-}" uv run behave --stage acceptance angzarr-project/features/example/acceptance/ --tags="~@wip"
 
 # Run all tests
 test: test-pytest test-example-unit test-example-acceptance

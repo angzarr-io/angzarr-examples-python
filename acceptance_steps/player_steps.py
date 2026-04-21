@@ -55,7 +55,7 @@ def _deposit_funds(context, name: str, amount: int, sync_mode=None):
 
     DepositFunds is a financial command — default to SYNC_MODE_SIMPLE so the
     aggregate write is durable before the test moves on. Game-state commands
-    use the GrpcClient default (ASYNC).
+    use the CommandClient default (ASYNC).
     """
     root = _player_root(context, name)
     cmd = player.DepositFunds(

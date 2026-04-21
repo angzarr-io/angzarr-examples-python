@@ -8,7 +8,7 @@ Feature file:
 `angzarr-project/features/example/acceptance/cluster_tournament.feature`
 
 Step definitions:
-`tests/example/acceptance/steps/{tournament,table,player,common,cluster}_steps.py`
+`acceptance_steps/{tournament,table,player,common,cluster}_steps.py`
 
 Aggregate handlers:
 `tournament/agg/handlers.py`, `table/agg/handlers/table.py`,
@@ -78,7 +78,7 @@ domain.
 
 ### Sync-mode policy
 
-`GrpcClient.send_command` defaults to **`SYNC_MODE_ASYNC`** (fire-and-forget)
+`CommandClient.send_command` defaults to **`SYNC_MODE_ASYNC`** (fire-and-forget)
 for all game-state commands. Per-root sequencing in the coordinator still
 serializes commands against an aggregate, so the next command on the same
 root sees the prior write — the client just doesn't wait for downstream
@@ -111,7 +111,7 @@ tournament, plays one hand, eliminates Bob, completes with Alice as winner.
 
 ### Step 1 — `Given registered players with bankroll: …`
 
-Driven by `tests/example/acceptance/steps/player_steps.py:71`. For each row
+Driven by `acceptance_steps/player_steps.py:71`. For each row
 in the table the harness does **two** commands per player:
 
 #### 1a — `RegisterPlayer` → `player-aggregate`

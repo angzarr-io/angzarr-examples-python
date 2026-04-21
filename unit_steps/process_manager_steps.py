@@ -12,7 +12,7 @@ from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import table_pb2 as table
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent / "hand-flow"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "hand-flow"))
 
 from hand_process import HandPhase, HandProcess, HandProcessManager, PlayerState
 
@@ -833,7 +833,7 @@ from angzarr_client.proto.examples import registration_pb2 as registration  # no
 from angzarr_client.proto.examples import rebuy_pb2 as rebuy  # noqa: E402
 from angzarr_client.proto.examples import tournament_pb2 as tournament  # noqa: E402
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 # The three legacy PMs (buy_in/pmg, rebuy/pmg, registration/pmg) were

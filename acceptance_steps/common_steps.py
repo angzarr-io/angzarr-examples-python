@@ -83,8 +83,8 @@ def send_with_retry(
 def step_given_system_running(context):
     """Verify/acknowledge the system is available.
 
-    For InProcessClient this is always true.
-    For GrpcClient this could do a connectivity check.
+    The CommandClient is already built in ``environment.before_all``; a
+    connectivity probe would happen here if we ever needed one.
     """
     # The client was already created in environment.py before_all.
     assert hasattr(context, "client"), "CommandClient not initialized"

@@ -1,15 +1,16 @@
 """Behave environment for acceptance tests.
 
-Creates a CommandClient based on the PLAYER_URL env var:
-- PLAYER_URL set: GrpcClient connecting to coordinator
-- PLAYER_URL not set: InProcessClient using handler functions directly
+Creates a CommandClient for the suite: gRPC channels to the coordinator(s)
+selected by PLAYER_URL / TABLE_URL / HAND_URL (defaults to localhost:1310).
 """
 
 import sys
 from pathlib import Path
 
-# Add project paths so imports work
-root = Path(__file__).parent.parent.parent.parent
+# This file sits at the repo root (examples-python/main/) so behave finds it
+# via --stage walk-up from submodule feature files. Add aggregate paths for
+# handler imports.
+root = Path(__file__).parent
 sys.path.insert(0, str(root))
 for agg in ["player/agg", "table/agg", "hand/agg", "sagas"]:
     path = root / agg

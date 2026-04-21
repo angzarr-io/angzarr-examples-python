@@ -424,3 +424,32 @@ run-game-ai *ARGS:
 # Auto-format code
 fmt-fix:
     just _container fmt-fix
+
+# =============================================================================
+# Submodule management
+# =============================================================================
+# Submodules are kept chmod a-w so accidental edits (Claude, editors, scripts)
+# fail loudly. Use the `bump-*` targets to update — they unlock, pull the
+# tracking branch, stage the new pointer, then relock.
+
+# Lock submodules read-only (filesystem enforcement).
+submodules-lock:
+    chmod -R a-w angzarr-project angzarr-client-python
+
+# Unlock submodules for manual edits. Remember to `submodules-lock` after.
+submodules-unlock:
+    chmod -R u+w angzarr-project angzarr-client-python
+
+# Bump angzarr-project to latest on its tracking branch.
+bump-angzarr-project:
+    chmod -R u+w angzarr-project
+    git submodule update --remote --merge angzarr-project
+    git add angzarr-project
+    chmod -R a-w angzarr-project
+
+# Bump angzarr-client-python to latest on its tracking branch.
+bump-angzarr-client-python:
+    chmod -R u+w angzarr-client-python
+    git submodule update --remote --merge angzarr-client-python
+    git add angzarr-client-python
+    chmod -R a-w angzarr-client-python

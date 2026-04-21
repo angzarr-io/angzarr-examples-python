@@ -385,10 +385,9 @@ jobs:
           export PLAYER_URL=localhost:1310
           export TABLE_URL=localhost:1311
           export HAND_URL=localhost:1312
-          uv run behave angzarr-project/features/example/acceptance/ \
-            --steps-dir tests/example/acceptance/steps \
-            --environment-file tests/example/acceptance/environment.py \
-            --tags="~@wip" --no-capture --no-strict || true
+          uv run behave --stage acceptance \
+            angzarr-project/features/example/acceptance/ \
+            --tags="~@wip" --no-capture
 
       - name: Show logs on failure
         if: failure()

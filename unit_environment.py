@@ -3,9 +3,9 @@
 import sys
 from pathlib import Path
 
-# Add project paths. Resolve symlinks so sys.path is correct when this module
-# is loaded via a symlink (e.g. under angzarr-project/features/example/unit/).
-root = Path(__file__).resolve().parent.parent.parent.parent
+# This file sits at the repo root (examples-python/main/) so behave finds it
+# via --stage walk-up from submodule feature files.
+root = Path(__file__).parent
 sys.path.insert(0, str(root))
 sys.path.insert(0, str(root / "prj-output"))
 sys.path.insert(0, str(root / "hand-flow"))
