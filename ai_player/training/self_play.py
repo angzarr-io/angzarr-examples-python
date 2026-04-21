@@ -10,6 +10,8 @@ publishes new checkpoints via the sidecar's ReloadModel RPC.
 
 from __future__ import annotations
 
+# Add parent paths for imports
+import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,19 +19,15 @@ from pathlib import Path
 import structlog
 from sqlalchemy import create_engine, select
 
-# Add parent paths for imports
-import sys
-
 root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root))
-
-from prj_training.schema import Base, TrainingState
-
-from ai_player.training.trainer import Trainer, TrainerConfig
 
 # Import the sidecar client from the parent directory (it is a top-level
 # module, not part of the ai_player package) — path already set above.
 from ai_player_client import AiPlayerClient, AiPlayerConfig
+from prj_training.schema import Base, TrainingState
+
+from ai_player.training.trainer import Trainer, TrainerConfig
 
 logger = structlog.get_logger()
 

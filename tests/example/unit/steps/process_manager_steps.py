@@ -823,16 +823,15 @@ def step_then_betting_phase_set(context, phase):
 # each module set under a unique sys.modules alias so behave can import all
 # three classes simultaneously without sys.path collisions at runtime.
 
-import importlib.util
 
-from angzarr_client import Destinations
-from angzarr_client.helpers import type_name_from_url
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in
-from angzarr_client.proto.examples import orchestration_pb2 as orch
-from angzarr_client.proto.examples import poker_types_pb2 as poker
-from angzarr_client.proto.examples import registration_pb2 as registration
-from angzarr_client.proto.examples import rebuy_pb2 as rebuy
-from angzarr_client.proto.examples import tournament_pb2 as tournament
+from angzarr_client import Destinations  # noqa: E402
+from angzarr_client.helpers import type_name_from_url  # noqa: E402
+from angzarr_client.proto.examples import buy_in_pb2 as buy_in  # noqa: E402
+from angzarr_client.proto.examples import orchestration_pb2 as orch  # noqa: E402
+from angzarr_client.proto.examples import poker_types_pb2 as poker  # noqa: E402
+from angzarr_client.proto.examples import registration_pb2 as registration  # noqa: E402
+from angzarr_client.proto.examples import rebuy_pb2 as rebuy  # noqa: E402
+from angzarr_client.proto.examples import tournament_pb2 as tournament  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 

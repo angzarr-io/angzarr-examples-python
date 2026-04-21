@@ -18,7 +18,6 @@ from behave import given, then, use_step_matcher, when
 
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import registration_pb2 as registration
 from angzarr_client.proto.examples import tournament_pb2 as tournament
 
 from common_steps import new_uuid_bytes, pack_command
@@ -189,7 +188,6 @@ def step_when_player_registers(context, player, name):
     from player_steps import _player_root
 
     player_root = _player_root(context, player)
-    tournament_root = _tournament_root(context, name)
 
     reservation_id = new_uuid_bytes()
     cmd = tournament.EnrollPlayer(
