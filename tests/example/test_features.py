@@ -8,9 +8,12 @@ Runs behave IN-PROCESS (not subprocess): mutmut's trampoline coverage
 tracking lives on ``mutmut.config`` in the running interpreter, so a
 fork would lose it and crash with ``AttributeError: 'NoneType' object
 has no attribute 'max_stack_depth'``.
+
+Uses ``--stage unit`` so behave discovers ``unit_steps/`` and
+``unit_environment.py`` at the repo root via walk-up — no symlinks into
+the submodule.
 """
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -19,8 +22,6 @@ from behave.configuration import Configuration
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 FEATURES_DIR = ROOT / "angzarr-project" / "features" / "example" / "unit"
-STEPS_SRC = ROOT / "tests" / "example" / "unit" / "steps"
-ENV_SRC = ROOT / "tests" / "example" / "unit" / "environment.py"
 
 # projector_steps.py is out of sync with prj-output/main.py (constructor args
 # the class no longer accepts). Pre-existing breakage, unrelated to the
@@ -34,28 +35,18 @@ FEATURE_FILES = (
 )
 
 
-def _link(src: Path, dst: Path) -> None:
-    if dst.is_symlink() or dst.exists():
-        if dst.is_symlink() or dst.is_file():
-            dst.unlink()
-        else:
-            shutil.rmtree(dst)
-    dst.symlink_to(src)
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _setup_behave():
-    if not FEATURES_DIR.exists():
-        pytest.skip(f"feature directory missing: {FEATURES_DIR}")
-    _link(STEPS_SRC, FEATURES_DIR / "steps")
-    _link(ENV_SRC, FEATURES_DIR / "environment.py")
-    yield
-
-
 @pytest.mark.parametrize("feature", FEATURE_FILES, ids=lambda f: f.name)
 def test_feature(feature: Path, capsys) -> None:
+    if not FEATURES_DIR.exists():
+        pytest.skip(f"feature directory missing: {FEATURES_DIR}")
     config = Configuration(
-        command_args=[str(feature), "--tags=~@wip", "--no-capture"],
+        command_args=[
+            "--stage",
+            "unit",
+            str(feature),
+            "--tags=~@wip",
+            "--no-capture",
+        ],
         load_config=False,
     )
     rc = run_behave(config)
