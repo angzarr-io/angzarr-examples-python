@@ -84,6 +84,7 @@ also_copy = [
     "buy_in/",
     "rebuy/",
     "registration/",
+    "reservation/",
     "angzarr-project/",
 ]
 pytest_add_cli_args_test_selection = [
