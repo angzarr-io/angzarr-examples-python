@@ -1,7 +1,12 @@
 """CommandClient for acceptance tests.
 
 Sends commands to running angzarr coordinators via gRPC. Routes by domain:
-PLAYER_URL, TABLE_URL, HAND_URL (each falls back to PLAYER_URL if unset).
+PLAYER_URL, TABLE_URL, HAND_URL, TOURNAMENT_URL, RESERVATION_URL — each
+falls back to PLAYER_URL if unset.
+
+Default sync_mode is SYNC_MODE_ASYNC so cluster scenarios can observe
+downstream saga/PM propagation via ``within N seconds`` rather than
+blocking on each command; financial commands override per-call.
 
 Use `create_client()` to build one; defaults to localhost:1310.
 """
@@ -34,16 +39,21 @@ def _ensure_proto_uuid(root):
 class CommandClient:
     """Sends commands to running angzarr coordinators via gRPC.
 
-    Routes by domain: PLAYER_URL, TABLE_URL, HAND_URL.
+    Routes by domain: player/table/hand/tournament/reservation, each from
+    its own *_URL env var (all default to ``player_url``).
     """
 
     def __init__(self, player_url: str):
         table_url = os.environ.get("TABLE_URL", player_url)
         hand_url = os.environ.get("HAND_URL", player_url)
+        tournament_url = os.environ.get("TOURNAMENT_URL", player_url)
+        reservation_url = os.environ.get("RESERVATION_URL", player_url)
         self._channels = {
             "player": grpc.insecure_channel(player_url),
             "table": grpc.insecure_channel(table_url),
             "hand": grpc.insecure_channel(hand_url),
+            "tournament": grpc.insecure_channel(tournament_url),
+            "reservation": grpc.insecure_channel(reservation_url),
         }
         self._stubs = {
             domain: CommandHandlerCoordinatorServiceStub(ch)
@@ -79,7 +89,7 @@ class CommandClient:
         kwargs = {
             "command": book,
             "sync_mode": (
-                sync_mode if sync_mode is not None else SyncMode.SYNC_MODE_SIMPLE
+                sync_mode if sync_mode is not None else SyncMode.SYNC_MODE_ASYNC
             ),
         }
         if cascade_error_mode is not None:
