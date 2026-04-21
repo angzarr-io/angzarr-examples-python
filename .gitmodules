@@ -1,7 +1,8 @@
 [submodule "angzarr-client-python"]
 	path = angzarr-client-python
 	url = https://github.com/angzarr-io/angzarr-client-python.git
+	branch = main
 [submodule "angzarr-project"]
 	path = angzarr-project
 	url = https://github.com/angzarr-io/angzarr-project.git
-	branch = feat/unified-router-features
+	branch = main
