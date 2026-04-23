@@ -9,10 +9,20 @@ the rest of the suite uses, since the deployed coordinator is the only
 cross-process surface we control from here.
 """
 
+import os
 import subprocess
 import time
 
 from behave import given, then, use_step_matcher, when
+
+
+def _k8s_namespace() -> str:
+    """Namespace to target for kubectl calls in cluster steps.
+
+    Defaults to ``angzarr`` for local kind/dev; CI sets ``ANGZARR_NAMESPACE``
+    so logs/pod-delete calls hit the actual test namespace.
+    """
+    return os.environ.get("ANGZARR_NAMESPACE", "angzarr")
 
 from angzarr_client.proto.angzarr import SyncMode
 from angzarr_client.proto.examples import player_pb2 as player
@@ -64,16 +74,17 @@ _DOMAIN_LABEL = "angzarr.io/domain"
 _COMPONENT_LABEL = "app.kubernetes.io/component=aggregate"
 
 
-def _restart_coordinator(domain: str, namespace: str = "angzarr") -> None:
+def _restart_coordinator(domain: str, namespace: str | None = None) -> None:
     """Delete the pod backing a domain's aggregate deployment.
 
     The Deployment controller recreates it; readiness gating in the
     coordinator's probes keeps the Service from routing until the new pod
     is healthy. Tests then poll for reachability.
     """
+    ns = namespace if namespace is not None else _k8s_namespace()
     selector = f"{_COMPONENT_LABEL},{_DOMAIN_LABEL}={domain}"
     subprocess.run(
-        ["kubectl", "delete", "pod", "-n", namespace, "-l", selector, "--wait=false"],
+        ["kubectl", "delete", "pod", "-n", ns, "-l", selector, "--wait=false"],
         check=True,
         capture_output=True,
     )
@@ -195,13 +206,14 @@ def step_then_dealcards_routed_to_hand(context):
     proof. Either alone is sufficient — both should fire on the happy path.
     """
     failures = []
+    namespace = _k8s_namespace()
     for selector, needles in _DEAL_CARDS_EVIDENCE:
         result = subprocess.run(
             [
                 "kubectl",
                 "logs",
                 "-n",
-                "angzarr",
+                namespace,
                 "-l",
                 selector,
                 "--tail",

@@ -61,6 +61,12 @@ applications:
         pullPolicy: IfNotPresent
       domain: "reservation"
       port: 50305
+      # Sync DECISION queries against the player aggregate go through the
+      # local angzarr sidecar's event-query port (chart default 1315).
+      # Without this the reservation handler returns "Player does not exist".
+      env:
+        - name: QUERY_ENDPOINT
+          value: "localhost:1315"
 
   sagas:
     - name: saga-table-hand
@@ -112,6 +118,11 @@ applications:
         - "reservation"
         - "table"
         - "tournament"
+      # Sync DECISION queries (table capacity, tournament fee/phase) go
+      # through the local angzarr sidecar's event-query port (chart default 1315).
+      env:
+        - name: QUERY_ENDPOINT
+          value: "localhost:1315"
 
   projectors:
     - name: prj-training
