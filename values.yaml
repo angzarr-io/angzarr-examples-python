@@ -5,6 +5,46 @@ replicaCount: 1
 # Use local Kind registry
 imagePullSecrets: []
 
+# =============================================================================
+# Coordinator images — pinned by digest for supply-chain safety.
+# =============================================================================
+# The tag portion (git SHA) is advisory; container runtimes resolve by the
+# @sha256 digest, so a mutated tag cannot substitute a different image.
+# Applies to both CI and production deploys (both pass this file to helm).
+#
+# aggregate/saga/projector/processManager/gateway track core main
+# (angzarr-aggregate, etc. — built with otel,postgres,amqp features).
+# stream/log stay on the 2026-02-22 -dev pins — core skaffold.yaml
+# doesn't build them, and they don't need the missing features.
+#
+# To update: docker inspect --format='{{index .RepoDigests 0}}' <image> or
+#            gh api /orgs/angzarr-io/packages/container/<name>/versions
+images:
+  aggregate:
+    repository: ghcr.io/angzarr-io/angzarr-aggregate
+    tag: "21c113f@sha256:54bd2432effec9e35ffe0b150c362c0500c1d6c0fb4bcbb9113849c108ddf7e4"
+    pullPolicy: IfNotPresent
+  saga:
+    repository: ghcr.io/angzarr-io/angzarr-saga
+    tag: "21c113f@sha256:fe4bc5bcdd252a8ebae92ac8e4faa3b6626eb22ebdd1a20c1f91b5398b01d539"
+    pullPolicy: IfNotPresent
+  projector:
+    repository: ghcr.io/angzarr-io/angzarr-projector
+    tag: "21c113f@sha256:df5c4a32cdd5855c044c52860ae2b5eec7d60599d55c46c6cecd9dba7661f66c"
+    pullPolicy: IfNotPresent
+  processManager:
+    repository: ghcr.io/angzarr-io/angzarr-process-manager
+    tag: "21c113f@sha256:bb9726f2d6ef0ea54d8ecc56c2944fa659cbcadcbe163b9782362740139f1ed4"
+    pullPolicy: IfNotPresent
+  stream:
+    repository: ghcr.io/angzarr-io/angzarr-stream-dev
+    tag: "ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:bb0bb16dc8b1039ba0cf63f38e6dbea380a389fbaae3143deaf70b4e0c38778f"
+    pullPolicy: IfNotPresent
+  log:
+    repository: ghcr.io/angzarr-io/angzarr-log-dev
+    tag: "ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:bf96d6a207d9328c3792c6d15d8a06eee2b3711b81beb74809bde41e20cfdf64"
+    pullPolicy: IfNotPresent
+
 storage:
   type: postgres
   postgres:
@@ -40,7 +80,7 @@ applications:
       domain: player
       port: 50301
       image:
-        repository: ghcr.io/angzarr-io/poker-python-player
+        repository: ghcr.io/angzarr-io/examples-python-agg-player
         tag: latest
         pullPolicy: IfNotPresent
       debug:
@@ -51,7 +91,7 @@ applications:
       domain: table
       port: 50302
       image:
-        repository: ghcr.io/angzarr-io/poker-python-table
+        repository: ghcr.io/angzarr-io/examples-python-agg-table
         tag: latest
         pullPolicy: IfNotPresent
       debug:
@@ -62,7 +102,7 @@ applications:
       domain: hand
       port: 50303
       image:
-        repository: ghcr.io/angzarr-io/poker-python-hand
+        repository: ghcr.io/angzarr-io/examples-python-agg-hand
         tag: latest
         pullPolicy: IfNotPresent
       debug:
@@ -73,7 +113,7 @@ applications:
       domain: tournament
       port: 50304
       image:
-        repository: ghcr.io/angzarr-io/poker-python-tournament
+        repository: ghcr.io/angzarr-io/examples-python-agg-tournament
         tag: latest
         pullPolicy: IfNotPresent
       debug:
@@ -84,7 +124,7 @@ applications:
       domain: reservation
       port: 50305
       image:
-        repository: ghcr.io/angzarr-io/poker-python-reservation
+        repository: ghcr.io/angzarr-io/examples-python-agg-reservation
         tag: latest
         pullPolicy: IfNotPresent
       debug:
@@ -100,7 +140,7 @@ applications:
       topics:
         - "table"  # subscribes to HandStarted from the table aggregate
       image:
-        repository: ghcr.io/angzarr-io/poker-python-saga-table-hand
+        repository: ghcr.io/angzarr-io/examples-python-saga-table-hand
         tag: latest
         pullPolicy: IfNotPresent
     - name: saga-table-player
@@ -109,7 +149,7 @@ applications:
       topics:
         - "table"  # subscribes to HandEnded from the table aggregate
       image:
-        repository: ghcr.io/angzarr-io/poker-python-saga-table-player
+        repository: ghcr.io/angzarr-io/examples-python-saga-table-player
         tag: latest
         pullPolicy: IfNotPresent
     - name: saga-hand-table
@@ -118,7 +158,7 @@ applications:
       topics:
         - "hand"  # subscribes to HandComplete -> emits EndHand on table
       image:
-        repository: ghcr.io/angzarr-io/poker-python-saga-hand-table
+        repository: ghcr.io/angzarr-io/examples-python-saga-hand-table
         tag: latest
         pullPolicy: IfNotPresent
     - name: saga-hand-player
@@ -127,7 +167,7 @@ applications:
       topics:
         - "hand"  # subscribes to PotAwarded -> emits DepositFunds (winner credit)
       image:
-        repository: ghcr.io/angzarr-io/poker-python-saga-hand-player
+        repository: ghcr.io/angzarr-io/examples-python-saga-hand-player
         tag: latest
         pullPolicy: IfNotPresent
 
@@ -149,7 +189,7 @@ applications:
         - "table"
         - "tournament"
       image:
-        repository: ghcr.io/angzarr-io/poker-python-pmg-reservation
+        repository: ghcr.io/angzarr-io/examples-python-pmg-reservation
         tag: latest
         pullPolicy: IfNotPresent
 
@@ -163,6 +203,11 @@ infrastructure:
     enabled: true
     grpcTarget: "table-aggregate:1310"  # Points to table aggregate service
     descriptorConfigMap: "gateway-descriptor"
+    # Pinned by digest; see comment on top-level `images:` for rationale.
+    image:
+      repository: ghcr.io/angzarr-io/angzarr-grpc-gateway
+      tag: "21c113f@sha256:ac5f95d76dcd1d6b504d5c654d75b3340757872c8a092955d6f29230547f4ffb"
+      pullPolicy: IfNotPresent
 
 # Resource limits for development
 resources:

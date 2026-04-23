@@ -46,6 +46,14 @@ applications:
       domain: "hand"
       port: 50303
 
+    - name: poker-tournament
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-agg-tournament
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "tournament"
+      port: 50304
+
     - name: poker-reservation
       image:
         repository: ghcr.io/angzarr-io/examples-python-agg-reservation
@@ -54,7 +62,43 @@ applications:
       domain: "reservation"
       port: 50305
 
-  sagas: []
+  sagas:
+    - name: saga-table-hand
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-saga-table-hand
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "saga-table-hand"
+      port: 50411
+      topics:
+        - "table"
+    - name: saga-table-player
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-saga-table-player
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "saga-table-player"
+      port: 50413
+      topics:
+        - "table"
+    - name: saga-hand-table
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-saga-hand-table
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "saga-hand-table"
+      port: 50412
+      topics:
+        - "hand"
+    - name: saga-hand-player
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-saga-hand-player
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      domain: "saga-hand-player"
+      port: 50414
+      topics:
+        - "hand"
 
   processManagers:
     - name: pmg-reservation

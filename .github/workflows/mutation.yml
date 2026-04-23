@@ -1,0 +1,76 @@
+name: Mutation
+
+# Mutation testing lives out of the PR blocker path. Runs on a schedule
+# against `main` so PR CI stays fast; mutation is a quality gate on
+# the integrated branch, not a per-commit check.
+
+on:
+  schedule:
+    # 06:00 UTC every Monday.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+env:
+  UV_VERSION: "0.10.3"
+
+jobs:
+  mutation:
+    name: Mutation test
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    container:
+      image: ghcr.io/angzarr-io/angzarr-python:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          submodules: false  # fetched manually below without --depth=1
+
+      - name: Fetch submodules (unshallow; avoids HTTP 500 direct-fetch path)
+        run: git submodule update --init
+
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Init nested angzarr-project (non-recursive, avoids circular submodule ref)
+        run: |
+          cd angzarr-client-python
+          git submodule update --init angzarr-project
+
+      - name: Use container justfile
+        run: cp justfile.container justfile
+
+      - name: Install buf
+        uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      - name: Generate protos for angzarr-client-python
+        run: |
+          cd angzarr-client-python
+          buf generate
+          python scripts/generate_protos.py
+
+      - name: Update uv
+        run: |
+          curl -LsSf https://astral.sh/uv/${{ env.UV_VERSION }}/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: just install
+
+      - name: Mutation test
+        run: just mutation-test
+
+      - name: Upload mutants output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants
+          path: mutants/
+          retention-days: 30
