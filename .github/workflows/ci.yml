@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*.*.*']
   pull_request:
     # Fire on all PRs so stacked PRs (base != main) get checks too.
     branches: ['**']
@@ -12,7 +13,6 @@ env:
   UV_VERSION: "0.10.3"
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/angzarr-io/examples-python
-  # Coordinator version for acceptance tests
   # Opt into Node.js 24 for GitHub Actions (required after June 2026)
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -123,18 +123,54 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install versionator
+        # Pinned by sha256 digest; matches the supply-chain rule from
+        # the container-versioning blog post.
+        run: |
+          curl -fsSL -o /tmp/versionator.tgz \
+            https://github.com/benjaminabbitt/versionator/releases/download/v0.1.1/versionator-linux-amd64.tar.gz
+          echo "66ed07135eaeaa72d9ece6fa5c2814d239738d61e134b9b5dcbad0a4d07d458b  /tmp/versionator.tgz" | sha256sum -c -
+          sudo tar -xz -f /tmp/versionator.tgz -C /usr/local/bin versionator
+          versionator output version
+
+      - name: Compute version variables
+        id: version
+        run: versionator output ci --format=github
+
       - name: Generate image tags
         id: tags
+        # Tagging policy (mirrors examples-rust / angzarr/core release):
+        #   * pull_request         → pr-<N>-<short-sha>
+        #   * push to main         → v<semver>-dev.<short-sha>, dev
+        #   * tag push v*.*.*      → v<semver>, v<major>.<minor>, v<major>
+        # No :latest ever. See blog/container-versioning-no-latest.
         run: |
-          SHA="${{ github.sha }}"
-          SHORT_SHA="${SHA:0:7}"
+          REPO="${{ env.IMAGE_PREFIX }}-${{ matrix.target }}"
+          V="${VERSION}"
+          MAJ="${VERSION_MAJOR}"
+          MIN="${VERSION_MAJOR}.${VERSION_MINOR}"
+          SHORT="${GIT_SHA_SHORT}"
+          tags=""
+          append() { tags="${tags:+$tags,}$1"; }
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             PR_NUM="${{ github.event.pull_request.number }}"
-            echo "tags=${{ env.IMAGE_PREFIX }}-${{ matrix.target }}:pr-${PR_NUM}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            append "$REPO:pr-${PR_NUM}-${SHORT}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG_V="${GITHUB_REF#refs/tags/v}"
+            if [ "$TAG_V" != "$V" ]; then
+              echo "::error::Tag v$TAG_V does not match VERSION file ($V). Bump VERSION before tagging."
+              exit 1
+            fi
+            append "$REPO:v$V"
+            append "$REPO:v$MIN"
+            append "$REPO:v$MAJ"
           else
-            echo "tags=${{ env.IMAGE_PREFIX }}-${{ matrix.target }}:${SHORT_SHA},${{ env.IMAGE_PREFIX }}-${{ matrix.target }}:latest" >> $GITHUB_OUTPUT
+            append "$REPO:v${V}-dev.${SHORT}"
+            append "$REPO:dev"
           fi
+          echo "Computed tags: $tags"
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
