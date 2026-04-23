@@ -230,16 +230,31 @@ jobs:
           cd angzarr-client-python
           git submodule update --init angzarr-project
 
+      - name: Install versionator
+        # Pinned by sha256 digest; matches build-images. Needed so the
+        # tag computed here matches the versioned tag build-images pushes.
+        run: |
+          curl -fsSL -o /tmp/versionator.tgz \
+            https://github.com/benjaminabbitt/versionator/releases/download/v0.1.1/versionator-linux-amd64.tar.gz
+          echo "66ed07135eaeaa72d9ece6fa5c2814d239738d61e134b9b5dcbad0a4d07d458b  /tmp/versionator.tgz" | sha256sum -c -
+          tar -xz -f /tmp/versionator.tgz -C /tmp versionator-linux-amd64
+          sudo install -m 0755 /tmp/versionator-linux-amd64 /usr/local/bin/versionator
+
+      - name: Compute version variables
+        run: versionator output ci --format=github
+
       - name: Generate image tag
         id: tag
+        # Must match build-images exactly so acceptance pulls the images
+        # that job just pushed.
         run: |
-          SHA="${{ github.sha }}"
-          SHORT_SHA="${SHA:0:7}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             PR_NUM="${{ github.event.pull_request.number }}"
-            echo "tag=pr-${PR_NUM}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "tag=pr-${PR_NUM}-${GIT_SHA_SHORT}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
           else
-            echo "tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "tag=v${VERSION}-dev.${GIT_SHA_SHORT}" >> $GITHUB_OUTPUT
           fi
 
       - name: Install tools
