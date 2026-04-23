@@ -260,8 +260,10 @@ jobs:
           for ref in "${COORDINATOR_IMAGES[@]}"; do
             echo "Pulling $ref..."
             docker pull "$ref"
-            # kind load needs a tag ref (no `@digest`); use repo:tag slice.
+            # Docker stores digest-pulled images under their digest ref; add a
+            # tag ref so `kind load docker-image` can reach it by name.
             tagged="${ref%@sha256:*}"
+            docker tag "$ref" "$tagged"
             kind load docker-image "$tagged" --name angzarr-test
           done
 
