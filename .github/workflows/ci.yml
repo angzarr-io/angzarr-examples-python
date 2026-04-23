@@ -13,7 +13,6 @@ env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/angzarr-io/examples-python
   # Coordinator version for acceptance tests
-  COORDINATOR_VERSION: latest
   # Opt into Node.js 24 for GitHub Actions (required after June 2026)
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -244,22 +243,26 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Pull and load coordinator images
+        # Pinned by digest for supply-chain safety; must match the `images:`
+        # and `infrastructure.gateway.image` blocks in values.yaml. The
+        # `repo:tag@sha256:digest` form is a valid docker reference where
+        # the runtime resolves by digest — the tag is advisory.
         run: |
-          VERSION="${{ env.COORDINATOR_VERSION }}"
-          COORDINATORS=(
-            "angzarr-aggregate"
-            "angzarr-saga"
-            "angzarr-projector"
-            "angzarr-process-manager"
-            "angzarr-stream"
-            "angzarr-grpc-gateway"
-            "angzarr-log"
+          COORDINATOR_IMAGES=(
+            "ghcr.io/angzarr-io/angzarr-aggregate-dev:ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:5349d55cc56291f435eb21d660e115c8f17b58f6ce4d265c1a1b4158045ea78b"
+            "ghcr.io/angzarr-io/angzarr-saga-dev:ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:ea7ec02f56ff64ccae6942727b95fb34703b4d99ff9a16c215cc325fd8addc01"
+            "ghcr.io/angzarr-io/angzarr-projector-dev:ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:fdfd8fbc39b5465777e3cf7edd6096298fb8e25d04164fdd3670ffecb945e9a7"
+            "ghcr.io/angzarr-io/angzarr-process-manager-dev:ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:bf447d15c78f3b6c685e8064bc7c09162f53719a069cc42a1ee655a18cc04702"
+            "ghcr.io/angzarr-io/angzarr-stream-dev:ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:bb0bb16dc8b1039ba0cf63f38e6dbea380a389fbaae3143deaf70b4e0c38778f"
+            "ghcr.io/angzarr-io/angzarr-log-dev:ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:bf96d6a207d9328c3792c6d15d8a06eee2b3711b81beb74809bde41e20cfdf64"
+            "ghcr.io/angzarr-io/angzarr-grpc-gateway:bf4fa78@sha256:208379ef32cd63d032aeca9c994a9a034e74ba04f115a03195a36f393335fe38"
           )
-          for name in "${COORDINATORS[@]}"; do
-            img="ghcr.io/angzarr-io/${name}:${VERSION}"
-            echo "Pulling $img..."
-            docker pull "$img"
-            kind load docker-image "$img" --name angzarr-test
+          for ref in "${COORDINATOR_IMAGES[@]}"; do
+            echo "Pulling $ref..."
+            docker pull "$ref"
+            # kind load needs a tag ref (no `@digest`); use repo:tag slice.
+            tagged="${ref%@sha256:*}"
+            kind load docker-image "$tagged" --name angzarr-test
           done
 
       - name: Download image artifacts
