@@ -15,15 +15,6 @@ import time
 
 from behave import given, then, use_step_matcher, when
 
-
-def _k8s_namespace() -> str:
-    """Namespace to target for kubectl calls in cluster steps.
-
-    Defaults to ``angzarr`` for local kind/dev; CI sets ``ANGZARR_NAMESPACE``
-    so logs/pod-delete calls hit the actual test namespace.
-    """
-    return os.environ.get("ANGZARR_NAMESPACE", "angzarr")
-
 from angzarr_client.proto.angzarr import SyncMode
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
@@ -32,6 +23,15 @@ from common_steps import pack_command
 from player_steps import _deposit_funds, _player_root, _register_player
 
 use_step_matcher("re")
+
+
+def _k8s_namespace() -> str:
+    """Namespace to target for kubectl calls in cluster steps.
+
+    Defaults to ``angzarr`` for local kind/dev; CI sets ``ANGZARR_NAMESPACE``
+    so logs/pod-delete calls hit the actual test namespace.
+    """
+    return os.environ.get("ANGZARR_NAMESPACE", "angzarr")
 
 
 # ---------------------------------------------------------------------------
