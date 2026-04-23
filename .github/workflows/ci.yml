@@ -66,8 +66,9 @@ jobs:
       - name: Test (example unit behave)
         run: just test-example-unit
 
-      - name: Mutation test
-        run: just mutation-test
+      # Mutation testing runs on a schedule (.github/workflows/mutation.yml)
+      # against main rather than per-PR. Keeps PR CI fast while mutation
+      # remains a quality gate on the integrated branch.
 
       - name: Lint
         run: just lint
