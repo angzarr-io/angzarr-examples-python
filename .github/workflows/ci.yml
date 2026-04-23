@@ -473,6 +473,9 @@ jobs:
           export HAND_URL=localhost:1312
           export TOURNAMENT_URL=localhost:1313
           export RESERVATION_URL=localhost:1314
+          # Cluster-tier steps (kubectl logs/delete) default to the `angzarr`
+          # namespace for local dev; the CI helm release lands in `angzarr-test`.
+          export ANGZARR_NAMESPACE=angzarr-test
           uv run behave --stage acceptance \
             angzarr-project/features/example/acceptance/ \
             --tags="~@wip" --no-capture
