@@ -74,17 +74,24 @@ _DOMAIN_LABEL = "angzarr.io/domain"
 _COMPONENT_LABEL = "app.kubernetes.io/component=aggregate"
 
 
-def _restart_coordinator(domain: str, namespace: str | None = None) -> None:
+def _restart_coordinator(domain: str, namespace: str = "angzarr") -> None:
     """Delete the pod backing a domain's aggregate deployment.
 
     The Deployment controller recreates it; readiness gating in the
     coordinator's probes keeps the Service from routing until the new pod
     is healthy. Tests then poll for reachability.
+
+    NOTE: namespace is deliberately hardcoded rather than drawn from
+    ``_k8s_namespace()``. The test harness uses ``kubectl port-forward``
+    to reach coordinators, and port-forwards to a specific pod die when
+    that pod is deleted — the downstream reachability poll then spins
+    forever against a dead local port. Until the harness re-establishes
+    the forward after a restart, this step is a no-op against any
+    namespace other than ``angzarr``.
     """
-    ns = namespace if namespace is not None else _k8s_namespace()
     selector = f"{_COMPONENT_LABEL},{_DOMAIN_LABEL}={domain}"
     subprocess.run(
-        ["kubectl", "delete", "pod", "-n", ns, "-l", selector, "--wait=false"],
+        ["kubectl", "delete", "pod", "-n", namespace, "-l", selector, "--wait=false"],
         check=True,
         capture_output=True,
     )
