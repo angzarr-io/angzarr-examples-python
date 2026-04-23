@@ -29,7 +29,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-          submodules: true
+          submodules: false  # fetched manually below without --depth=1
+
+      - name: Fetch submodules (unshallow; avoids HTTP 500 direct-fetch path)
+        run: git submodule update --init
 
       - name: Configure git safe directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
