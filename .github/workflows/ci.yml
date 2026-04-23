@@ -456,16 +456,23 @@ jobs:
             exit 1
           }
 
-          # Port-forward all aggregate coordinators
+          # Port-forward all aggregate coordinators. Every domain the tests
+          # address needs its own forward — CommandClient dispatches by
+          # domain to the matching stub; unmapped domains silently fall
+          # back to PLAYER_URL and get dispatched to the wrong pod.
           kubectl port-forward -n angzarr-test svc/player-aggregate 1310:1310 &
           kubectl port-forward -n angzarr-test svc/table-aggregate 1311:1310 &
           kubectl port-forward -n angzarr-test svc/hand-aggregate 1312:1310 &
+          kubectl port-forward -n angzarr-test svc/tournament-aggregate 1313:1310 &
+          kubectl port-forward -n angzarr-test svc/reservation-aggregate 1314:1310 &
           sleep 3
 
           # Run behave acceptance tests
           export PLAYER_URL=localhost:1310
           export TABLE_URL=localhost:1311
           export HAND_URL=localhost:1312
+          export TOURNAMENT_URL=localhost:1313
+          export RESERVATION_URL=localhost:1314
           uv run behave --stage acceptance \
             angzarr-project/features/example/acceptance/ \
             --tags="~@wip" --no-capture
