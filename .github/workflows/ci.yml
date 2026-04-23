@@ -92,8 +92,13 @@ jobs:
           - agg-player
           - agg-table
           - agg-hand
+          - agg-tournament
           - agg-reservation
           - pmg-reservation
+          - saga-table-hand
+          - saga-table-player
+          - saga-hand-table
+          - saga-hand-player
           - prj-training
     steps:
       - uses: actions/checkout@v4
@@ -335,7 +340,7 @@ jobs:
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          TARGETS=(agg-player agg-table agg-hand prj-training)
+          TARGETS=(agg-player agg-table agg-hand agg-tournament agg-reservation pmg-reservation saga-table-hand saga-table-player saga-hand-table saga-hand-player prj-training)
           for target in "${TARGETS[@]}"; do
             img="${{ env.IMAGE_PREFIX }}-${target}:${TAG}"
             echo "Pulling $img..."
@@ -380,6 +385,13 @@ jobs:
             --set "applications.business[0].image.tag=${TAG}" \
             --set "applications.business[1].image.tag=${TAG}" \
             --set "applications.business[2].image.tag=${TAG}" \
+            --set "applications.business[3].image.tag=${TAG}" \
+            --set "applications.business[4].image.tag=${TAG}" \
+            --set "applications.sagas[0].image.tag=${TAG}" \
+            --set "applications.sagas[1].image.tag=${TAG}" \
+            --set "applications.sagas[2].image.tag=${TAG}" \
+            --set "applications.sagas[3].image.tag=${TAG}" \
+            --set "applications.processManagers[0].image.tag=${TAG}" \
             --set "applications.projectors[0].image.tag=${TAG}" \
             --namespace angzarr-test \
             --wait --timeout 5m

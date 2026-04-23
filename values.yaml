@@ -80,7 +80,7 @@ applications:
       domain: player
       port: 50301
       image:
-        repository: ghcr.io/angzarr-io/poker-python-player
+        repository: ghcr.io/angzarr-io/examples-python-agg-player
         tag: latest
         pullPolicy: IfNotPresent
       debug:
@@ -91,7 +91,7 @@ applications:
       domain: table
       port: 50302
       image:
-        repository: ghcr.io/angzarr-io/poker-python-table
+        repository: ghcr.io/angzarr-io/examples-python-agg-table
         tag: latest
         pullPolicy: IfNotPresent
       debug:
@@ -102,7 +102,7 @@ applications:
       domain: hand
       port: 50303
       image:
-        repository: ghcr.io/angzarr-io/poker-python-hand
+        repository: ghcr.io/angzarr-io/examples-python-agg-hand
         tag: latest
         pullPolicy: IfNotPresent
       debug:
@@ -113,7 +113,7 @@ applications:
       domain: tournament
       port: 50304
       image:
-        repository: ghcr.io/angzarr-io/poker-python-tournament
+        repository: ghcr.io/angzarr-io/examples-python-agg-tournament
         tag: latest
         pullPolicy: IfNotPresent
       debug:
@@ -124,7 +124,7 @@ applications:
       domain: reservation
       port: 50305
       image:
-        repository: ghcr.io/angzarr-io/poker-python-reservation
+        repository: ghcr.io/angzarr-io/examples-python-agg-reservation
         tag: latest
         pullPolicy: IfNotPresent
       debug:
@@ -140,7 +140,7 @@ applications:
       topics:
         - "table"  # subscribes to HandStarted from the table aggregate
       image:
-        repository: ghcr.io/angzarr-io/poker-python-saga-table-hand
+        repository: ghcr.io/angzarr-io/examples-python-saga-table-hand
         tag: latest
         pullPolicy: IfNotPresent
     - name: saga-table-player
@@ -149,7 +149,7 @@ applications:
       topics:
         - "table"  # subscribes to HandEnded from the table aggregate
       image:
-        repository: ghcr.io/angzarr-io/poker-python-saga-table-player
+        repository: ghcr.io/angzarr-io/examples-python-saga-table-player
         tag: latest
         pullPolicy: IfNotPresent
     - name: saga-hand-table
@@ -158,7 +158,7 @@ applications:
       topics:
         - "hand"  # subscribes to HandComplete -> emits EndHand on table
       image:
-        repository: ghcr.io/angzarr-io/poker-python-saga-hand-table
+        repository: ghcr.io/angzarr-io/examples-python-saga-hand-table
         tag: latest
         pullPolicy: IfNotPresent
     - name: saga-hand-player
@@ -167,7 +167,7 @@ applications:
       topics:
         - "hand"  # subscribes to PotAwarded -> emits DepositFunds (winner credit)
       image:
-        repository: ghcr.io/angzarr-io/poker-python-saga-hand-player
+        repository: ghcr.io/angzarr-io/examples-python-saga-hand-player
         tag: latest
         pullPolicy: IfNotPresent
 
@@ -189,7 +189,7 @@ applications:
         - "table"
         - "tournament"
       image:
-        repository: ghcr.io/angzarr-io/poker-python-pmg-reservation
+        repository: ghcr.io/angzarr-io/examples-python-pmg-reservation
         tag: latest
         pullPolicy: IfNotPresent
 
