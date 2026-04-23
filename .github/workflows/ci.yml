@@ -125,12 +125,14 @@ jobs:
 
       - name: Install versionator
         # Pinned by sha256 digest; matches the supply-chain rule from
-        # the container-versioning blog post.
+        # the container-versioning blog post. The tarball ships the
+        # binary as `versionator-linux-amd64`; rename on install.
         run: |
           curl -fsSL -o /tmp/versionator.tgz \
             https://github.com/benjaminabbitt/versionator/releases/download/v0.1.1/versionator-linux-amd64.tar.gz
           echo "66ed07135eaeaa72d9ece6fa5c2814d239738d61e134b9b5dcbad0a4d07d458b  /tmp/versionator.tgz" | sha256sum -c -
-          sudo tar -xz -f /tmp/versionator.tgz -C /usr/local/bin versionator
+          tar -xz -f /tmp/versionator.tgz -C /tmp versionator-linux-amd64
+          sudo install -m 0755 /tmp/versionator-linux-amd64 /usr/local/bin/versionator
           versionator output version
 
       - name: Compute version variables
