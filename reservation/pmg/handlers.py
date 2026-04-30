@@ -51,6 +51,7 @@ Event → action map (Initiate* land on ``reservation`` via separate RPC):
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client import (
+    Cover,
     Destinations,
     ProcessManagerResponse,
     applies,
@@ -330,7 +331,7 @@ class ReservationPM:
         event: buy_in.BuyInRequested,
         state: ReservationPMState,
         destinations: Destinations,
-        source_cover: types.Cover = None,
+        source_cover: Cover | None = None,
     ) -> ProcessManagerResponse:
         """Reservation emitted BuyInRequested — reserve player funds and seat."""
         player_root = event.player_root or state.player_root
@@ -529,7 +530,7 @@ class ReservationPM:
         event: rebuy.RebuyRequested,
         state: ReservationPMState,
         destinations: Destinations,
-        source_cover: types.Cover = None,
+        source_cover: Cover | None = None,
     ) -> ProcessManagerResponse:
         """Reservation emitted RebuyRequested — look up fee, reserve, and process."""
         player_root = event.player_root or state.player_root
@@ -752,7 +753,7 @@ class ReservationPM:
         event: registration.RegistrationRequested,
         state: ReservationPMState,
         destinations: Destinations,
-        source_cover: types.Cover = None,
+        source_cover: Cover | None = None,
     ) -> ProcessManagerResponse:
         """Reservation emitted RegistrationRequested — look up entry fee and enroll."""
         player_root = event.player_root or state.player_root

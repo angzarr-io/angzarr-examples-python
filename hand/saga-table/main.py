@@ -7,7 +7,7 @@ to the Table domain.
 import structlog
 from google.protobuf.any_pb2 import Any as ProtoAny
 
-from angzarr_client import Destinations, Router, SagaGrpc, handles, run_server, saga
+from angzarr_client import Cover, Destinations, Router, SagaGrpc, handles, run_server, saga
 from angzarr_client.proto.angzarr import saga_pb2_grpc
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
@@ -42,7 +42,7 @@ class HandTableSaga:
         self,
         event: hand.HandComplete,
         destinations: Destinations,
-        source_cover: types.Cover = None,
+        source_cover: Cover | None = None,
         source_seq: int = 0,
     ) -> types.CommandBook:
         results = [
@@ -55,7 +55,9 @@ class HandTableSaga:
             for winner in event.winners
         ]
 
-        hand_root = source_cover.root.value if source_cover is not None else b""
+        hand_root = (
+            source_cover.proto().root.value if source_cover is not None else b""
+        )
         end_hand = table.EndHand(hand_root=hand_root)
         end_hand.results.extend(results)
 
