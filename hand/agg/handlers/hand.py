@@ -402,7 +402,7 @@ class Hand:
             if not cmd.players:
                 raise CommandRejectedError("No players in hand")
             if len(cmd.players) < 2:
-                raise CommandRejectedError.invalid_argument("Need at least 2 players")
+                raise CommandRejectedError.invalid_argument("NEED_AT_LEAST_2_PLAYERS", "Need at least 2 players")
 
             rules = get_game_rules(cmd.game_variant)
             player_roots = [p.player_root for p in cmd.players]
@@ -460,9 +460,7 @@ class Hand:
             if player.has_folded:
                 raise CommandRejectedError("Player has folded")
             if cmd.amount <= 0:
-                raise CommandRejectedError.invalid_argument(
-                    "Blind amount must be positive"
-                )
+                raise CommandRejectedError.invalid_argument("BLIND_AMOUNT_MUST_BE_POSITIVE", "Blind amount must be positive")
 
             actual_amount = min(cmd.amount, player.stack)
             new_stack = player.stack - actual_amount
@@ -536,9 +534,7 @@ class Hand:
                 if self.current_bet > 0:
                     raise CommandRejectedError("Cannot bet when there is already a bet")
                 if amount < self.big_blind:
-                    raise CommandRejectedError.invalid_argument(
-                        f"Bet must be at least {self.big_blind}"
-                    )
+                    raise CommandRejectedError.invalid_argument("BET_MUST_BE_AT_LEAST", f"Bet must be at least {self.big_blind}")
                 if amount > player.stack:
                     raise CommandRejectedError("Bet exceeds stack")
                 chips_put_in = amount
@@ -551,9 +547,7 @@ class Hand:
                 raise_amount = amount - self.current_bet
                 to_put_in = amount - player.bet_this_round
                 if raise_amount < self.min_raise and to_put_in < player.stack:
-                    raise CommandRejectedError.invalid_argument(
-                        f"Raise must be at least {self.min_raise}"
-                    )
+                    raise CommandRejectedError.invalid_argument("RAISE_MUST_BE_AT_LEAST", f"Raise must be at least {self.min_raise}")
                 if to_put_in > player.stack:
                     raise CommandRejectedError("Raise exceeds stack")
                 chips_put_in = to_put_in
@@ -604,7 +598,7 @@ class Hand:
             if self.status == "complete":
                 raise CommandRejectedError("Hand is complete")
             if cmd.count <= 0:
-                raise CommandRejectedError.invalid_argument("Must deal at least 1 card")
+                raise CommandRejectedError.invalid_argument("MUST_DEAL_AT_LEAST_1_CARD", "Must deal at least 1 card")
 
             s = self._state
             rules = get_game_rules(s.game_variant)
@@ -669,9 +663,7 @@ class Hand:
 
             s = self._state
             if s.game_variant != poker_types.FIVE_CARD_DRAW:
-                raise CommandRejectedError.invalid_argument(
-                    "Draw not supported in this game variant"
-                )
+                raise CommandRejectedError.invalid_argument("DRAW_NOT_SUPPORTED_IN_THIS_GAME_VARIANT", "Draw not supported in this game variant")
 
             indices = list(cmd.card_indices)
             if len(indices) > 5:

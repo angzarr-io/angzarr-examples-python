@@ -137,7 +137,7 @@ class Reservation:
             raise CommandRejectedError("table_root is required")
         amount = _amount(cmd.amount) if cmd.HasField("amount") else 0
         if amount <= 0:
-            raise CommandRejectedError.invalid_argument("amount must be positive")
+            raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
 
         # Sync DECISION against player aggregate
         player_state = _player_state(self._query_client, cmd.player_root)

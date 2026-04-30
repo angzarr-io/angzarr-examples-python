@@ -387,7 +387,7 @@ class PokerGame:
 
         # Parse dealt cards from events
         for page in resp.events():
-            event = page.proto.event
+            event = page.proto().event
             if event.Is(hand_pb2.CardsDealt.DESCRIPTOR):
                 dealt = hand_pb2.CardsDealt()
                 event.Unpack(dealt)
@@ -442,7 +442,7 @@ class PokerGame:
 
         # Sync from server response (authoritative)
         for page in resp.events():
-            event = page.proto.event
+            event = page.proto().event
             if event.Is(hand_pb2.BlindPosted.DESCRIPTOR):
                 blind_event = hand_pb2.BlindPosted()
                 event.Unpack(blind_event)
@@ -478,7 +478,7 @@ class PokerGame:
 
         # Sync from server response (authoritative)
         for page in resp.events():
-            event = page.proto.event
+            event = page.proto().event
             if event.Is(hand_pb2.BlindPosted.DESCRIPTOR):
                 blind_event = hand_pb2.BlindPosted()
                 event.Unpack(blind_event)
@@ -882,7 +882,7 @@ class PokerGame:
 
             # Sync state from server response (authoritative source)
             for page in resp.events():
-                event = page.proto.event
+                event = page.proto().event
                 if event.Is(hand_pb2.ActionTaken.DESCRIPTOR):
                     action_event = hand_pb2.ActionTaken()
                     event.Unpack(action_event)
@@ -937,7 +937,7 @@ class PokerGame:
 
         # Parse dealt cards
         for page in resp.events():
-            event = page.proto.event
+            event = page.proto().event
             if event.Is(hand_pb2.CommunityCardsDealt.DESCRIPTOR):
                 dealt = hand_pb2.CommunityCardsDealt()
                 event.Unpack(dealt)

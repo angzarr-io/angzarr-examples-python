@@ -81,7 +81,7 @@ def deposit_funds_validate(cmd: player.DepositFunds) -> int:
     """Validate deposit command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError.invalid_argument("amount must be positive")
+        raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
     return amount
 
 
@@ -124,7 +124,7 @@ def withdraw_funds_validate(cmd: player.WithdrawFunds, state: PlayerState) -> in
     """Validate withdrawal command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError.invalid_argument("amount must be positive")
+        raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
     if amount > state.available_balance:
         raise CommandRejectedError("insufficient available balance")
     return amount
@@ -166,7 +166,7 @@ def reserve_funds_validate(cmd: player.ReserveFunds, state: PlayerState) -> int:
     """Validate reserve command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError.invalid_argument("amount must be positive")
+        raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
     if amount > state.available_balance:
         raise CommandRejectedError("Insufficient funds")
     bucket = cmd.key.hex()
@@ -268,7 +268,7 @@ def transfer_funds_validate(cmd: player.TransferFunds) -> int:
     """Validate transfer command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
     if amount == 0:
-        raise CommandRejectedError.invalid_argument("amount must be non-zero")
+        raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_NON_ZERO", "amount must be non-zero")
     return amount
 
 
@@ -316,7 +316,7 @@ def deduct_reserved_funds_validate(
         raise CommandRejectedError("key is required")
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError.invalid_argument("amount must be positive")
+        raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
     table_key = cmd.key.hex()
     reserved_for_key = state.table_reservations.get(table_key, 0)
     if amount > reserved_for_key:

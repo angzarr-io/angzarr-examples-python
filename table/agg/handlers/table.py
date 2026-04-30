@@ -346,15 +346,11 @@ class Table:
             if not cmd.table_name:
                 raise CommandRejectedError("table_name is required")
             if cmd.small_blind <= 0:
-                raise CommandRejectedError.invalid_argument(
-                    "small_blind must be positive"
-                )
+                raise CommandRejectedError.invalid_argument("SMALL_BLIND_MUST_BE_POSITIVE", "small_blind must be positive")
             if cmd.big_blind <= 0 or cmd.big_blind < cmd.small_blind:
                 raise CommandRejectedError("big_blind must be >= small_blind")
             if cmd.min_buy_in <= 0:
-                raise CommandRejectedError.invalid_argument(
-                    "min_buy_in must be positive"
-                )
+                raise CommandRejectedError.invalid_argument("MIN_BUY_IN_MUST_BE_POSITIVE", "min_buy_in must be positive")
             if cmd.max_buy_in < cmd.min_buy_in:
                 raise CommandRejectedError("max_buy_in must be >= min_buy_in")
             if cmd.max_players < 2 or cmd.max_players > 10:
@@ -400,13 +396,9 @@ class Table:
             if self.is_full:
                 raise CommandRejectedError("Table is full")
             if cmd.buy_in_amount < self.min_buy_in:
-                raise CommandRejectedError.invalid_argument(
-                    f"Buy-in must be at least {self.min_buy_in}"
-                )
+                raise CommandRejectedError.invalid_argument("BUY_IN_MUST_BE_AT_LEAST", f"Buy-in must be at least {self.min_buy_in}")
             if cmd.buy_in_amount > self.max_buy_in:
-                raise CommandRejectedError.invalid_argument(
-                    f"Buy-in cannot exceed {self.max_buy_in}"
-                )
+                raise CommandRejectedError.invalid_argument("BUY_IN_CANNOT_EXCEED", f"Buy-in cannot exceed {self.max_buy_in}")
             if cmd.preferred_seat >= 0 and cmd.preferred_seat < self.max_players:
                 if self.get_seat(cmd.preferred_seat) is not None:
                     raise CommandRejectedError("Seat is occupied")
@@ -656,7 +648,7 @@ class Table:
             if not cmd.player_root:
                 raise CommandRejectedError("player_root is required")
             if cmd.amount <= 0:
-                raise CommandRejectedError.invalid_argument("amount must be positive")
+                raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
             seat = self.find_player_seat(cmd.player_root)
             if seat is None:
                 raise CommandRejectedError("Player is not seated at this table")
