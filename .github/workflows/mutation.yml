@@ -35,7 +35,10 @@ jobs:
           submodules: false  # fetched manually below without --depth=1
 
       - name: Configure git safe directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        # Wildcard covers nested submodule paths; the workspace-only form
+        # leaves submodule git ops vulnerable to dubious-ownership.
+        # Matches ci.yml in this repo.
+        run: git config --global --add safe.directory '*'
 
       - name: Fetch submodules (unshallow; avoids HTTP 500 direct-fetch path)
         run: git submodule update --init
