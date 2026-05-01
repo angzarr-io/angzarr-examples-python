@@ -1259,10 +1259,9 @@ def step_then_action_has_amount_to_call(context, amount):
     assert context.result_event_any is not None, "No result event"
     event = hand.ActionTaken()
     context.result_event_any.Unpack(event)
-    # amount_to_call might be stored differently
-    assert event.amount == int(
+    assert event.amount_to_call == int(
         amount
-    ), f"Expected amount_to_call={amount}, got {event.amount}"
+    ), f"Expected amount_to_call={amount}, got {event.amount_to_call}"
 
 
 @then(r"the action event has player_stack (?P<stack>\d+)")
@@ -1325,6 +1324,53 @@ def step_then_player_has_hole_cards(context, player_id, count):
     assert actual_count == int(
         count
     ), f"Expected {count} hole cards, got {actual_count}"
+
+
+@given(r'I capture player "(?P<player_id>[^"]+)" hole cards as "(?P<label>[^"]+)"')
+def step_given_capture_hole_cards(context, player_id, label):
+    """Snapshot a player's pre-action hole cards under a label.
+
+    Reads from the most recent CardsDealt event in `context.events` (the
+    aggregate has not yet been instantiated at Given-time).
+    """
+    target_root = player_id.encode()
+    snapshot = None
+    for page in reversed(getattr(context, "events", [])):
+        cards_dealt = try_unpack(page.event, hand.CardsDealt)
+        if cards_dealt is None:
+            continue
+        for pc in cards_dealt.player_cards:
+            if pc.player_root == target_root:
+                snapshot = [(c.suit, c.rank) for c in pc.cards]
+                break
+        if snapshot is not None:
+            break
+    assert snapshot is not None, (
+        f"No CardsDealt event found carrying hole cards for player {player_id!r}"
+    )
+    if not hasattr(context, "card_snapshots"):
+        context.card_snapshots = {}
+    context.card_snapshots[label] = snapshot
+
+
+@then(
+    r'player "(?P<player_id>[^"]+)" hole card at index (?P<idx>\d+) '
+    r'matches "(?P<label>[^"]+)" index (?P<src_idx>\d+)'
+)
+def step_then_hole_card_matches_snapshot(context, player_id, idx, label, src_idx):
+    """Assert a player's current hole card at index matches a captured snapshot."""
+    assert context.agg is not None, "No aggregate"
+    player = context.agg.get_player(player_id.encode())
+    assert player is not None, f"Player {player_id} not found in aggregate"
+    snapshot = getattr(context, "card_snapshots", {}).get(label)
+    assert snapshot is not None, f"No snapshot captured under {label!r}"
+    i, j = int(idx), int(src_idx)
+    assert i < len(player.hole_cards), f"Index {i} out of range for current hand"
+    assert j < len(snapshot), f"Index {j} out of range for snapshot {label!r}"
+    assert player.hole_cards[i] == snapshot[j], (
+        f"Player {player_id} hole card at index {i} ({player.hole_cards[i]}) "
+        f"does not match {label!r} index {j} ({snapshot[j]})"
+    )
 
 
 @then(r'the reveal event has cards for player "(?P<player_id>[^"]+)"')

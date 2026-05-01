@@ -282,12 +282,15 @@ class Hand:
     ) -> None:
         for player in state.players.values():
             if player.player_root == event.player_root:
-                new_cards = [(c.suit, c.rank) for c in event.new_cards]
-                if event.cards_discarded > 0:
-                    player.hole_cards = player.hole_cards[event.cards_discarded :]
-                player.hole_cards.extend(new_cards)
-                for card in new_cards:
-                    if card in state.remaining_deck:
+                pre = list(player.hole_cards)
+                new_hole = [(c.suit, c.rank) for c in event.new_cards]
+                player.hole_cards = new_hole
+                # Each card now in the hand that wasn't there before came off
+                # the deck; remove from `remaining_deck` to keep the deck and
+                # hands consistent for replay.
+                pre_set = set(pre)
+                for card in new_hole:
+                    if card not in pre_set and card in state.remaining_deck:
                         state.remaining_deck.remove(card)
                 break
 
@@ -569,10 +572,13 @@ class Hand:
                 amount=event_amount,
                 player_stack=new_stack,
                 pot_total=new_pot_total,
+                # amount_to_call is the absolute new current_bet level — the
+                # threshold a subsequent actor must reach to call. Consumers
+                # compute their owed amount as
+                # amount_to_call - their.bet_this_round.
                 amount_to_call=max(
                     self.current_bet, player.bet_this_round + chips_put_in
-                )
-                - player.bet_this_round,
+                ),
                 action_at=now(),
             )
             if not router_mode:
@@ -678,7 +684,10 @@ class Hand:
             if len(s.remaining_deck) < cards_to_draw:
                 raise CommandRejectedError("Not enough cards in deck")
 
-            new_cards = s.remaining_deck[:cards_to_draw]
+            drawn = s.remaining_deck[:cards_to_draw]
+            updated_hole = list(player.hole_cards)
+            for i, idx in enumerate(indices):
+                updated_hole[idx] = drawn[i]
 
             event = hand_proto.DrawCompleted(
                 player_root=cmd.player_root,
@@ -686,7 +695,7 @@ class Hand:
                 cards_drawn=cards_to_draw,
                 drawn_at=now(),
             )
-            for suit, rank in new_cards:
+            for suit, rank in updated_hole:
                 event.new_cards.append(poker_types.Card(suit=suit, rank=rank))
 
             if not router_mode:

@@ -538,6 +538,18 @@ def step_then_command_has_hand_number(context, num):
     ), f"Expected hand_number {expected}, got {cmd.hand_number}"
 
 
+@then("the command has deck_seed equal to the hand_root")
+def step_then_command_has_deck_seed_equal_hand_root(context):
+    """Verify the saga propagated event.hand_root as the DealCards deck_seed."""
+    cmd_any = context.commands[0].pages[0].command
+    cmd = hand.DealCards()
+    cmd_any.Unpack(cmd)
+    expected = bytes(context.event.hand_root)
+    assert cmd.deck_seed == expected, (
+        f"Expected deck_seed=hand_root ({expected!r}), got {bytes(cmd.deck_seed)!r}"
+    )
+
+
 @then("the command has (?P<count>\\d+) result")
 def step_then_command_has_results(context, count):
     """Verify the EndHand command carries the expected number of results."""
