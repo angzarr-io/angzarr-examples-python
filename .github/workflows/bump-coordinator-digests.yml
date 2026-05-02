@@ -50,6 +50,7 @@ jobs:
             .github/workflows/ci.yml
             .github/workflows/acceptance-callable.yml
             deploy/k8s/helm/values-ci.yaml
+            values.yaml
           )
 
           CHANGES=0
