@@ -20,6 +20,9 @@ jobs:
     timeout-minutes: 360
     container:
       image: ghcr.io/angzarr-io/angzarr-python:latest
+      # See ci.yml — image USER is `angzarr` (uid 1000) for local-dev;
+      # force root inside GHA `container:` flow.
+      options: --user 0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}

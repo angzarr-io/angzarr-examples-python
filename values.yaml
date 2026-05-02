@@ -22,19 +22,19 @@ imagePullSecrets: []
 images:
   aggregate:
     repository: ghcr.io/angzarr-io/angzarr-aggregate
-    tag: "21c113f@sha256:54bd2432effec9e35ffe0b150c362c0500c1d6c0fb4bcbb9113849c108ddf7e4"
+    tag: "b98e8de@sha256:4799c8b2a85c148fac2368be4328f5cab599e68b14865ba03fe51698ba59b9fe"
     pullPolicy: IfNotPresent
   saga:
     repository: ghcr.io/angzarr-io/angzarr-saga
-    tag: "21c113f@sha256:fe4bc5bcdd252a8ebae92ac8e4faa3b6626eb22ebdd1a20c1f91b5398b01d539"
+    tag: "b98e8de@sha256:1b64face0a2f8fc346d506d3ab0d62dcc85bba54e3848aaab3897b808968a119"
     pullPolicy: IfNotPresent
   projector:
     repository: ghcr.io/angzarr-io/angzarr-projector
-    tag: "21c113f@sha256:df5c4a32cdd5855c044c52860ae2b5eec7d60599d55c46c6cecd9dba7661f66c"
+    tag: "b98e8de@sha256:b9f3a52a37e0e9b3c47b8331d1d8c5f9c68331e655f13579b4bcf591b6f8aea1"
     pullPolicy: IfNotPresent
   processManager:
     repository: ghcr.io/angzarr-io/angzarr-process-manager
-    tag: "21c113f@sha256:bb9726f2d6ef0ea54d8ecc56c2944fa659cbcadcbe163b9782362740139f1ed4"
+    tag: "b98e8de@sha256:49af52fe739d6b3552e32a8f182584e8bc9e7d57674089d2b57e9b102217f954"
     pullPolicy: IfNotPresent
   stream:
     repository: ghcr.io/angzarr-io/angzarr-stream-dev
@@ -206,7 +206,7 @@ infrastructure:
     # Pinned by digest; see comment on top-level `images:` for rationale.
     image:
       repository: ghcr.io/angzarr-io/angzarr-grpc-gateway
-      tag: "21c113f@sha256:ac5f95d76dcd1d6b504d5c654d75b3340757872c8a092955d6f29230547f4ffb"
+      tag: "b98e8de@sha256:87bda37983c8ebafe59d1b7e5b436962e67fae93b28cbcba4950c641620c8b30"
       pullPolicy: IfNotPresent
 
 # Resource limits for development
