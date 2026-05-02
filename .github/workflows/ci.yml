@@ -22,6 +22,12 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/angzarr-io/angzarr-python:latest
+      # The image's USER is `angzarr` (uid 1000) for justfile/local-dev use;
+      # GHA's runner-mounted dirs (e.g. /__w/_temp) are owned by uid 1001,
+      # so a non-overridden container user can't write to them. Force root
+      # in the GHA `container:` flow (GHA-recommended; fixuid only triggers
+      # outside this flow).
+      options: --user 0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
