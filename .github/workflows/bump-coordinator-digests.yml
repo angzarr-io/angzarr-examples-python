@@ -1,0 +1,121 @@
+name: Bump coordinator image digests
+
+# Resolves current `:latest` digests for the angzarr-* coordinator images on
+# GHCR and opens (or updates) a PR rotating the pinned digests in this repo's
+# CI workflows + helm values. Pinning is intentional supply-chain safety —
+# this workflow keeps the pins fresh without dropping the digest check.
+#
+# Triggers:
+#   - daily schedule (catches drift even if the dispatch is missed)
+#   - repository_dispatch from core's image-publish job (chained)
+#   - workflow_dispatch (manual)
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  repository_dispatch:
+    types: [coordinator-images-published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    name: Bump coordinator digests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve current digests + rewrite pins
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ORG=angzarr-io
+
+          # Coordinator images that publish a `:latest` tag from core's main.
+          MAIN_IMAGES=(
+            angzarr-aggregate
+            angzarr-saga
+            angzarr-projector
+            angzarr-process-manager
+            angzarr-grpc-gateway
+          )
+          # stream/log publish under `-dev` variants from a separate workflow;
+          # they're advisory-tagged differently, so leave their pins alone here.
+
+          PIN_FILES=(
+            .github/workflows/ci.yml
+            .github/workflows/acceptance-callable.yml
+            deploy/k8s/helm/values-ci.yaml
+          )
+
+          CHANGES=0
+          SUMMARY=""
+          for image in "${MAIN_IMAGES[@]}"; do
+            v=$(gh api "/orgs/$ORG/packages/container/$image/versions" --paginate \
+                 | jq -r '[.[] | select(.metadata.container.tags // [] | contains(["latest"]))] | .[0]')
+            if [ "$v" = "null" ] || [ -z "$v" ]; then
+              echo "::warning::No :latest version found for $image; skipping."
+              continue
+            fi
+            new_digest=$(echo "$v" | jq -r '.name')
+            new_sha_tag=$(echo "$v" | jq -r '.metadata.container.tags | map(select(. != "latest")) | .[0] // empty')
+            if [ -z "$new_sha_tag" ] || [ "$new_digest" = "null" ]; then
+              echo "::warning::Could not resolve sha-tag/digest for $image (tag=$new_sha_tag, digest=$new_digest); skipping."
+              continue
+            fi
+            new_pin="$image:$new_sha_tag@$new_digest"
+            echo "$image -> $new_pin"
+
+            # Update each pin file. Match the FULL pinned ref so we replace
+            # the SHA tag and digest atomically.
+            for f in "${PIN_FILES[@]}"; do
+              [ -f "$f" ] || continue
+              old_pin=$(grep -oE "$image:[a-f0-9]+@sha256:[a-f0-9]+" "$f" | head -1 || true)
+              if [ -z "$old_pin" ]; then
+                continue
+              fi
+              if [ "$old_pin" = "$new_pin" ]; then
+                continue
+              fi
+              sed -i -E "s|$image:[a-f0-9]+@sha256:[a-f0-9]+|$new_pin|g" "$f"
+              echo "  $f: $old_pin -> $new_pin"
+              SUMMARY+="| \`$image\` | \`${old_pin#*@sha256:}\` | \`${new_digest#sha256:}\` |
+"
+              CHANGES=1
+            done
+          done
+
+          if [ "$CHANGES" -eq 0 ]; then
+            echo "All pins already current."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Coordinator digest bump"
+            echo
+            echo "Automated bump from the latest \`:latest\`-tagged coordinator images on GHCR. Supply-chain pinning is intentional (see \`memory/project_supply_chain_digest_pinning.md\`); this PR keeps the pins fresh without dropping the digest check."
+            echo
+            echo "| Image | Old digest | New digest |"
+            echo "|-------|------------|------------|"
+            echo "$SUMMARY"
+            echo
+            echo "CI on this branch exercises the bumped images via the kind-load coordinator step + acceptance tests; merge once green."
+          } > /tmp/pr-body.md
+        id: rewrite
+
+      - name: Create or update PR
+        if: steps.rewrite.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/bump-coordinator-digests
+          base: main
+          title: "chore: bump coordinator image digests"
+          body-path: /tmp/pr-body.md
+          commit-message: "chore: bump coordinator image digests"
+          labels: chore,automated
+          delete-branch: true
