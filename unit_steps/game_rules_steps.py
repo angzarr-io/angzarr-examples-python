@@ -432,3 +432,67 @@ def step_then_rules_class(context, cls):
     assert isinstance(
         context.factory_rules, expected
     ), f"Expected {cls}, got {type(context.factory_rules).__name__}"
+
+
+# --- Multi-hand intra-class comparison (EU-0729 .. EU-0732) ---------------
+# Same-class comparisons (e.g. straight vs straight) are where evaluators
+# most often regress: a single field swap silently mis-awards pots without
+# changing any rank label. The steps below evaluate two hands under one
+# rules instance, store their (rank, score, kickers) tuples under labels A
+# and B, then let the scenario assert both ranks match AND that the higher
+# hand's score actually exceeds the lower hand's.
+
+
+@when(
+    r'I evaluate hand (?P<label>\w+) with hole "(?P<hole>[^"]+)" '
+    r'and community "(?P<community>[^"]*)"'
+)
+def step_when_evaluate_labeled_hand(context, label, hole, community):
+    """Evaluate a labeled hand and store the result under that label."""
+    if not hasattr(context, "hand_results") or context.hand_results is None:
+        context.hand_results = {}
+    hole_cards = _parse_cards(hole)
+    community_cards = _parse_cards(community)
+    rank, score, kickers = context.rules.evaluate_hand(hole_cards, community_cards)
+    context.hand_results[label] = {
+        "rank": rank,
+        "score": score,
+        "kickers": list(kickers),
+    }
+
+
+@then(r"both hands rank (?P<rank>\w+)")
+def step_then_both_hands_rank(context, rank):
+    """Assert that all stored labeled hands share the same rank label.
+
+    Pinning the rank label first surfaces an evaluator that mis-categorizes
+    one of the hands (e.g. flushes one but not the other) before the
+    score-comparison step runs, giving a clearer failure message.
+    """
+    assert getattr(context, "hand_results", None), (
+        "No labeled hand results stored — call `I evaluate hand <label> ...` first"
+    )
+    expected = _rank_type_from_name(rank)
+    mismatches = {
+        label: _rank_name(result["rank"])
+        for label, result in context.hand_results.items()
+        if result["rank"] != expected
+    }
+    assert not mismatches, (
+        f"Expected every hand to rank {rank}, but got: {mismatches}"
+    )
+
+
+@then(r"hand (?P<a>\w+) score is greater than hand (?P<b>\w+) score")
+def step_then_hand_score_greater(context, a, b):
+    """Assert the score of hand A strictly exceeds the score of hand B."""
+    results = getattr(context, "hand_results", None) or {}
+    assert a in results, f"No result for hand {a!r}; have {sorted(results)}"
+    assert b in results, f"No result for hand {b!r}; have {sorted(results)}"
+    score_a = results[a]["score"]
+    score_b = results[b]["score"]
+    assert score_a > score_b, (
+        f"Expected hand {a} score ({score_a}) to be greater than hand {b} "
+        f"score ({score_b}); kickers A={results[a]['kickers']}, "
+        f"B={results[b]['kickers']}"
+    )

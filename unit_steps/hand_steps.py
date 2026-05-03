@@ -6,6 +6,7 @@ from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 from hand.agg.handlers import Hand
+from tests.helpers import uuid_for
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import try_unpack
@@ -97,9 +98,19 @@ def _execute_handler(context, method_name: str, cmd):
             context.players = [p.player_root for p in result.players]
             context.deal_result = _DealResult(result, agg)
     except CommandRejectedError as e:
+        _stamp_scenario_cover(context, e)
         context.result = None
         context.error = e
         context.error_message = str(e)
+
+
+def _stamp_scenario_cover(context, err):
+    """Mirror dispatch-boundary cover stamping for direct-call unit tests."""
+    if err is None or getattr(err, "cover", None) is not None:
+        return
+    cover = getattr(context, "command_cover", None)
+    if cover is not None:
+        err.cover = cover
 
 
 def _parse_card(card_str: str) -> tuple:
@@ -154,15 +165,15 @@ def step_given_cards_dealt(context, hand_num):
     )
     # Add 2 default players
     cards_dealt.players.append(
-        hand.PlayerInHand(player_root=b"player-1", position=0, stack=500)
+        hand.PlayerInHand(player_root=uuid_for("player-1"), position=0, stack=500)
     )
     cards_dealt.players.append(
-        hand.PlayerInHand(player_root=b"player-2", position=1, stack=500)
+        hand.PlayerInHand(player_root=uuid_for("player-2"), position=1, stack=500)
     )
     # Add player cards
     cards_dealt.player_cards.append(
         hand.PlayerHoleCards(
-            player_root=b"player-1",
+            player_root=uuid_for("player-1"),
             cards=[
                 poker_types.Card(suit=poker_types.HEARTS, rank=poker_types.ACE),
                 poker_types.Card(suit=poker_types.SPADES, rank=poker_types.KING),
@@ -171,7 +182,7 @@ def step_given_cards_dealt(context, hand_num):
     )
     cards_dealt.player_cards.append(
         hand.PlayerHoleCards(
-            player_root=b"player-2",
+            player_root=uuid_for("player-2"),
             cards=[
                 poker_types.Card(suit=poker_types.DIAMONDS, rank=poker_types.QUEEN),
                 poker_types.Card(suit=poker_types.CLUBS, rank=poker_types.JACK),
@@ -217,7 +228,7 @@ def step_given_cards_dealt_with_stacks(context, variant, count, stack):
 
     card_idx = 0
     for i in range(int(count)):
-        player_root = f"player-{i + 1}".encode()
+        player_root = uuid_for(f"player-{i + 1}")
         cards_dealt.players.append(
             hand.PlayerInHand(player_root=player_root, position=i, stack=int(stack))
         )
@@ -274,7 +285,7 @@ def step_given_cards_dealt_with_table(context, variant):
             context.table.headings[j]: row[j]
             for j in range(len(context.table.headings))
         }
-        player_root = row_dict.get("player_root", "player-1").encode()
+        player_root = uuid_for(row_dict.get("player_root", "player-1"))
         position = int(row_dict.get("position", 0))
         stack = int(row_dict.get("stack", 500))
 
@@ -303,7 +314,7 @@ def step_given_blind_posted(context, player_id, amount):
             pot_total += event.amount
 
     blind_posted = hand.BlindPosted(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         blind_type="small" if int(amount) == 5 else "big",
         amount=int(amount),
         player_stack=500 - int(amount),
@@ -315,9 +326,23 @@ def step_given_blind_posted(context, player_id, amount):
 
 @given(r"blinds posted with pot (?P<pot>\d+)")
 def step_given_blinds_posted(context, pot):
-    """Set up standard blinds (5/10)."""
-    step_given_blind_posted(context, "player-1", "5")
-    step_given_blind_posted(context, "player-2", "10")
+    """Set up blinds whose pot_total reaches the requested amount.
+
+    For the canonical 5/10 blinds (pot 15), keeps the historical structure so
+    EU-0070-style scenarios that depend on a 5/10 short-stack interaction
+    don't shift. For other pots (e.g. EU-1009 split-pot with pot 100), scales
+    the two blinds so the second BlindPosted carries pot_total == requested
+    pot — what `apply_blind_posted` writes into `state.pots[0].amount`.
+    """
+    pot_int = int(pot)
+    if pot_int == 15:
+        step_given_blind_posted(context, "player-1", "5")
+        step_given_blind_posted(context, "player-2", "10")
+    else:
+        sb = pot_int // 2
+        bb = pot_int - sb
+        step_given_blind_posted(context, "player-1", str(sb))
+        step_given_blind_posted(context, "player-2", str(bb))
 
 
 @given(r'player "(?P<player_id>[^"]+)" folded')
@@ -327,7 +352,7 @@ def step_given_player_folded(context, player_id):
         context.events = []
 
     action_taken = hand.ActionTaken(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         action=poker_types.FOLD,
         amount=0,
         player_stack=500,
@@ -476,18 +501,18 @@ def step_given_hand_at_showdown(context, player_id, hole, community):
         dealt_at=make_timestamp(),
     )
     cards_dealt.players.append(
-        hand.PlayerInHand(player_root=player_id.encode(), position=0, stack=500)
+        hand.PlayerInHand(player_root=uuid_for(player_id), position=0, stack=500)
     )
     cards_dealt.players.append(
-        hand.PlayerInHand(player_root=b"player-2", position=1, stack=500)
+        hand.PlayerInHand(player_root=uuid_for("player-2"), position=1, stack=500)
     )
-    player_cards = hand.PlayerHoleCards(player_root=player_id.encode())
+    player_cards = hand.PlayerHoleCards(player_root=uuid_for(player_id))
     for suit, rank in hole_cards:
         player_cards.cards.append(poker_types.Card(suit=suit, rank=rank))
     cards_dealt.player_cards.append(player_cards)
     cards_dealt.player_cards.append(
         hand.PlayerHoleCards(
-            player_root=b"player-2",
+            player_root=uuid_for("player-2"),
             cards=[
                 poker_types.Card(suit=poker_types.CLUBS, rank=poker_types.TWO),
                 poker_types.Card(suit=poker_types.CLUBS, rank=poker_types.THREE),
@@ -545,7 +570,7 @@ def step_when_deal_cards(context, variant):
         }
         cmd.players.append(
             hand.PlayerInHand(
-                player_root=row_dict.get("player_root", "player-1").encode(),
+                player_root=uuid_for(row_dict.get("player_root", "player-1")),
                 position=int(row_dict.get("position", 0)),
                 stack=int(row_dict.get("stack", 500)),
             )
@@ -574,7 +599,7 @@ def step_when_deal_cards_with_seed(context, seed):
         }
         cmd.players.append(
             hand.PlayerInHand(
-                player_root=row_dict.get("player_root", "player-1").encode(),
+                player_root=uuid_for(row_dict.get("player_root", "player-1")),
                 position=int(row_dict.get("position", 0)),
                 stack=int(row_dict.get("stack", 500)),
             )
@@ -590,7 +615,7 @@ def step_when_deal_cards_with_seed(context, seed):
 def step_when_post_blind(context, player_id, blind_type, amount):
     """Handle PostBlind command."""
     cmd = hand.PostBlind(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         blind_type=blind_type,
         amount=int(amount),
     )
@@ -604,7 +629,7 @@ def step_when_player_action(context, player_id, action):
     """Handle PlayerAction command without amount."""
     action_type = getattr(poker_types, action, poker_types.FOLD)
     cmd = hand.PlayerAction(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         action=action_type,
         amount=0,
     )
@@ -618,7 +643,7 @@ def step_when_player_action_with_amount(context, player_id, action, amount):
     """Handle PlayerAction command with amount."""
     action_type = getattr(poker_types, action, poker_types.BET)
     cmd = hand.PlayerAction(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         action=action_type,
         amount=int(amount),
     )
@@ -639,7 +664,7 @@ def step_when_request_draw(context, player_id, indices):
     """Handle RequestDraw command."""
     index_list = [int(i.strip()) for i in indices.split(",")] if indices.strip() else []
     cmd = hand.RequestDraw(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         card_indices=index_list,
     )
     _execute_handler(context, "draw", cmd)
@@ -651,7 +676,7 @@ def step_when_request_draw(context, player_id, indices):
 def step_when_reveal_cards(context, player_id, muck):
     """Handle RevealCards command."""
     cmd = hand.RevealCards(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         muck=(muck.lower() == "true"),
     )
     _execute_handler(context, "reveal", cmd)
@@ -665,11 +690,34 @@ def step_when_award_pot(context, player_id, amount):
     cmd = hand.AwardPot()
     cmd.awards.append(
         hand.PotAward(
-            player_root=player_id.encode(),
+            player_root=uuid_for(player_id),
             amount=int(amount),
             pot_type="main",
         )
     )
+    _execute_handler(context, "award", cmd)
+
+
+@when(r"I handle an AwardPot command with awards:")
+def step_when_award_pot_with_table(context):
+    """Handle AwardPot command with multiple awards from a datatable.
+
+    Used for split-pot scenarios (e.g. EU-1009) where two or more winners
+    each receive a share of the pot. Each row contributes one PotAward.
+    """
+    cmd = hand.AwardPot()
+    for row in context.table:
+        row_dict = {
+            context.table.headings[j]: row[j]
+            for j in range(len(context.table.headings))
+        }
+        cmd.awards.append(
+            hand.PotAward(
+                player_root=uuid_for(row_dict["player_root"]),
+                amount=int(row_dict["amount"]),
+                pot_type=row_dict.get("pot_type", "main"),
+            )
+        )
     _execute_handler(context, "award", cmd)
 
 
@@ -717,18 +765,45 @@ def step_then_deck_has_cards(context, count):
     r'player "(?P<player_id>[^"]+)" has specific hole cards for seed "(?P<seed>[^"]+)"'
 )
 def step_then_player_has_seeded_cards(context, player_id, seed):
-    """Verify deterministic dealing for seed."""
+    """Verify deterministic dealing for a known seed.
+
+    The (seed, player_id) → expected_cards mapping is the canonical spec for
+    cross-language reproducibility. Both Python and Rust use SplitMix64 +
+    Fisher-Yates against a SHA-256(seed)[..8] u64 seed; deals are from the
+    front of the canonically-ordered deck.
+
+    Each `(suit, rank)` tuple uses the proto enum values:
+    suit 1=CLUBS, 2=DIAMONDS, 3=HEARTS, 4=SPADES; rank 2..14 (Ace=14).
+    """
+    expected_by_seed: dict[str, dict[str, list[tuple[int, int]]]] = {
+        # 7♣ 7♥ → player-1; K♠ A♠ → player-2
+        "test-seed-123": {
+            "player-1": [(1, 7), (3, 7)],
+            "player-2": [(4, 13), (4, 14)],
+        },
+    }
+
     assert context.result_event_any is not None, "No result event"
     event = hand.CardsDealt()
     context.result_event_any.Unpack(event)
-    # Just verify cards were dealt - specific cards depend on implementation
+
     player_cards = None
     for pc in event.player_cards:
-        if pc.player_root == player_id.encode():
+        if pc.player_root == uuid_for(player_id):
             player_cards = pc
             break
     assert player_cards is not None, f"No cards for {player_id}"
-    assert len(player_cards.cards) == 2, "Expected 2 hole cards"
+
+    expected = expected_by_seed.get(seed, {}).get(player_id)
+    assert expected is not None, (
+        f"No canonical cards recorded for seed={seed!r} player={player_id!r}; "
+        f"add an entry to step_then_player_has_seeded_cards.expected_by_seed."
+    )
+    actual = [(c.suit, c.rank) for c in player_cards.cards]
+    assert actual == expected, (
+        f"Cross-language shuffle drift for seed={seed!r} player={player_id!r}: "
+        f"expected {expected}, got {actual}"
+    )
 
 
 @then(r'the command fails with status "(?P<status>\w+)"')
@@ -920,7 +995,7 @@ def step_then_winner_receives(context, player_id, amount):
     event = hand.PotAwarded()
     context.result_event_any.Unpack(event)
     for winner in event.winners:
-        if winner.player_root == player_id.encode():
+        if winner.player_root == uuid_for(player_id):
             assert winner.amount == int(
                 amount
             ), f"Expected {amount}, got {winner.amount}"
@@ -982,7 +1057,7 @@ def step_then_player_folded(context, player_id, value):
     assert context.agg is not None, "No hand aggregate"
     expected = value.lower() == "true"
     for player in context.agg.players.values():
-        if player.player_root == player_id.encode():
+        if player.player_root == uuid_for(player_id):
             assert player.has_folded == expected, f"Expected has_folded={expected}"
             return
     assert False, f"Player {player_id} not found"
@@ -1021,7 +1096,7 @@ def step_given_blinds_with_bet(context, pot, bet):
 
     # Small blind
     sb_event = hand.BlindPosted(
-        player_root=b"player-1",
+        player_root=uuid_for("player-1"),
         blind_type="small",
         amount=5,
         player_stack=495,
@@ -1032,7 +1107,7 @@ def step_given_blinds_with_bet(context, pot, bet):
 
     # Big blind
     bb_event = hand.BlindPosted(
-        player_root=b"player-2",
+        player_root=uuid_for("player-2"),
         blind_type="big",
         amount=10,
         player_stack=490,
@@ -1052,7 +1127,7 @@ def step_given_action_taken_for_player(context, player_id, action, amount):
 
     action_type = getattr(poker_types, action.upper(), poker_types.CALL)
     event = hand.ActionTaken(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         action=action_type,
         amount=int(amount),
         player_stack=495,  # Approximate stack after blinds
@@ -1102,7 +1177,7 @@ def step_given_cards_revealed(context, player_id, ranking):
 
     ranking_enum = getattr(poker_types, ranking, poker_types.HIGH_CARD)
     event = hand.CardsRevealed(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         revealed_at=make_timestamp(),
     )
     event.cards.append(poker_types.Card(suit=poker_types.HEARTS, rank=14))
@@ -1118,7 +1193,7 @@ def step_given_cards_mucked(context, player_id):
         context.events = []
 
     event = hand.CardsMucked(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         mucked_at=make_timestamp(),
     )
     context.events.append(make_event_page(event, len(context.events)))
@@ -1318,7 +1393,7 @@ def step_then_all_community_has_count(context, count):
 def step_then_player_has_hole_cards(context, player_id, count):
     """Verify player hole card count from aggregate state."""
     assert context.agg is not None, "No aggregate"
-    player = context.agg.get_player(player_id.encode())
+    player = context.agg.get_player(uuid_for(player_id))
     assert player is not None, f"Player {player_id} not found in aggregate"
     actual_count = len(player.hole_cards)
     assert actual_count == int(
@@ -1333,7 +1408,7 @@ def step_given_capture_hole_cards(context, player_id, label):
     Reads from the most recent CardsDealt event in `context.events` (the
     aggregate has not yet been instantiated at Given-time).
     """
-    target_root = player_id.encode()
+    target_root = uuid_for(player_id)
     snapshot = None
     for page in reversed(getattr(context, "events", [])):
         cards_dealt = try_unpack(page.event, hand.CardsDealt)
@@ -1360,7 +1435,7 @@ def step_given_capture_hole_cards(context, player_id, label):
 def step_then_hole_card_matches_snapshot(context, player_id, idx, label, src_idx):
     """Assert a player's current hole card at index matches a captured snapshot."""
     assert context.agg is not None, "No aggregate"
-    player = context.agg.get_player(player_id.encode())
+    player = context.agg.get_player(uuid_for(player_id))
     assert player is not None, f"Player {player_id} not found in aggregate"
     snapshot = getattr(context, "card_snapshots", {}).get(label)
     assert snapshot is not None, f"No snapshot captured under {label!r}"
@@ -1379,7 +1454,7 @@ def step_then_reveal_has_player_cards(context, player_id):
     assert context.result_event_any is not None, "No result event"
     event = hand.CardsRevealed()
     context.result_event_any.Unpack(event)
-    assert event.player_root == player_id.encode(), f"Wrong player: {event.player_root}"
+    assert event.player_root == uuid_for(player_id), f"Wrong player: {event.player_root}"
     assert len(event.cards) > 0, "No cards in reveal event"
 
 
@@ -1400,13 +1475,29 @@ def step_then_award_has_winner(context, player_id, amount):
     context.result_event_any.Unpack(event)
     found = False
     for winner in event.winners:
-        if winner.player_root == player_id.encode():
+        if winner.player_root == uuid_for(player_id):
             assert winner.amount == int(
                 amount
             ), f"Expected {amount}, got {winner.amount}"
             found = True
             break
     assert found, f"Winner {player_id} not found"
+
+
+@then(r"the award event has (?P<count>\d+) winners?")
+def step_then_award_has_n_winners(context, count):
+    """Verify the PotAwarded event carries the expected number of winners.
+
+    Used by split-pot scenarios (e.g. EU-1009) to pin that ties are
+    actually divided rather than silently awarded to a single winner.
+    """
+    assert context.result_event_any is not None, "No result event"
+    event = hand.PotAwarded()
+    context.result_event_any.Unpack(event)
+    assert len(event.winners) == int(count), (
+        f"Expected {count} winners, got {len(event.winners)}: "
+        f"{[(w.player_root, w.amount) for w in event.winners]}"
+    )
 
 
 @then(r"a HandComplete event is emitted")
@@ -1455,7 +1546,7 @@ def step_given_short_stacked_blinds(context, sb, bb, stack):
         context.events = []
     sb_amt, bb_amt, initial = int(sb), int(bb), int(stack)
     sb_event = hand.BlindPosted(
-        player_root=b"player-1",
+        player_root=uuid_for("player-1"),
         blind_type="small",
         amount=sb_amt,
         player_stack=initial - sb_amt,
@@ -1464,7 +1555,7 @@ def step_given_short_stacked_blinds(context, sb, bb, stack):
     )
     context.events.append(make_event_page(sb_event, len(context.events)))
     bb_event = hand.BlindPosted(
-        player_root=b"player-2",
+        player_root=uuid_for("player-2"),
         blind_type="big",
         amount=bb_amt,
         player_stack=initial - bb_amt,
@@ -1497,7 +1588,7 @@ def step_given_pot_awarded(context, player_id, amount):
     event = hand.PotAwarded(awarded_at=make_timestamp())
     event.winners.append(
         hand.PotWinner(
-            player_root=player_id.encode(),
+            player_root=uuid_for(player_id),
             amount=int(amount),
             pot_type="main",
         )
@@ -1521,7 +1612,7 @@ def step_given_cards_dealt_with_table_root_and_num(context, tbl, num):
         dealt_at=make_timestamp(),
     )
     for i in range(2):
-        player_root = f"player-{i + 1}".encode()
+        player_root = uuid_for(f"player-{i + 1}")
         cards_dealt.players.append(
             hand.PlayerInHand(player_root=player_root, position=i, stack=1000)
         )
@@ -1553,7 +1644,7 @@ def step_given_betting_round_complete_with_snapshots(context):
         }
         evt.stacks.append(
             hand.PlayerStackSnapshot(
-                player_root=row_dict["player_root"].encode(),
+                player_root=uuid_for(row_dict["player_root"]),
                 stack=int(row_dict["stack"]),
                 is_all_in=row_dict["is_all_in"].lower() == "true",
                 has_folded=row_dict["has_folded"].lower() == "true",
@@ -1581,7 +1672,7 @@ def step_when_deal_twice_with_seed(context, variant, seed):
     game_variant = getattr(poker_types, variant, poker_types.TEXAS_HOLDEM)
     players = [
         hand.PlayerInHand(
-            player_root=f"player-{i + 1}".encode(), position=i, stack=1000
+            player_root=uuid_for(f"player-{i + 1}"), position=i, stack=1000
         )
         for i in range(2)
     ]
@@ -1639,7 +1730,7 @@ def step_when_player_action_no_root(context, action):
 def step_when_player_action_unknown(context, player_id):
     """Handle PlayerAction command with unknown action type."""
     cmd = hand.PlayerAction(
-        player_root=player_id.encode(),
+        player_root=uuid_for(player_id),
         action=999,  # Invalid action
         amount=0,
     )
@@ -1684,7 +1775,7 @@ def step_then_each_player_bet_this_round(context, amount):
 def step_then_player_has_stack(context, player_id, stack):
     """Verify a player's stack after rebuild."""
     assert context.agg is not None, "No hand aggregate"
-    player = context.agg.get_player(player_id.encode())
+    player = context.agg.get_player(uuid_for(player_id))
     assert player is not None, f"Player {player_id} not found"
     assert player.stack == int(stack), f"Expected stack={stack}, got {player.stack}"
 
@@ -1693,7 +1784,7 @@ def step_then_player_has_stack(context, player_id, stack):
 def step_then_player_is_all_in(context, player_id):
     """Verify a player's is_all_in flag."""
     assert context.agg is not None, "No hand aggregate"
-    player = context.agg.get_player(player_id.encode())
+    player = context.agg.get_player(uuid_for(player_id))
     assert player is not None, f"Player {player_id} not found"
     assert player.is_all_in, f"Player {player_id} is not all-in"
 

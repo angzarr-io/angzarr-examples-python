@@ -7,6 +7,8 @@ from pathlib import Path
 from behave import given, then, use_step_matcher, when
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from tests.helpers import uuid_for
+
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
@@ -110,7 +112,7 @@ def _add_active_players_from_table(context):
             context.table.headings[j]: row[j]
             for j in range(len(context.table.headings))
         }
-        player_root = row_dict.get("player_root", "player-1").encode()
+        player_root = uuid_for(row_dict.get("player_root", "player-1"))
         target.active_players.append(
             table.SeatSnapshot(
                 player_root=player_root,
@@ -147,12 +149,12 @@ def step_given_active_process_in_phase(context, phase):
 
     # Add default players
     context.process.players[0] = PlayerState(
-        player_root=b"player-1",
+        player_root=uuid_for("player-1"),
         position=0,
         stack=500,
     )
     context.process.players[1] = PlayerState(
-        player_root=b"player-2",
+        player_root=uuid_for("player-2"),
         position=1,
         stack=500,
     )
@@ -171,10 +173,10 @@ def step_given_cards_dealt_event(context):
         game_variant=poker_types.TEXAS_HOLDEM,
     )
     context.event.player_cards.append(
-        hand.PlayerHoleCards(player_root=b"player-1", cards=[])
+        hand.PlayerHoleCards(player_root=uuid_for("player-1"), cards=[])
     )
     context.event.player_cards.append(
-        hand.PlayerHoleCards(player_root=b"player-2", cards=[])
+        hand.PlayerHoleCards(player_root=uuid_for("player-2"), cards=[])
     )
 
 
@@ -193,7 +195,7 @@ def step_given_blind_posted_event(context, blind_type):
         else context.process.big_blind
     )
     context.event = hand.BlindPosted(
-        player_root=b"player-1" if blind_type == "small" else b"player-2",
+        player_root=uuid_for("player-1") if blind_type == "small" else uuid_for("player-2"),
         blind_type=blind_type,
         amount=amount,
         pot_total=(
@@ -218,7 +220,7 @@ def step_given_action_taken_event(context, pos, action):
     player = context.process.players.get(position)
     action_enum = getattr(poker_types, action)
     context.event = hand.ActionTaken(
-        player_root=player.player_root if player else b"player-1",
+        player_root=player.player_root if player else uuid_for("player-1"),
         action=action_enum,
         amount=0 if action in ("FOLD", "CHECK") else 10,
         pot_total=context.process.pot_total
@@ -246,7 +248,7 @@ def step_given_raise_action_event(context, pos):
     position = int(pos)
     player = context.process.players.get(position)
     context.event = hand.ActionTaken(
-        player_root=player.player_root if player else b"player-1",
+        player_root=player.player_root if player else uuid_for("player-1"),
         action=poker_types.RAISE,
         amount=20,
         pot_total=context.process.pot_total + 20,
@@ -308,10 +310,10 @@ def step_given_process_with_betting_phase(context, phase):
     )
 
     context.process.players[0] = PlayerState(
-        player_root=b"player-1", position=0, stack=500
+        player_root=uuid_for("player-1"), position=0, stack=500
     )
     context.process.players[1] = PlayerState(
-        player_root=b"player-2", position=1, stack=500
+        player_root=uuid_for("player-2"), position=1, stack=500
     )
     context.process.active_positions = [0, 1]
 
@@ -347,7 +349,7 @@ def step_given_process_with_player_count(context, count):
 
     for i in range(int(count)):
         context.process.players[i] = PlayerState(
-            player_root=f"player-{i + 1}".encode(),
+            player_root=uuid_for(f"player-{i + 1}"),
             position=i,
             stack=500,
         )
@@ -362,7 +364,7 @@ def step_given_simple_action_event(context, action):
     """Create a simple action event."""
     action_enum = getattr(poker_types, action)
     context.event = hand.ActionTaken(
-        player_root=b"player-1",
+        player_root=uuid_for("player-1"),
         action=action_enum,
         amount=0 if action in ("FOLD", "CHECK") else context.process.pot_total,
         pot_total=context.process.pot_total,
@@ -404,10 +406,10 @@ def step_given_process_with_variant(context, variant):
     )
 
     context.process.players[0] = PlayerState(
-        player_root=b"player-1", position=0, stack=500
+        player_root=uuid_for("player-1"), position=0, stack=500
     )
     context.process.players[1] = PlayerState(
-        player_root=b"player-2", position=1, stack=500
+        player_root=uuid_for("player-2"), position=1, stack=500
     )
     context.process.active_positions = [0, 1]
 
@@ -461,10 +463,10 @@ def step_given_active_process(context):
     )
 
     context.process.players[0] = PlayerState(
-        player_root=b"player-1", position=0, stack=500
+        player_root=uuid_for("player-1"), position=0, stack=500
     )
     context.process.players[1] = PlayerState(
-        player_root=b"player-2", position=1, stack=500
+        player_root=uuid_for("player-2"), position=1, stack=500
     )
     context.process.active_positions = [0, 1]
 
@@ -496,7 +498,7 @@ def step_given_process_with_player_stack(context, player, stack):
     )
 
     context.process.players[0] = PlayerState(
-        player_root=player.encode(),
+        player_root=uuid_for(player),
         position=0,
         stack=int(stack),
     )
@@ -511,7 +513,7 @@ def step_given_action_with_amount(context, player, amount):
     """Create action event for specific player with amount."""
     amt = int(amount)
     context.event = hand.ActionTaken(
-        player_root=player.encode(),
+        player_root=uuid_for(player),
         action=poker_types.CALL,
         amount=amt,
         pot_total=context.process.pot_total + amt,
@@ -525,7 +527,7 @@ def step_given_pot_awarded_event(context):
     context.event = hand.PotAwarded()
     context.event.winners.append(
         hand.PotWinner(
-            player_root=b"player-1",
+            player_root=uuid_for("player-1"),
             amount=context.process.pot_total,
             pot_type="main",
         )
@@ -792,7 +794,7 @@ def step_then_player_stack(context, player, stack):
     """Verify player stack."""
     expected = int(stack)
     for p in context.process.players.values():
-        if p.player_root == player.encode():
+        if p.player_root == uuid_for(player):
             assert p.stack == expected, f"Expected stack {expected}, got {p.stack}"
             return
     raise AssertionError(f"Player {player} not found")
@@ -813,6 +815,186 @@ def step_then_betting_phase_set(context, phase):
     assert (
         context.process.betting_phase == expected
     ), f"Expected {phase}, got {context.process.betting_phase}"
+
+
+# ============================================================================
+# Action-order scenarios (EU-0445 / EU-0446 / EU-0447)
+# ============================================================================
+# These scenarios exercise the seat-walker logic in HandProcessManager:
+# preflop the BB retains the option, post-flop ring action starts at the
+# first active seat left of the dealer, post-flop heads-up action starts on
+# the BB. The steps below let a scenario seat N players, post blinds, and
+# drive individual player actions without going through the full
+# table/coordinator stack.
+
+
+@given(
+    r"dealer is at position (?P<dealer>\d+) and (?P<count>\d+) players seated at "
+    r"positions (?P<positions>[\d,\s]+)"
+)
+def step_given_dealer_and_seated(context, dealer, count, positions):
+    """Reseat the existing process with M players at explicit positions.
+
+    The prior `Given an active hand process ...` step seeds two default
+    players; this step replaces them with PlayerStates at the listed
+    positions (default stack 1000) and pins the dealer.
+    """
+    assert hasattr(context, "process") and context.process is not None, (
+        "No active hand process — run an `active hand process` Given first"
+    )
+    seats = [int(s.strip()) for s in positions.split(",") if s.strip()]
+    assert len(seats) == int(count), (
+        f"Expected {count} positions, got {len(seats)}: {seats}"
+    )
+
+    context.process.dealer_position = int(dealer)
+    context.process.players = {}
+    context.process.active_positions = []
+    for i, pos in enumerate(seats):
+        context.process.players[pos] = PlayerState(
+            player_root=uuid_for(f"player-{i + 1}"),
+            position=pos,
+            stack=1000,
+        )
+        context.process.active_positions.append(pos)
+    context.process.active_positions.sort()
+
+
+@given(
+    r"blinds posted: SB position (?P<sb_pos>\d+) amount (?P<sb_amt>\d+), "
+    r"BB position (?P<bb_pos>\d+) amount (?P<bb_amt>\d+)"
+)
+def step_given_blinds_posted_pm(context, sb_pos, sb_amt, bb_pos, bb_amt):
+    """Set blind positions/amounts and reflect them in player & process state.
+
+    Mirrors what `handle_blind_posted` would do for SB+BB, without going
+    through the actual handler chain (the chain calls _start_betting which
+    resets bet_this_round to 0). This step leaves the process ready for
+    individual player CALL/FOLD/etc. actions in the preflop round.
+    """
+    assert hasattr(context, "process") and context.process is not None, "No process"
+    sb_pos_i, bb_pos_i = int(sb_pos), int(bb_pos)
+    sb_amt_i, bb_amt_i = int(sb_amt), int(bb_amt)
+
+    context.process.small_blind_position = sb_pos_i
+    context.process.big_blind_position = bb_pos_i
+    context.process.small_blind = sb_amt_i
+    context.process.big_blind = bb_amt_i
+    context.process.current_bet = bb_amt_i
+    context.process.min_raise = bb_amt_i
+    context.process.pot_total = sb_amt_i + bb_amt_i
+    context.process.small_blind_posted = True
+    context.process.big_blind_posted = True
+    context.process.betting_phase = poker_types.PREFLOP
+
+    sb_player = context.process.players.get(sb_pos_i)
+    if sb_player is not None:
+        sb_player.bet_this_round = sb_amt_i
+        sb_player.total_invested = sb_amt_i
+        sb_player.stack -= sb_amt_i
+
+    bb_player = context.process.players.get(bb_pos_i)
+    if bb_player is not None:
+        bb_player.bet_this_round = bb_amt_i
+        bb_player.total_invested = bb_amt_i
+        bb_player.stack -= bb_amt_i
+
+
+@given("the preflop betting round is complete")
+def step_given_preflop_complete(context):
+    """Mark every active player as having acted at the current_bet level.
+
+    Sets up the process so `_is_betting_complete` returns True for the
+    current betting round — letting a subsequent CommunityCardsDealt event
+    advance the phase and re-pick action_on via `_start_betting`'s
+    post-flop branch.
+    """
+    assert hasattr(context, "process") and context.process is not None, "No process"
+    context.process.betting_phase = poker_types.PREFLOP
+    if context.process.current_bet == 0:
+        context.process.current_bet = context.process.big_blind or 10
+    for player in context.process.players.values():
+        if not player.has_folded and not player.is_all_in:
+            player.has_acted = True
+            player.bet_this_round = context.process.current_bet
+
+
+@when(r"the player at position (?P<pos>\d+) calls (?P<amount>\d+)")
+def step_when_player_calls(context, pos, amount):
+    """Synthesize an ActionTaken(CALL) for the seated player and dispatch it.
+
+    The amount is the chips ADDED this action (not the running bet_this_round
+    total). `handle_action_taken` updates bet_this_round/has_acted and then
+    either advances action_on or ends the round.
+    """
+    assert hasattr(context, "process") and context.process is not None, "No process"
+    position = int(pos)
+    amt = int(amount)
+    player = context.process.players.get(position)
+    assert player is not None, f"No player at position {position}"
+
+    new_stack = player.stack - amt
+    new_pot = context.process.pot_total + amt
+    event = hand.ActionTaken(
+        player_root=player.player_root,
+        action=poker_types.CALL,
+        amount=amt,
+        pot_total=new_pot,
+        player_stack=new_stack,
+    )
+    result = context.pm.handle_action_taken(context.hand_id, event)
+    if result is not None:
+        context.command_sender(result)
+
+
+@when(r"a CommunityCardsDealt event for (?P<phase>\w+) is handled")
+def step_when_community_cards_handled(context, phase):
+    """Build a CommunityCardsDealt event and dispatch it through the PM.
+
+    Mirrors what the table coordinator would emit after dealing the flop
+    (or turn/river). The PM's `handle_community_cards_dealt` flips the
+    phase and calls `_start_betting`, which is where the post-flop seat
+    walker logic gets exercised.
+    """
+    assert hasattr(context, "process") and context.process is not None, "No process"
+    phase_enum = getattr(poker_types, phase.upper())
+    card_counts = {
+        poker_types.FLOP: 3,
+        poker_types.TURN: 1,
+        poker_types.RIVER: 1,
+    }
+    n_cards = card_counts.get(phase_enum, 3)
+    event = hand.CommunityCardsDealt(phase=phase_enum)
+    for i in range(n_cards):
+        event.cards.append(poker_types.Card(suit=poker_types.HEARTS, rank=10 + i))
+    event.all_community_cards.extend(event.cards)
+    result = context.pm.handle_community_cards_dealt(context.hand_id, event)
+    if result is not None:
+        context.command_sender(result)
+
+
+@then("the betting round is not complete")
+def step_then_betting_not_complete(context):
+    """Assert that `_is_betting_complete` returns False for the current round."""
+    assert hasattr(context, "process") and context.process is not None, "No process"
+    assert not context.pm._is_betting_complete(context.process), (
+        "Expected betting round to be in progress, but _is_betting_complete "
+        "returned True. Per-player state: "
+        + ", ".join(
+            f"pos={p.position} acted={p.has_acted} bet={p.bet_this_round} "
+            f"folded={p.has_folded} allin={p.is_all_in}"
+            for p in context.process.players.values()
+        )
+    )
+
+
+@then(r"action_on is position (?P<pos>\d+)")
+def step_then_action_on_position(context, pos):
+    """Assert the current action_on seat matches the expected position."""
+    assert hasattr(context, "process") and context.process is not None, "No process"
+    assert context.process.action_on == int(pos), (
+        f"Expected action_on={pos}, got {context.process.action_on}"
+    )
 
 
 # ============================================================================
@@ -943,7 +1125,12 @@ def _parse_kv_params(raw: str) -> dict[str, str]:
 
 
 def _bytes(val: str) -> bytes:
-    return val.encode() if isinstance(val, str) else val
+    # All callers pass label strings for entity-root / reservation-id bytes
+    # fields (player_root, table_root, tournament_root, reservation_id).
+    # Migrate empty-string -> b"" so tests can probe missing fields.
+    if isinstance(val, str):
+        return uuid_for(val) if val else b""
+    return val
 
 
 def _first_command(response):
