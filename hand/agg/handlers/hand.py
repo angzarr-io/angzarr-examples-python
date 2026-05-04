@@ -7,11 +7,47 @@ from typing import Optional, Tuple, Union
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client import applies, command_handler, handles, now
-from angzarr_client.errors import CommandRejectedError
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand_proto
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
+from ..errors import (
+    AwardPlayerNotInHand,
+    AwardsExceedPot,
+    BetBelowMinRaise,
+    BetExceedsStack,
+    BlindAmountMustBePositive,
+    CannotBetOverExistingBet,
+    CannotCheckWithBet,
+    CannotRaiseWithoutBet,
+    CommunityCardsNotUsedInVariant,
+    DrawNotSupportedInVariant,
+    DuplicateCardIndices,
+    FoldedPlayerCannotWin,
+    HandAlreadyComplete,
+    HandAlreadyDealt,
+    HandNotDealt,
+    InvalidAction,
+    InvalidCardIndex,
+    MustDealAtLeast1Card,
+    NeedAtLeast2Players,
+    NoAwardsSpecified,
+    NoMorePhases,
+    NoPlayersInHand,
+    NotEnoughCardsInDeck,
+    NotInBettingPhase,
+    NotInShowdownPhase,
+    NothingToCall,
+    PlayerHasFolded,
+    PlayerIsAllIn,
+    PlayerNotInHand,
+    PlayerRootRequired,
+    RaiseBelowMin,
+    RaiseExceedsStack,
+    TooManyDiscards,
+    WinnerNotEligibleForPot,
+    WrongCardCountForPhase,
+)
 from .game_rules import get_game_rules
 
 
@@ -252,11 +288,17 @@ class Hand:
         preflop → draw. Other variants get their phase change from
         CommunityCardsDealt; this applier handles the one transition that
         has no community-card event.
+
+        Real-poker NLHE convention: ``min_raise`` resets to the big blind
+        at the start of every street. Carrying preflop's increment forward
+        would spuriously reject legal flop/turn/river bets that exceed BB
+        but fall short of the prior preflop raise increment.
         """
         for player in state.players.values():
             player.bet_this_round = 0
             player.has_acted = False
         state.current_bet = 0
+        state.min_raise = state.big_blind
 
         for snap in event.stacks:
             for player in state.players.values():
@@ -387,6 +429,76 @@ class Hand:
     def get_players_in_hand(self) -> list:
         return [p for p in self._state.players.values() if not p.has_folded]
 
+    def compute_side_pots(self) -> Tuple[list, int]:
+        """Compute layered pots from current per-player ``total_invested``.
+
+        Real poker (TDA Rule 42): when stacks differ at all-in, the pot
+        layers into a main pot eligible to all contributors and one or
+        more side pots eligible only to the players whose contribution
+        reached or exceeded each layer's all-in level. Folded players'
+        chips remain in the lowest layer they participated in.
+
+        Returns ``(pots, uncontested_return)`` where:
+          - ``pots`` is a list of ``_PotInfo`` ordered main → side_1 → ...
+          - ``uncontested_return`` is the chip count that the deepest
+            stack over-bet beyond what any opponent could match (returned
+            to that player; not part of any pot).
+
+        Eligibility = the set of un-folded ``player_root``s whose
+        ``total_invested`` is at least the layer's level.
+        """
+        s = self._state
+        contributions: list[tuple[bytes, int, bool]] = [
+            (p.player_root, p.total_invested, p.has_folded)
+            for p in s.players.values()
+            if p.total_invested > 0
+        ]
+        if not contributions:
+            return [], 0
+
+        # Layer levels are the distinct invested amounts of un-folded
+        # players, ascending. Folded players' contributions count toward
+        # whichever layers they reached but they are never eligible to win.
+        active_levels = sorted(
+            {amount for _, amount, folded in contributions if not folded}
+        )
+        if not active_levels:
+            # Everyone folded. Whatever is in the pot goes uncontested to
+            # whoever was last to act — caller decides; here just return
+            # one main pot with the full sum and no eligibles.
+            total = sum(amount for _, amount, _ in contributions)
+            return ([_PotInfo(amount=total, eligible_players=[], pot_type="main")], 0)
+
+        pots: list[_PotInfo] = []
+        prev_level = 0
+        for idx, level in enumerate(active_levels):
+            layer_amount = 0
+            eligible: list[bytes] = []
+            for root, invested, folded in contributions:
+                slice_size = max(0, min(invested, level) - prev_level)
+                layer_amount += slice_size
+                if not folded and invested >= level:
+                    eligible.append(root)
+            pot_type = "main" if idx == 0 else f"side_{idx}"
+            pots.append(
+                _PotInfo(
+                    amount=layer_amount,
+                    eligible_players=eligible,
+                    pot_type=pot_type,
+                )
+            )
+            prev_level = level
+
+        # Uncontested over-bet: any chips the deepest stack invested
+        # beyond the highest active all-in level (no one could match).
+        deepest_active = active_levels[-1]
+        uncontested = 0
+        for root, invested, folded in contributions:
+            if not folded and invested > deepest_active:
+                uncontested += invested - deepest_active
+
+        return pots, uncontested
+
     # --- Command handlers ---
 
     @handles(hand_proto.DealCards)
@@ -401,11 +513,11 @@ class Hand:
         saved = self._router_bind(state) if router_mode else None
         try:
             if self.exists:
-                raise CommandRejectedError("Hand already dealt")
+                raise HandAlreadyDealt()
             if not cmd.players:
-                raise CommandRejectedError("No players in hand")
+                raise NoPlayersInHand()
             if len(cmd.players) < 2:
-                raise CommandRejectedError.invalid_argument("NEED_AT_LEAST_2_PLAYERS", "Need at least 2 players")
+                raise NeedAtLeast2Players(got=len(cmd.players))
 
             rules = get_game_rules(cmd.game_variant)
             player_roots = [p.player_root for p in cmd.players]
@@ -451,19 +563,19 @@ class Hand:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Hand not dealt")
+                raise HandNotDealt()
             if self.status == "complete":
-                raise CommandRejectedError("Hand is complete")
+                raise HandAlreadyComplete()
             if not cmd.player_root:
-                raise CommandRejectedError("player_root is required")
+                raise PlayerRootRequired()
 
             player = self.get_player(cmd.player_root)
             if not player:
-                raise CommandRejectedError("Player not in hand")
+                raise PlayerNotInHand()
             if player.has_folded:
-                raise CommandRejectedError("Player has folded")
+                raise PlayerHasFolded()
             if cmd.amount <= 0:
-                raise CommandRejectedError.invalid_argument("BLIND_AMOUNT_MUST_BE_POSITIVE", "Blind amount must be positive")
+                raise BlindAmountMustBePositive(value=cmd.amount)
 
             actual_amount = min(cmd.amount, player.stack)
             new_stack = player.stack - actual_amount
@@ -496,19 +608,19 @@ class Hand:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Hand not dealt")
+                raise HandNotDealt()
             if self.status != "betting":
-                raise CommandRejectedError("Not in betting phase")
+                raise NotInBettingPhase()
             if not cmd.player_root:
-                raise CommandRejectedError("player_root is required")
+                raise PlayerRootRequired()
 
             player = self.get_player(cmd.player_root)
             if not player:
-                raise CommandRejectedError("Player not in hand")
+                raise PlayerNotInHand()
             if player.has_folded:
-                raise CommandRejectedError("Player has folded")
+                raise PlayerHasFolded()
             if player.is_all_in:
-                raise CommandRejectedError("Player is all-in")
+                raise PlayerIsAllIn()
 
             action = cmd.action
             amount = cmd.amount
@@ -521,38 +633,36 @@ class Hand:
                 event_amount = 0
             elif action == poker_types.CHECK:
                 if call_amount > 0:
-                    raise CommandRejectedError(
-                        "Cannot check when there is a bet to call"
-                    )
+                    raise CannotCheckWithBet()
                 chips_put_in = 0
                 event_amount = 0
             elif action == poker_types.CALL:
                 if call_amount == 0:
-                    raise CommandRejectedError("Nothing to call")
+                    raise NothingToCall()
                 chips_put_in = min(call_amount, player.stack)
                 event_amount = chips_put_in
                 if player.stack - chips_put_in == 0:
                     action = poker_types.ALL_IN
             elif action == poker_types.BET:
                 if self.current_bet > 0:
-                    raise CommandRejectedError("Cannot bet when there is already a bet")
-                if amount < self.big_blind:
-                    raise CommandRejectedError.invalid_argument("BET_MUST_BE_AT_LEAST", f"Bet must be at least {self.big_blind}")
+                    raise CannotBetOverExistingBet()
+                if amount < self.min_raise and amount < player.stack:
+                    raise BetBelowMinRaise(got=amount, bound=self.min_raise)
                 if amount > player.stack:
-                    raise CommandRejectedError("Bet exceeds stack")
+                    raise BetExceedsStack(got=amount, bound=player.stack)
                 chips_put_in = amount
                 event_amount = amount
                 if player.stack - chips_put_in == 0:
                     action = poker_types.ALL_IN
             elif action == poker_types.RAISE:
                 if self.current_bet == 0:
-                    raise CommandRejectedError("Cannot raise when there is no bet")
+                    raise CannotRaiseWithoutBet()
                 raise_amount = amount - self.current_bet
                 to_put_in = amount - player.bet_this_round
                 if raise_amount < self.min_raise and to_put_in < player.stack:
-                    raise CommandRejectedError.invalid_argument("RAISE_MUST_BE_AT_LEAST", f"Raise must be at least {self.min_raise}")
+                    raise RaiseBelowMin(got=amount, bound=self.min_raise)
                 if to_put_in > player.stack:
-                    raise CommandRejectedError("Raise exceeds stack")
+                    raise RaiseExceedsStack(got=amount, bound=player.stack)
                 chips_put_in = to_put_in
                 event_amount = chips_put_in
                 if player.stack - chips_put_in == 0:
@@ -561,7 +671,7 @@ class Hand:
                 chips_put_in = player.stack
                 event_amount = chips_put_in
             else:
-                raise CommandRejectedError("Invalid action")
+                raise InvalidAction(got=action)
 
             new_stack = player.stack - chips_put_in
             new_pot_total = self.get_pot_total() + chips_put_in
@@ -600,29 +710,32 @@ class Hand:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Hand not dealt")
+                raise HandNotDealt()
             if self.status == "complete":
-                raise CommandRejectedError("Hand is complete")
+                raise HandAlreadyComplete()
             if cmd.count <= 0:
-                raise CommandRejectedError.invalid_argument("MUST_DEAL_AT_LEAST_1_CARD", "Must deal at least 1 card")
+                raise MustDealAtLeast1Card(got=cmd.count, bound=1)
 
             s = self._state
             rules = get_game_rules(s.game_variant)
 
             if rules.variant == poker_types.FIVE_CARD_DRAW:
-                raise CommandRejectedError(
-                    "Five card draw doesn't have community cards"
-                )
+                raise CommunityCardsNotUsedInVariant()
 
             transition = rules.get_next_phase(s.current_phase)
             if not transition:
-                raise CommandRejectedError("No more phases")
+                raise NoMorePhases()
             if transition.community_cards_to_deal != cmd.count:
-                raise CommandRejectedError(
-                    f"Expected {transition.community_cards_to_deal} cards for this phase"
+                phase_name = poker_types.BettingPhase.Name(transition.next_phase)
+                raise WrongCardCountForPhase(
+                    expected=transition.community_cards_to_deal,
+                    got=cmd.count,
+                    phase=phase_name,
                 )
             if len(s.remaining_deck) < cmd.count:
-                raise CommandRejectedError("Not enough cards in deck")
+                raise NotEnoughCardsInDeck(
+                    requested=cmd.count, available=len(s.remaining_deck)
+                )
 
             new_cards = s.remaining_deck[: cmd.count]
             all_community = s.community_cards + new_cards
@@ -655,34 +768,36 @@ class Hand:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Hand not dealt")
+                raise HandNotDealt()
             if self.status == "complete":
-                raise CommandRejectedError("Hand is complete")
+                raise HandAlreadyComplete()
             if not cmd.player_root:
-                raise CommandRejectedError("player_root is required")
+                raise PlayerRootRequired()
 
             player = self.get_player(cmd.player_root)
             if not player:
-                raise CommandRejectedError("Player not in hand")
+                raise PlayerNotInHand()
             if player.has_folded:
-                raise CommandRejectedError("Player has folded")
+                raise PlayerHasFolded()
 
             s = self._state
             if s.game_variant != poker_types.FIVE_CARD_DRAW:
-                raise CommandRejectedError.invalid_argument("DRAW_NOT_SUPPORTED_IN_THIS_GAME_VARIANT", "Draw not supported in this game variant")
+                raise DrawNotSupportedInVariant()
 
             indices = list(cmd.card_indices)
             if len(indices) > 5:
-                raise CommandRejectedError("Cannot discard more than 5 cards")
+                raise TooManyDiscards(got=len(indices), bound=5)
             if len(set(indices)) != len(indices):
-                raise CommandRejectedError("Duplicate card indices")
+                raise DuplicateCardIndices()
             for idx in indices:
                 if idx < 0 or idx >= len(player.hole_cards):
-                    raise CommandRejectedError(f"Invalid card index: {idx}")
+                    raise InvalidCardIndex(got=idx)
 
             cards_to_draw = len(indices)
             if len(s.remaining_deck) < cards_to_draw:
-                raise CommandRejectedError("Not enough cards in deck")
+                raise NotEnoughCardsInDeck(
+                    requested=cards_to_draw, available=len(s.remaining_deck)
+                )
 
             drawn = s.remaining_deck[:cards_to_draw]
             updated_hole = list(player.hole_cards)
@@ -717,17 +832,17 @@ class Hand:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Hand not dealt")
+                raise HandNotDealt()
             if self.status != "showdown":
-                raise CommandRejectedError("Not in showdown")
+                raise NotInShowdownPhase()
             if not cmd.player_root:
-                raise CommandRejectedError("player_root is required")
+                raise PlayerRootRequired()
 
             player = self.get_player(cmd.player_root)
             if not player:
-                raise CommandRejectedError("Player not in hand")
+                raise PlayerNotInHand()
             if player.has_folded:
-                raise CommandRejectedError("Player has folded")
+                raise PlayerHasFolded()
 
             if cmd.muck:
                 event = hand_proto.CardsMucked(
@@ -776,23 +891,46 @@ class Hand:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Hand not dealt")
+                raise HandNotDealt()
             if self.status == "complete":
-                raise CommandRejectedError("Hand already complete")
+                raise HandAlreadyComplete()
             if not cmd.awards:
-                raise CommandRejectedError("No awards specified")
+                raise NoAwardsSpecified()
 
             s = self._state
 
             for award in cmd.awards:
                 player = self.get_player(award.player_root)
                 if not player:
-                    raise CommandRejectedError("Winner not in hand")
+                    raise AwardPlayerNotInHand()
                 if player.has_folded:
-                    raise CommandRejectedError("Folded player cannot win pot")
+                    raise FoldedPlayerCannotWin()
+
+            # Per-pot eligibility (TDA Rule 42): an award assigned to a
+            # specific pot_type must target a player who was eligible for
+            # that pot. We compute layered pots from current invested
+            # amounts and check each award's pot_type membership.
+            computed_pots, _uncontested = self.compute_side_pots()
+            if computed_pots:
+                eligibility = {
+                    pot.pot_type: set(pot.eligible_players) for pot in computed_pots
+                }
+                for award in cmd.awards:
+                    pot_type = award.pot_type or "main"
+                    eligible_set = eligibility.get(pot_type)
+                    if (
+                        eligible_set is not None
+                        and award.player_root not in eligible_set
+                    ):
+                        raise WinnerNotEligibleForPot(
+                            pot_type=pot_type,
+                            player_root=award.player_root.hex(),
+                        )
 
             total_awarded = sum(a.amount for a in cmd.awards)
             pot_total = self.get_pot_total()
+            if total_awarded > pot_total:
+                raise AwardsExceedPot(got=total_awarded, bound=pot_total)
             awards = list(cmd.awards)
             if total_awarded != pot_total and pot_total > 0 and len(awards) > 0:
                 awards[0].amount = pot_total - sum(a.amount for a in awards[1:])

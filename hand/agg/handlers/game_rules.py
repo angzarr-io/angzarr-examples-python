@@ -1,11 +1,53 @@
 """Polymorphic game rules for different poker variants."""
 
+import hashlib
 import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+
+# SplitMix64 — portable PRNG used so seeded shuffles produce byte-identical
+# decks across language implementations. Specified by the cucumber spec
+# (hand.feature EU-0004 asserts specific cards for a given seed); any
+# non-portable PRNG would silently break that assertion across languages.
+_SPLITMIX64_MASK = (1 << 64) - 1
+_SPLITMIX64_GAMMA = 0x9E3779B97F4A7C15
+_SPLITMIX64_MIX1 = 0xBF58476D1CE4E5B9
+_SPLITMIX64_MIX2 = 0x94D049BB133111EB
+
+
+class _SplitMix64:
+    """SplitMix64 reference implementation. Output identical to the Rust
+    `SplitMix64` in `examples-rust/main/hand/agg/src/handlers/deal_cards.rs`.
+    """
+
+    def __init__(self, seed: int):
+        self.state = seed & _SPLITMIX64_MASK
+
+    def next_u64(self) -> int:
+        self.state = (self.state + _SPLITMIX64_GAMMA) & _SPLITMIX64_MASK
+        z = self.state
+        z = ((z ^ (z >> 30)) * _SPLITMIX64_MIX1) & _SPLITMIX64_MASK
+        z = ((z ^ (z >> 27)) * _SPLITMIX64_MIX2) & _SPLITMIX64_MASK
+        return z ^ (z >> 31)
+
+
+def _shuffle_with_seed(deck: list, seed: bytes) -> None:
+    """In-place Fisher-Yates shuffle using the canonical PRNG.
+
+    Seed derivation: SHA-256(seed_bytes) → first 8 bytes big-endian → u64 →
+    SplitMix64 state. Both languages must use this exact derivation for
+    decks to match.
+    """
+    digest = hashlib.sha256(seed).digest()
+    seed_int = int.from_bytes(digest[:8], "big")
+    rng = _SplitMix64(seed_int)
+    n = len(deck)
+    for i in range(n - 1, 0, -1):
+        j = rng.next_u64() % (i + 1)
+        deck[i], deck[j] = deck[j], deck[i]
 
 
 @dataclass
@@ -84,8 +126,7 @@ class GameRules(ABC):
                 deck.append((suit, rank))
 
         if seed:
-            rng = random.Random(int.from_bytes(seed[:8], "big"))
-            rng.shuffle(deck)
+            _shuffle_with_seed(deck, seed)
         else:
             random.shuffle(deck)
 
@@ -107,7 +148,7 @@ class GameRules(ABC):
             cards = []
             for _ in range(self.hole_card_count):
                 if working_deck:
-                    cards.append(working_deck.pop())
+                    cards.append(working_deck.pop(0))
             player_cards[player_root] = cards
 
         return DealResult(
@@ -170,7 +211,13 @@ class TexasHoldemRules(GameRules):
         return self._find_best_hand(all_cards)
 
     def _find_best_hand(self, cards: list) -> tuple:
-        """Find the best 5-card hand from available cards."""
+        """Find the best 5-card hand from available cards.
+
+        Comparison key is (score, kickers) so kicker lists tiebreak when
+        scores are equal — required for FOUR_OF_A_KIND with quads on board,
+        TWO_PAIR with both pairs on board, and THREE_OF_A_KIND with trips
+        on board (real-poker rule: highest remaining card decides).
+        """
         if len(cards) < 5:
             return (poker_types.HIGH_CARD, 0, [])
 
@@ -179,7 +226,7 @@ class TexasHoldemRules(GameRules):
         best = (poker_types.HIGH_CARD, 0, [])
         for combo in combinations(cards, 5):
             result = self._evaluate_five(list(combo))
-            if result[1] > best[1]:
+            if (result[1], result[2]) > (best[1], best[2]):
                 best = result
 
         return best
@@ -205,7 +252,11 @@ class TexasHoldemRules(GameRules):
         if is_straight and is_flush:
             if ranks == [14, 13, 12, 11, 10]:
                 return (poker_types.ROYAL_FLUSH, 10000000, [])
-            return (poker_types.STRAIGHT_FLUSH, 9000000 + ranks[0], [])
+            # Wheel (A-2-3-4-5) sorts as [14,5,4,3,2] but is 5-high — the
+            # LOWEST straight flush. Score by the actual high card (5),
+            # not the Ace, so 6-high SF correctly beats the steel wheel.
+            high_card = 5 if ranks == [14, 5, 4, 3, 2] else ranks[0]
+            return (poker_types.STRAIGHT_FLUSH, 9000000 + high_card, [])
         elif counts == [4, 1]:
             return (
                 poker_types.FOUR_OF_A_KIND,
@@ -221,7 +272,9 @@ class TexasHoldemRules(GameRules):
         elif is_flush:
             return (poker_types.FLUSH, 6000000 + self._rank_score(ranks), ranks)
         elif is_straight:
-            return (poker_types.STRAIGHT, 5000000 + ranks[0], [])
+            # Wheel score uses 5 (high card), not 14 (Ace plays low).
+            high_card = 5 if ranks == [14, 5, 4, 3, 2] else ranks[0]
+            return (poker_types.STRAIGHT, 5000000 + high_card, [])
         elif counts == [3, 1, 1]:
             kickers = [r for r in sorted_by_count if rank_counts[r] == 1]
             return (
@@ -278,12 +331,14 @@ class OmahaRules(TexasHoldemRules):
 
         best = (poker_types.HIGH_CARD, 0, [])
 
-        # Must use exactly 2 hole cards and 3 community cards
+        # Must use exactly 2 hole cards and 3 community cards.
+        # Comparison key is (score, kickers) so kickers tiebreak — see
+        # TexasHoldemRules._find_best_hand for the rationale.
         for hole_combo in combinations(hole_cards, 2):
             for comm_combo in combinations(community_cards, 3):
                 cards = list(hole_combo) + list(comm_combo)
                 result = self._evaluate_five(cards)
-                if result[1] > best[1]:
+                if (result[1], result[2]) > (best[1], best[2]):
                     best = result
 
         return best

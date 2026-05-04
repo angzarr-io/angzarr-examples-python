@@ -7,6 +7,7 @@ from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 from projector import OutputProjector
 from renderer import format_card
+from tests.helpers import uuid_for
 
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import hand_pb2 as hand
@@ -239,12 +240,12 @@ def step_given_active_players_three(context, player1, player2, player3, seats):
     for i, (name, seat) in enumerate(zip(player_names, seat_nums)):
         context.hand_started.active_players.append(
             table.SeatSnapshot(
-                player_root=f"player-{i + 1}".encode(),
+                player_root=uuid_for(f"player-{i + 1}"),
                 position=seat,
                 stack=500,
             )
         )
-        context.projector.set_player_name(f"player-{i + 1}".encode(), name)
+        context.projector.set_player_name(uuid_for(f"player-{i + 1}"), name)
 
 
 @given(
@@ -258,12 +259,12 @@ def step_given_active_players_two(context, player1, player2, seats):
     for i, (name, seat) in enumerate(zip(player_names, seat_nums)):
         context.hand_started.active_players.append(
             table.SeatSnapshot(
-                player_root=f"player-{i + 1}".encode(),
+                player_root=uuid_for(f"player-{i + 1}"),
                 position=seat,
                 stack=500,
             )
         )
-        context.projector.set_player_name(f"player-{i + 1}".encode(), name)
+        context.projector.set_player_name(uuid_for(f"player-{i + 1}"), name)
 
 
 @given('a HandEnded event with winner "(?P<winner>[^"]+)" amount (?P<amount>\\d+)')
@@ -416,7 +417,7 @@ def step_given_hand_complete_with_stacks(context):
             for j in range(len(context.table.headings))
         }
         player_name = row_dict.get("player", f"Player{i + 1}")
-        player_root = f"player-{i + 1}".encode()
+        player_root = uuid_for(f"player-{i + 1}")
         has_folded_str = row_dict.get("has_folded", "false").lower()
         has_folded = has_folded_str in ("true", "yes", "1")
         event.final_stacks.append(
@@ -446,7 +447,7 @@ def step_given_player_timed_out(context, player, action):
 @given('player "(?P<player_id>[^"]+)" is registered as "(?P<name>[^"]+)"')
 def step_given_player_registered_as(context, player_id, name):
     """Register player with name."""
-    context.projector.set_player_name(player_id.encode(), name)
+    context.projector.set_player_name(uuid_for(player_id), name)
 
 
 @given("an event with created_at (?P<time>\\d+:\\d+:\\d+)")
@@ -557,7 +558,7 @@ def step_when_formatting_ranks(context):
 @when('an event references "(?P<player_id>[^"]+)"')
 def step_when_event_references(context, player_id):
     """Handle event with player reference using PlayerJoined which renders player name."""
-    player_root = player_id.encode()
+    player_root = uuid_for(player_id)
     context.event = table.PlayerJoined(
         player_root=player_root,
         seat_position=1,
@@ -576,7 +577,7 @@ def step_when_event_references(context, player_id):
 @when('an event references unknown "(?P<player_id>[^"]+)"')
 def step_when_event_references_unknown(context, player_id):
     """Handle event with unknown player reference using PlayerJoined."""
-    player_root = player_id.encode()
+    player_root = uuid_for(player_id)
     context.event = table.PlayerJoined(
         player_root=player_root,
         seat_position=1,

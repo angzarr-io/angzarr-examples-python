@@ -115,3 +115,114 @@ def step_then_all_in_less_than_min_raise(context):
     assert (
         context.all_in_to < min_raise_to
     ), f"all-in {context.all_in_to} is not less than min_raise_to {min_raise_to}"
+
+
+# --- Per-street reset steps ---
+#
+# These exercise the NLHE convention that ``min_raise`` (a.k.a.
+# ``last_raise_increment``) resets to the big blind on each new street.
+# The arithmetic is local to context — the matching aggregate behaviour
+# lives in ``Hand.apply_betting_round_complete``.
+
+
+@given(
+    r"current_bet is (?P<bet>-?\d+) and last_raise_increment is (?P<inc>-?\d+) "
+    r"and big_blind is (?P<bb>-?\d+)"
+)
+def step_given_state_with_bb(context, bet, inc, bb):
+    context.current_bet = int(bet)
+    context.last_raise_increment = int(inc)
+    context.big_blind = int(bb)
+
+
+@given(
+    r"current_bet is (?P<bet>-?\d+) and last_raise_increment is (?P<inc>-?\d+) "
+    r"on a new street(?: with big_blind (?P<bb>-?\d+))?"
+)
+def step_given_state_new_street(context, bet, inc, bb):
+    context.current_bet = int(bet)
+    context.last_raise_increment = int(inc)
+    context.big_blind = int(bb) if bb is not None else int(inc)
+
+
+@given(
+    r"current_bet is (?P<bet>-?\d+) and last_raise_increment is (?P<inc>-?\d+) "
+    r"on a new street with big_blind (?P<bb>-?\d+)"
+)
+def step_given_state_new_street_with_bb(context, bet, inc, bb):
+    context.current_bet = int(bet)
+    context.last_raise_increment = int(inc)
+    context.big_blind = int(bb)
+
+
+@given(
+    r"preflop ended with last_raise_increment (?P<inc>-?\d+) and "
+    r"big_blind (?P<bb>-?\d+)"
+)
+def step_given_preflop_ended(context, inc, bb):
+    context.current_bet = 0
+    context.last_raise_increment = int(inc)
+    context.big_blind = int(bb)
+
+
+@when(r"a new betting round begins")
+def step_when_new_betting_round(context):
+    """Reset per-street betting state. ``min_raise`` falls back to BB."""
+    context.current_bet = 0
+    context.last_raise_increment = context.big_blind
+
+
+class _ArithmeticRejection(Exception):
+    """Minimal stand-in for a structured rejection on the context.error
+    surface. ``common_steps`` reads ``code`` and ``details`` directly.
+    """
+
+    def __init__(self, code: str, **fields):
+        self.code = code
+        self.details = {k: str(v) for k, v in fields.items()}
+        super().__init__(f"{code}: {fields}")
+
+
+@when(r"a player bets (?P<amt>-?\d+)")
+def step_when_bet(context, amt):
+    bet_amount = int(amt)
+    bb = getattr(context, "big_blind", 0)
+    if bet_amount < bb:
+        context.error = _ArithmeticRejection(
+            "BET_BELOW_MIN_RAISE", got=bet_amount, bound=bb
+        )
+        return
+    increment = bet_amount - context.current_bet
+    if increment > context.last_raise_increment:
+        context.last_raise_increment = increment
+    context.current_bet = bet_amount
+    context.error = None
+
+
+@when(r"a player attempts to bet (?P<amt>-?\d+)")
+def step_when_attempt_bet(context, amt):
+    step_when_bet(context, amt)
+
+
+@when(r"all active players check")
+def step_when_check_around(context):
+    """Checks don't change tracking state."""
+    pass
+
+
+@when(r"the next betting round begins")
+def step_when_next_betting_round(context):
+    step_when_new_betting_round(context)
+
+
+@then(r"the bet is accepted")
+def step_then_bet_accepted(context):
+    err = getattr(context, "error", None)
+    assert err is None, f"Expected bet to be accepted, but got rejection: {err}"
+
+
+@then(r'the bet is rejected with code "(?P<code>[^"]+)"')
+def step_then_bet_rejected(context, code):
+    err = getattr(context, "error", None)
+    assert err is not None, "Expected bet to be rejected, but it was accepted"
+    assert err.code == code, f"Expected code {code!r}, got {err.code!r}"

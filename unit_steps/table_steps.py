@@ -6,6 +6,7 @@ from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 from table.agg.handlers import Table
+from tests.helpers import uuid_for
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import type_name_from_url
@@ -126,7 +127,7 @@ def step_given_player_joined(context, player_id, seat):
         context.events = []
 
     event = table.PlayerJoined(
-        player_root=player_id.encode("utf-8"),
+        player_root=uuid_for(player_id),
         seat_position=int(seat),
         buy_in_amount=500,
         stack=500,
@@ -144,7 +145,7 @@ def step_given_player_joined_with_stack(context, player_id, seat, stack):
         context.events = []
 
     event = table.PlayerJoined(
-        player_root=player_id.encode("utf-8"),
+        player_root=uuid_for(player_id),
         seat_position=int(seat),
         buy_in_amount=int(stack),
         stack=int(stack),
@@ -174,7 +175,7 @@ def step_given_hand_started(context, hand_num):
         )
 
     event = table.HandStarted(
-        hand_root=f"hand-{hand_num}".encode(),
+        hand_root=uuid_for(f"hand-{hand_num}"),
         hand_number=int(hand_num),
         dealer_position=0,
         small_blind_position=0,
@@ -211,7 +212,7 @@ def step_given_hand_started_with_dealer(context, hand_num, seat):
         )
 
     event = table.HandStarted(
-        hand_root=f"hand-{hand_num}".encode(),
+        hand_root=uuid_for(f"hand-{hand_num}"),
         hand_number=int(hand_num),
         dealer_position=int(seat),
         small_blind_position=int(seat),
@@ -232,7 +233,7 @@ def step_given_hand_ended(context, hand_num):
         context.events = []
 
     event = table.HandEnded(
-        hand_root=f"hand-{hand_num}".encode(),
+        hand_root=uuid_for(f"hand-{hand_num}"),
         ended_at=make_timestamp(),
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
@@ -254,8 +255,7 @@ _HANDLER_MAP = {
 
 def _id_bytes(label: str) -> bytes:
     """Deterministic 16-byte id derived from a label."""
-    raw = label.encode("utf-8")
-    return (raw + b"\x00" * 16)[:16]
+    return uuid_for(label)
 
 
 def _execute_handler(context, method_name: str, cmd):
@@ -292,9 +292,19 @@ def _execute_handler(context, method_name: str, cmd):
         # Store aggregate for state access
         context.agg = agg
     except CommandRejectedError as e:
+        _stamp_scenario_cover(context, e)
         context.result = None
         context.error = e
         context.error_message = str(e)
+
+
+def _stamp_scenario_cover(context, err):
+    """Mirror dispatch-boundary cover stamping for direct-call unit tests."""
+    if err is None or getattr(err, "cover", None) is not None:
+        return
+    cover = getattr(context, "command_cover", None)
+    if cover is not None:
+        err.cover = cover
 
 
 @when(
@@ -327,7 +337,7 @@ def step_when_create_table(context, name, variant):
 def step_when_join_table(context, player_id, seat, buy_in_amt):
     """Handle JoinTable command."""
     cmd = table.JoinTable(
-        player_root=player_id.encode("utf-8"),
+        player_root=uuid_for(player_id) if player_id else b"",
         preferred_seat=int(seat),
         buy_in_amount=int(buy_in_amt),
     )
@@ -338,7 +348,7 @@ def step_when_join_table(context, player_id, seat, buy_in_amt):
 def step_when_leave_table(context, player_id):
     """Handle LeaveTable command."""
     cmd = table.LeaveTable(
-        player_root=player_id.encode("utf-8"),
+        player_root=uuid_for(player_id) if player_id else b"",
     )
     _execute_handler(context, "leave", cmd)
 
@@ -364,7 +374,7 @@ def step_when_end_hand(context, winner, amount):
     )
     cmd.results.append(
         table.PotResult(
-            winner_root=winner.encode("utf-8"),
+            winner_root=uuid_for(winner),
             amount=int(amount),
             pot_type="main",
         )
@@ -389,7 +399,7 @@ def step_when_end_hand_with_results(context):
         change = int(row["change"])
         cmd.results.append(
             table.PotResult(
-                winner_root=player_id.encode("utf-8"),
+                winner_root=uuid_for(player_id),
                 amount=change,
                 pot_type="main",
             )
@@ -525,7 +535,7 @@ def step_then_player_stack_change(context, player_id, amount):
     """Verify the player's stack change in HandEnded event."""
     event = table.HandEnded()
     context.result_event_any.Unpack(event)
-    player_hex = player_id.encode("utf-8").hex()
+    player_hex = uuid_for(player_id).hex()
     assert player_hex in event.stack_changes, f"No stack change for {player_id}"
     assert event.stack_changes[player_hex] == int(
         amount
@@ -568,7 +578,7 @@ def step_then_state_seat_occupied(context, seat, player_id):
     assert context.agg is not None, "No table aggregate"
     seat_state = context.agg.get_seat(int(seat))
     assert seat_state is not None, f"Seat {seat} not occupied"
-    expected_player = player_id.encode("utf-8")
+    expected_player = uuid_for(player_id)
     assert (
         seat_state.player_root == expected_player
     ), f"Expected {player_id} at seat {seat}, got {seat_state.player_root}"
@@ -605,7 +615,7 @@ def step_given_player_sat_out(context, player_id):
     """Add a PlayerSatOut event to the history."""
     if not hasattr(context, "events"):
         context.events = []
-    event = table.PlayerSatOut(player_root=player_id.encode("utf-8"))
+    event = table.PlayerSatOut(player_root=uuid_for(player_id))
     context.events.append(make_event_page(event, seq=len(context.events)))
 
 
@@ -614,7 +624,7 @@ def step_given_player_sat_in(context, player_id):
     """Add a PlayerSatIn event to the history."""
     if not hasattr(context, "events"):
         context.events = []
-    event = table.PlayerSatIn(player_root=player_id.encode("utf-8"))
+    event = table.PlayerSatIn(player_root=uuid_for(player_id))
     context.events.append(make_event_page(event, seq=len(context.events)))
 
 
@@ -626,7 +636,7 @@ def step_given_chips_added(context, player_id, new_stack):
     if not hasattr(context, "events"):
         context.events = []
     event = table.ChipsAdded(
-        player_root=player_id.encode("utf-8"),
+        player_root=uuid_for(player_id),
         new_stack=int(new_stack),
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
@@ -658,7 +668,7 @@ def step_when_start_and_end_hand(context, winner, amount):
     end_cmd = table.EndHand(hand_root=start_event.hand_root)
     end_cmd.results.append(
         table.PotResult(
-            winner_root=winner.encode("utf-8"),
+            winner_root=uuid_for(winner),
             amount=int(amount),
             pot_type="main",
         )
@@ -674,6 +684,7 @@ def step_when_start_and_end_hand(context, winner, amount):
         context.error = None
         context.agg = agg
     except CommandRejectedError as e:
+        _stamp_scenario_cover(context, e)
         context.result = None
         context.error = e
         context.error_message = str(e)
@@ -686,7 +697,7 @@ def step_when_start_and_end_hand(context, winner, amount):
 def step_when_seat_player(context, player_id, res, seat, amount):
     """Handle SeatPlayer orchestration command."""
     cmd = buy_in.SeatPlayer(
-        player_root=player_id.encode("utf-8"),
+        player_root=uuid_for(player_id) if player_id else b"",
         reservation_id=_id_bytes(res),
         seat=int(seat),
         amount=int(amount),
@@ -701,7 +712,7 @@ def step_when_seat_player(context, player_id, res, seat, amount):
 def step_when_add_rebuy_chips(context, player_id, res, seat, amount):
     """Handle AddRebuyChips orchestration command."""
     cmd = rebuy.AddRebuyChips(
-        player_root=player_id.encode("utf-8"),
+        player_root=uuid_for(player_id) if player_id else b"",
         reservation_id=_id_bytes(res),
         seat=int(seat),
         amount=int(amount),

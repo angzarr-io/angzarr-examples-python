@@ -12,6 +12,7 @@ from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 from tournament.agg.handlers import Tournament
+from tests.helpers import uuid_for
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import try_unpack, type_name_from_url
@@ -54,8 +55,7 @@ def _id_bytes(label: str) -> bytes:
     """Deterministic 16-byte id derived from a label."""
     if not label:
         return b""
-    raw = label.encode("utf-8")
-    return (raw + b"\x00" * 16)[:16]
+    return uuid_for(label)
 
 
 def _ensure_events(context):
@@ -102,7 +102,7 @@ def _append_player_enrolled(context, player_label: str) -> None:
     book = _make_event_book(context.events)
     agg = Tournament(book)
     event = tournament.TournamentPlayerEnrolled(
-        player_root=player_label.encode("utf-8"),
+        player_root=uuid_for(player_label),
         fee_paid=agg.buy_in,
         starting_stack=agg.starting_stack,
         registration_number=len(agg.registered_players) + 1,
@@ -160,10 +160,20 @@ def _execute_handler(context, method_name: str, cmd):
         context.error = None
         context.agg = agg
     except CommandRejectedError as e:
+        _stamp_scenario_cover(context, e)
         context.result = None
         context.result_event_any = None
         context.error = e
         context.error_message = str(e)
+
+
+def _stamp_scenario_cover(context, err):
+    """Mirror dispatch-boundary cover stamping for direct-call unit tests."""
+    if err is None or getattr(err, "cover", None) is not None:
+        return
+    cover = getattr(context, "command_cover", None)
+    if cover is not None:
+        err.cover = cover
 
 
 # --- Given steps ---
@@ -308,8 +318,8 @@ def step_when_close_registration(context):
 )
 def step_when_enroll_player(context, player_label, res_label):
     cmd = tournament.EnrollPlayer(
-        player_root=player_label.encode("utf-8") if player_label else b"",
-        reservation_id=res_label.encode("utf-8") if res_label else b"",
+        player_root=uuid_for(player_label) if player_label else b"",
+        reservation_id=uuid_for(res_label) if res_label else b"",
     )
     _execute_handler(context, "enroll", cmd)
 
@@ -317,7 +327,7 @@ def step_when_enroll_player(context, player_label, res_label):
 @when(r'I handle a ProcessRebuy command for player "(?P<player_label>[^"]*)"')
 def step_when_process_rebuy(context, player_label):
     cmd = tournament.ProcessRebuy(
-        player_root=player_label.encode("utf-8") if player_label else b"",
+        player_root=uuid_for(player_label) if player_label else b"",
     )
     _execute_handler(context, "rebuy", cmd)
 
@@ -325,7 +335,7 @@ def step_when_process_rebuy(context, player_label):
 @when(r'I handle an EliminatePlayer command for player "(?P<player_label>[^"]*)"')
 def step_when_eliminate_player(context, player_label):
     cmd = tournament.EliminatePlayer(
-        player_root=player_label.encode("utf-8") if player_label else b"",
+        player_root=uuid_for(player_label) if player_label else b"",
     )
     _execute_handler(context, "eliminate", cmd)
 
@@ -387,9 +397,9 @@ def step_then_event_has_player_root(context, label):
         or try_unpack(event_any, tournament.PlayerEliminated)
     )
     assert event is not None, f"No player_root field on event: {event_any.type_url}"
-    assert event.player_root == label.encode(
-        "utf-8"
-    ), f"Expected player_root={label.encode('utf-8')!r}, got {event.player_root!r}"
+    assert event.player_root == uuid_for(
+        label
+    ), f"Expected player_root={uuid_for(label)!r}, got {event.player_root!r}"
 
 
 @then(r"the tournament event has fee_paid (?P<fee>-?\d+)")
@@ -492,7 +502,7 @@ def _append_blind_level_advanced(
 def _append_player_eliminated(context, player_label: str) -> None:
     _ensure_events(context)
     event = tournament.PlayerEliminated(
-        player_root=player_label.encode("utf-8"),
+        player_root=uuid_for(player_label),
         eliminated_at=make_timestamp(),
     )
     context.events.append(make_event_page(event, seq=len(context.events)))
@@ -501,7 +511,7 @@ def _append_player_eliminated(context, player_label: str) -> None:
 def _append_enrollment_rejected(context, player_label: str, reason: str) -> None:
     _ensure_events(context)
     event = tournament.TournamentEnrollmentRejected(
-        player_root=player_label.encode("utf-8"),
+        player_root=uuid_for(player_label),
         reason=reason,
         rejected_at=make_timestamp(),
     )
@@ -513,7 +523,7 @@ def _append_rebuy_processed(
 ) -> None:
     _ensure_events(context)
     event = tournament.RebuyProcessed(
-        player_root=player_label.encode("utf-8"),
+        player_root=uuid_for(player_label),
         rebuy_cost=rebuy_cost,
         rebuy_count=rebuy_count,
         processed_at=make_timestamp(),
@@ -524,7 +534,7 @@ def _append_rebuy_processed(
 def _append_rebuy_denied(context, player_label: str, reason: str) -> None:
     _ensure_events(context)
     event = tournament.RebuyDenied(
-        player_root=player_label.encode("utf-8"),
+        player_root=uuid_for(player_label),
         reason=reason,
         denied_at=make_timestamp(),
     )
@@ -602,7 +612,7 @@ def step_given_tournament_completed(context):
 def step_given_enrolled_with_fee(context, label, fee):
     _ensure_events(context)
     event = tournament.TournamentPlayerEnrolled(
-        player_root=label.encode("utf-8"),
+        player_root=uuid_for(label),
         fee_paid=int(fee),
         enrolled_at=make_timestamp(),
     )
@@ -672,6 +682,53 @@ def step_given_running_two_level_blinds(context):
         name="Blinds Test",
         blind_structure=blind_structure,
         rebuy_config=rebuy_config,
+    )
+    _append_registration_opened(context)
+    _append_player_enrolled(context, "p0")
+    _append_player_enrolled(context, "p1")
+    _append_tournament_started(context)
+
+
+@given(r"a running tournament at the final defined blind level")
+def step_given_running_at_final_blind_level(context):
+    """Two-level structure with current_level already advanced to 2 (final).
+
+    Used by EU-0830 to verify that the next AdvanceBlindLevel rejects with
+    BLIND_STRUCTURE_EXHAUSTED instead of silently emitting an event past
+    the declared structure.
+    """
+    rebuy_config = None
+    blind_structure = [
+        tournament.BlindLevel(level=1, small_blind=25, big_blind=50, ante=0),
+        tournament.BlindLevel(level=2, small_blind=50, big_blind=100, ante=10),
+    ]
+    _append_created_with_rebuy_config(
+        context,
+        name="Final Level Test",
+        blind_structure=blind_structure,
+        rebuy_config=rebuy_config,
+    )
+    _append_registration_opened(context)
+    _append_player_enrolled(context, "p0")
+    _append_player_enrolled(context, "p1")
+    _append_tournament_started(context)
+    # Advance from default level 1 to level 2 — the final defined level.
+    _append_blind_level_advanced(context, level=2, small_blind=50, big_blind=100, ante=10)
+
+
+@given(r"a running tournament with no blind structure")
+def step_given_running_no_blind_structure(context):
+    """Tournament running with an empty blind_structure.
+
+    Used by EU-0831 to verify that AdvanceBlindLevel rejects with
+    BLIND_STRUCTURE_EXHAUSTED (max_defined_level=0) when no structure is
+    declared.
+    """
+    _append_created_with_rebuy_config(
+        context,
+        name="No Blinds Test",
+        blind_structure=[],
+        rebuy_config=None,
     )
     _append_registration_opened(context)
     _append_player_enrolled(context, "p0")
@@ -770,8 +827,8 @@ def step_when_advance_blind_level(context):
 )
 def step_when_eliminate_player_with_hand(context, label, hand):
     cmd = tournament.EliminatePlayer(
-        player_root=label.encode("utf-8") if label else b"",
-        hand_root=hand.encode("utf-8"),
+        player_root=uuid_for(label) if label else b"",
+        hand_root=uuid_for(hand),
     )
     _execute_handler(context, "eliminate", cmd)
 
@@ -846,8 +903,8 @@ def step_then_event_ante(context, v):
 @then(r'the tournament event has hand_root "(?P<hand>[^"]+)"')
 def step_then_event_hand_root(context, hand):
     evt = _unpack_result(context)
-    assert evt.hand_root == hand.encode(
-        "utf-8"
+    assert evt.hand_root == uuid_for(
+        hand
     ), f"Expected hand_root={hand!r}, got {evt.hand_root!r}"
 
 
@@ -988,7 +1045,7 @@ def step_then_state_players_remaining(context, v):
     r'for player "(?P<label>[^"]+)"'
 )
 def step_then_state_rebuys_used(context, v, label):
-    player_hex = label.encode("utf-8").hex()
+    player_hex = uuid_for(label).hex()
     reg = context.agg.registered_players.get(player_hex)
     assert reg is not None, f"Player {label!r} not registered"
     assert reg.rebuys_used == int(v), f"Expected rebuys_used={v}, got {reg.rebuys_used}"
@@ -996,7 +1053,7 @@ def step_then_state_rebuys_used(context, v, label):
 
 @then(r'the tournament state has no registered player "(?P<label>[^"]+)"')
 def step_then_state_no_player(context, label):
-    player_hex = label.encode("utf-8").hex()
+    player_hex = uuid_for(label).hex()
     assert (
         player_hex not in context.agg.registered_players
     ), f"Expected {label!r} absent, but it is registered"

@@ -492,6 +492,7 @@ class HandProcessManager:
             ),
             pages=[
                 types.CommandPage(
+                    header=types.PageHeader(sync_mode=types.SYNC_MODE_DECISION),
                     command=cmd_any,
                 )
             ],
@@ -609,6 +610,7 @@ class HandProcessManager:
             ),
             pages=[
                 types.CommandPage(
+                    header=types.PageHeader(sync_mode=types.SYNC_MODE_DECISION),
                     command=cmd_any,
                 )
             ],
@@ -652,6 +654,7 @@ class HandProcessManager:
             ),
             pages=[
                 types.CommandPage(
+                    header=types.PageHeader(sync_mode=types.SYNC_MODE_DECISION),
                     command=cmd_any,
                 )
             ],
@@ -695,6 +698,7 @@ class HandProcessManager:
             ),
             pages=[
                 types.CommandPage(
+                    header=types.PageHeader(sync_mode=types.SYNC_MODE_DECISION),
                     command=cmd_any,
                 )
             ],
@@ -768,6 +772,7 @@ class HandProcessManager:
                 ),
                 pages=[
                     types.CommandPage(
+                        header=types.PageHeader(sync_mode=types.SYNC_MODE_DECISION),
                         command=cmd_any,
                     )
                 ],

@@ -24,6 +24,7 @@ from .proto_helpers import (
     make_event_book,
     currency,
     uuid_for,
+    generate_hand_root,
 )
 from .assertions import (
     assert_event_type,
@@ -53,6 +54,7 @@ __all__ = [
     "make_event_book",
     "currency",
     "uuid_for",
+    "generate_hand_root",
     # Assertions
     "assert_event_type",
     "assert_event_field",

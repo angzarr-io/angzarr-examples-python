@@ -483,16 +483,44 @@ def step_then_both_hands_rank(context, rank):
     )
 
 
+@then(
+    r'the score is less than the score of "(?P<other_hole>[^"]+)" '
+    r'with community "(?P<other_community>[^"]+)"'
+)
+def step_then_score_less_than_other(context, other_hole, other_community):
+    """Compare the just-evaluated hand against another hand's score.
+
+    Used to assert ordering between specific hands (e.g. steel wheel
+    STRAIGHT_FLUSH < 6-high STRAIGHT_FLUSH) where pinning a specific score
+    constant would couple the test to the implementation's score formula.
+    """
+    other_hole_cards = _parse_cards(other_hole)
+    other_community_cards = _parse_cards(other_community)
+    _, other_score, _ = context.rules.evaluate_hand(
+        other_hole_cards, other_community_cards
+    )
+    assert context.score < other_score, (
+        f"Expected score {context.score} to be less than {other_score} "
+        f'(other hand: hole={other_hole!r}, community={other_community!r})'
+    )
+
+
 @then(r"hand (?P<a>\w+) score is greater than hand (?P<b>\w+) score")
 def step_then_hand_score_greater(context, a, b):
-    """Assert the score of hand A strictly exceeds the score of hand B."""
+    """Assert hand A strictly outranks hand B.
+
+    Real-poker comparison key is ``(score, kickers)`` — when scores are
+    equal (matching primary structure, e.g. quads on board) the kicker
+    list lexicographically tiebreaks. This is what real cardrooms call
+    "the higher kicker wins" (TDA / Robert's Rules).
+    """
     results = getattr(context, "hand_results", None) or {}
     assert a in results, f"No result for hand {a!r}; have {sorted(results)}"
     assert b in results, f"No result for hand {b!r}; have {sorted(results)}"
-    score_a = results[a]["score"]
-    score_b = results[b]["score"]
-    assert score_a > score_b, (
-        f"Expected hand {a} score ({score_a}) to be greater than hand {b} "
-        f"score ({score_b}); kickers A={results[a]['kickers']}, "
-        f"B={results[b]['kickers']}"
+    key_a = (results[a]["score"], results[a]["kickers"])
+    key_b = (results[b]["score"], results[b]["kickers"])
+    assert key_a > key_b, (
+        f"Expected hand {a} (score={results[a]['score']}, kickers="
+        f"{results[a]['kickers']}) to outrank hand {b} (score="
+        f"{results[b]['score']}, kickers={results[b]['kickers']})"
     )

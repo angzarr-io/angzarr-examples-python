@@ -17,10 +17,24 @@ Top-level ``handle_*`` wrappers compose the three phases and are invoked from
 ``PlayerAggregate`` methods in ``main.py``.
 """
 
+from .errors import (
+    AmountExceedsReservedFunds,
+    AmountMustBeNonZero,
+    AmountMustBePositive,
+    DisplayNameRequired,
+    EmailRequired,
+    FundsAlreadyReservedForTable,
+    InsufficientAvailableBalance,
+    InsufficientFunds,
+    KeyRequired,
+    NoFundsReservedForTable,
+    PlayerAlreadyExists,
+    PlayerNotFound,
+    TableRootRequired,
+)
 from .state import PlayerState
 
 from angzarr_client import now
-from angzarr_client.errors import CommandRejectedError
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
@@ -32,15 +46,15 @@ from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 def register_player_guard(state: PlayerState) -> None:
     """Check state preconditions before registering."""
     if state.exists:
-        raise CommandRejectedError("Player already exists")
+        raise PlayerAlreadyExists()
 
 
 def register_player_validate(cmd: player.RegisterPlayer) -> None:
     """Validate registration command fields."""
     if not cmd.display_name:
-        raise CommandRejectedError("display_name is required")
+        raise DisplayNameRequired()
     if not cmd.email:
-        raise CommandRejectedError("email is required")
+        raise EmailRequired()
 
 
 def register_player_compute(
@@ -73,7 +87,7 @@ def handle_register_player(
 def deposit_funds_guard(state: PlayerState) -> None:
     """Check state preconditions before depositing."""
     if not state.exists:
-        raise CommandRejectedError("Player does not exist")
+        raise PlayerNotFound()
 
 
 # docs:start:deposit_funds_validate
@@ -81,7 +95,7 @@ def deposit_funds_validate(cmd: player.DepositFunds) -> int:
     """Validate deposit command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
+        raise AmountMustBePositive(value=amount)
     return amount
 
 
@@ -117,16 +131,18 @@ def handle_deposit_funds(
 def withdraw_funds_guard(state: PlayerState) -> None:
     """Check state preconditions before withdrawing."""
     if not state.exists:
-        raise CommandRejectedError("Player does not exist")
+        raise PlayerNotFound()
 
 
 def withdraw_funds_validate(cmd: player.WithdrawFunds, state: PlayerState) -> int:
     """Validate withdrawal command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
+        raise AmountMustBePositive(value=amount)
     if amount > state.available_balance:
-        raise CommandRejectedError("insufficient available balance")
+        raise InsufficientAvailableBalance(
+            requested=amount, available=state.available_balance
+        )
     return amount
 
 
@@ -159,19 +175,19 @@ def handle_withdraw_funds(
 def reserve_funds_guard(state: PlayerState) -> None:
     """Check state preconditions before reserving funds."""
     if not state.exists:
-        raise CommandRejectedError("Player does not exist")
+        raise PlayerNotFound()
 
 
 def reserve_funds_validate(cmd: player.ReserveFunds, state: PlayerState) -> int:
     """Validate reserve command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
+        raise AmountMustBePositive(value=amount)
     if amount > state.available_balance:
-        raise CommandRejectedError("Insufficient funds")
+        raise InsufficientFunds(requested=amount, available=state.available_balance)
     bucket = cmd.key.hex()
     if bucket in state.table_reservations:
-        raise CommandRejectedError("Funds already reserved for this table")
+        raise FundsAlreadyReservedForTable(table_root_hex=bucket)
     return amount
 
 
@@ -211,17 +227,17 @@ def handle_reserve_funds(
 def release_funds_guard(state: PlayerState) -> None:
     """Check state preconditions before releasing funds."""
     if not state.exists:
-        raise CommandRejectedError("Player does not exist")
+        raise PlayerNotFound()
 
 
 def release_funds_validate(cmd: player.ReleaseFunds, state: PlayerState) -> int:
     """Validate release command and return reserved amount."""
     if not cmd.key:
-        raise CommandRejectedError("table_root is required")
+        raise TableRootRequired()
     bucket = cmd.key.hex()
     reserved_for_bucket = state.table_reservations.get(bucket, 0)
     if reserved_for_bucket == 0:
-        raise CommandRejectedError("No funds reserved for this table")
+        raise NoFundsReservedForTable(table_root_hex=bucket)
     return reserved_for_bucket
 
 
@@ -261,14 +277,14 @@ def handle_release_funds(
 def transfer_funds_guard(state: PlayerState) -> None:
     """Check state preconditions before transferring funds."""
     if not state.exists:
-        raise CommandRejectedError("Player does not exist")
+        raise PlayerNotFound()
 
 
 def transfer_funds_validate(cmd: player.TransferFunds) -> int:
     """Validate transfer command and extract amount."""
     amount = cmd.amount.amount if cmd.amount else 0
     if amount == 0:
-        raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_NON_ZERO", "amount must be non-zero")
+        raise AmountMustBeNonZero(value=amount)
     return amount
 
 
@@ -306,21 +322,21 @@ def handle_transfer_funds(
 
 def deduct_reserved_funds_guard(state: PlayerState) -> None:
     if not state.exists:
-        raise CommandRejectedError("Player does not exist")
+        raise PlayerNotFound()
 
 
 def deduct_reserved_funds_validate(
     cmd: player.DeductReservedFunds, state: PlayerState
 ) -> int:
     if not cmd.key:
-        raise CommandRejectedError("key is required")
+        raise KeyRequired()
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
+        raise AmountMustBePositive(value=amount)
     table_key = cmd.key.hex()
     reserved_for_key = state.table_reservations.get(table_key, 0)
     if amount > reserved_for_key:
-        raise CommandRejectedError("amount exceeds reserved funds for this key")
+        raise AmountExceedsReservedFunds(requested=amount, available=reserved_for_key)
     return amount
 
 

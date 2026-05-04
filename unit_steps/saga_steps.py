@@ -1,15 +1,25 @@
 """Behave step definitions for saga tests.
 
-Tests the unified Router / @saga decorator pattern using the real
-production sagas from the ``sagas`` package. Sagas are dispatched
-through a freshly-built Router with a ``SagaHandleRequest``.
+Tests dispatch through the **production** sagas — the same handler classes
+that ship as standalone gRPC services in the cluster. Each scenario builds
+a fresh ``Router`` from the production class and dispatches a
+``SagaHandleRequest`` against it, mirroring the Rust ``saga.rs`` test
+target.
+
+The feature file groups saga structs under logical names:
+- ``TableSyncSaga`` covers ``TableHandSaga`` + ``HandTableSaga``
+- ``HandResultsSaga`` covers ``TablePlayerSaga`` + ``HandPlayerSaga``
 """
 
+import importlib.util
 from datetime import datetime, timezone
+from pathlib import Path
 
 from behave import given, then, use_step_matcher, when
 from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
+
+from tests.helpers import uuid_for
 
 from angzarr_client import Router, handles, saga
 from angzarr_client.helpers import TYPE_URL_PREFIX, type_matches
@@ -20,9 +30,35 @@ from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from angzarr_client.proto.examples import table_pb2 as table
 
-# Real sagas under test.
-from sagas.hand_results_saga import HandPayoutSaga, HandResultsSaga
-from sagas.table_sync_saga import TableSyncCompleteSaga, TableSyncStartSaga
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load(module_name: str, relative_path: str):
+    """Load a hyphenated-dir Python module by file path.
+
+    Saga production code lives under ``hand/saga-player/main.py`` etc. — the
+    hyphens prevent normal package imports, so we use importlib.
+    """
+    full_path = REPO_ROOT / relative_path
+    spec = importlib.util.spec_from_file_location(module_name, str(full_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {module_name} from {full_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_hand_saga_player = _load("_hand_saga_player_main", "hand/saga-player/main.py")
+_hand_saga_table = _load("_hand_saga_table_main", "hand/saga-table/main.py")
+_table_saga_player = _load("_table_saga_player_main", "table/saga-player/main.py")
+_table_saga_hand = _load("_table_saga_hand_main", "table/saga-hand/main.py")
+
+# Production saga classes — dispatched by Router from SagaHandleRequest.
+HandPlayerSaga = _hand_saga_player.HandPlayerSaga
+HandTableSaga = _hand_saga_table.HandTableSaga
+TablePlayerSaga = _table_saga_player.TablePlayerSaga
+TableHandSaga = _table_saga_hand.TableHandSaga
+
 
 # Use regex matchers for flexibility
 use_step_matcher("re")
@@ -64,23 +100,23 @@ class FailingSaga:
 
 
 def _table_sync_group() -> list:
-    """Return both halves of the table<->hand sync saga pair.
+    """Return both halves of the table↔hand sync saga pair.
 
     The feature file speaks of a single ``TableSyncSaga``; the production
-    implementation is split into two (start + complete), so we register
-    both. Router dispatches based on source-domain + event type.
+    implementation is split: ``TableHandSaga`` (table → hand) and
+    ``HandTableSaga`` (hand → table). Router dispatches by source domain.
     """
-    return [TableSyncStartSaga(), TableSyncCompleteSaga()]
+    return [TableHandSaga(), HandTableSaga()]
 
 
 def _hand_results_group() -> list:
-    """Return both halves of the hand/table -> player bridge.
+    """Return both halves of the hand/table → player bridge.
 
-    ``HandResultsSaga`` handles table.HandEnded; ``HandPayoutSaga`` handles
-    hand.PotAwarded. The feature file speaks of a single conceptual
-    ``HandResultsSaga`` covering both.
+    ``TablePlayerSaga`` handles ``table.HandEnded``; ``HandPlayerSaga``
+    handles ``hand.PotAwarded``. The feature file groups them as
+    ``HandResultsSaga``.
     """
-    return [HandResultsSaga(), HandPayoutSaga()]
+    return [TablePlayerSaga(), HandPlayerSaga()]
 
 
 def _build_router(*handlers) -> Router:
@@ -95,8 +131,7 @@ def _dispatch(handlers, event_book: types.EventBook, dest_seqs=None):
     """Dispatch ``event_book`` through ``handlers``, tolerating saga errors.
 
     Each handler is dispatched on its own so that one saga failing does not
-    prevent the rest from producing commands (matches the expectations of
-    EU-0306).
+    prevent the rest from producing commands (matches EU-0306).
     """
     commands: list[types.CommandBook] = []
     req = SagaHandleRequest(source=event_book)
@@ -178,7 +213,7 @@ def step_given_hand_started_event(context):
     variant = getattr(poker_types, variant_name, poker_types.TEXAS_HOLDEM)
 
     context.event = table.HandStarted(
-        hand_root=row.get("hand_root", "hand-1").encode(),
+        hand_root=uuid_for(row.get("hand_root", "hand-1")),
         hand_number=int(row.get("hand_number", 1)),
         dealer_position=int(row.get("dealer_position", 0)),
         game_variant=variant,
@@ -222,7 +257,7 @@ def step_given_active_players(context):
             context.table.headings[j]: row[j]
             for j in range(len(context.table.headings))
         }
-        player_root = row_dict.get("player_root", "player-1").encode()
+        player_root = uuid_for(row_dict.get("player_root", "player-1"))
         target.active_players.append(
             table.SeatSnapshot(
                 player_root=player_root,
@@ -240,7 +275,7 @@ def step_given_hand_complete_event(context):
         for i in range(len(context.table.headings))
     }
     context.event = hand.HandComplete(
-        table_root=row.get("table_root", "table-1").encode(),
+        table_root=uuid_for(row.get("table_root", "table-1")),
     )
     context.source_root = b"hand-1"
 
@@ -253,7 +288,7 @@ def step_given_winners(context):
             context.table.headings[j]: row[j]
             for j in range(len(context.table.headings))
         }
-        player_root = row_dict.get("player_root", "player-1").encode()
+        player_root = uuid_for(row_dict.get("player_root", "player-1"))
         context.event.winners.append(
             hand.PotWinner(
                 player_root=player_root,
@@ -271,7 +306,7 @@ def step_given_winners_with_winning_hand(context):
             context.table.headings[j]: row[j]
             for j in range(len(context.table.headings))
         }
-        player_root = row_dict.get("player_root", "player-1").encode()
+        player_root = uuid_for(row_dict.get("player_root", "player-1"))
         context.event.winners.append(
             hand.PotWinner(
                 player_root=player_root,
@@ -293,7 +328,7 @@ def step_given_hand_ended_event(context):
         for i in range(len(context.table.headings))
     }
     context.event = table.HandEnded(
-        hand_root=row.get("hand_root", "hand-1").encode(),
+        hand_root=uuid_for(row.get("hand_root", "hand-1")),
         ended_at=make_timestamp(),
     )
     context.source_root = b"table-1"
@@ -307,7 +342,7 @@ def step_given_stack_changes(context):
             context.table.headings[j]: row[j]
             for j in range(len(context.table.headings))
         }
-        player_root = row_dict.get("player_root", "player-1").encode()
+        player_root = uuid_for(row_dict.get("player_root", "player-1"))
         change = int(row_dict.get("change", 0))
         context.event.stack_changes[player_root.hex()] = change
 
@@ -373,16 +408,11 @@ def _wrap_event_book(event_msg, source_domain: str, root: bytes) -> types.EventB
 
 
 def _source_domain_for(event) -> str:
-    """Determine the source domain for an event proto.
-
-    Uses the package prefix of the event's fully-qualified descriptor name
-    when possible; otherwise falls back to known mappings.
-    """
+    """Determine the source domain for an event proto."""
     if isinstance(event, (table.HandStarted, table.HandEnded)):
         return "table"
     if isinstance(event, (hand.HandComplete, hand.PotAwarded)):
         return "hand"
-    # Default guess.
     return "table"
 
 
@@ -571,7 +601,7 @@ def step_then_result_has_winner(context, winner, amount):
     result = cmd.results[0]
     expected_amount = int(amount)
     assert (
-        result.winner_root == winner.encode()
+        result.winner_root == uuid_for(winner)
     ), f"Expected {winner}, got {result.winner_root}"
     assert (
         result.amount == expected_amount
@@ -594,7 +624,7 @@ def step_then_first_command_has_amount(context, amount, player_id):
         cmd.amount.amount == expected_amount
     ), f"Expected {expected_amount}, got {cmd.amount.amount}"
     assert (
-        deposit_cmds[0].cover.root.value == player_id.encode()
+        deposit_cmds[0].cover.root.value == uuid_for(player_id)
     ), f"Expected root {player_id}, got {deposit_cmds[0].cover.root.value!r}"
 
 
@@ -614,7 +644,7 @@ def step_then_second_command_has_amount(context, amount, player_id):
         cmd.amount.amount == expected_amount
     ), f"Expected {expected_amount}, got {cmd.amount.amount}"
     assert (
-        deposit_cmds[1].cover.root.value == player_id.encode()
+        deposit_cmds[1].cover.root.value == uuid_for(player_id)
     ), f"Expected root {player_id}, got {deposit_cmds[1].cover.root.value!r}"
 
 
@@ -647,9 +677,7 @@ def step_then_no_exception(context):
 
 
 # =============================================================================
-# New step defs (EU-0309..) - ported directly from tests/unit/test_saga.py.
-# These exercise the Router via SagaHandleRequest with explicit destination
-# sequences and event-type assertions in the "angzarr_client.proto.examples.EventName" style.
+# Router-style steps (EU-0309..) — explicit Router with destination_sequences.
 # =============================================================================
 
 
@@ -670,41 +698,41 @@ def _dispatch_request(
 
 @given("a TableSyncStartSaga registered in a Router")
 def step_given_table_sync_start_saga(context):
-    """Register the production TableSyncStartSaga in a fresh Router."""
-    context.router = _make_router_with(TableSyncStartSaga())
+    """Register the production TableHandSaga (table → hand) in a fresh Router."""
+    context.router = _make_router_with(TableHandSaga())
     context.event = None
     context.source_root = b"table-1"
 
 
 @given("a TableSyncCompleteSaga registered in a Router")
 def step_given_table_sync_complete_saga(context):
-    """Register the production TableSyncCompleteSaga in a fresh Router."""
-    context.router = _make_router_with(TableSyncCompleteSaga())
+    """Register the production HandTableSaga (hand → table)."""
+    context.router = _make_router_with(HandTableSaga())
     context.event = None
     context.source_root = b"hand-1"
 
 
 @given("a HandResultsSaga registered in a Router")
 def step_given_hand_results_saga_router(context):
-    """Register the production HandResultsSaga (table.HandEnded source)."""
-    context.router = _make_router_with(HandResultsSaga())
+    """Register the production TablePlayerSaga (table.HandEnded source)."""
+    context.router = _make_router_with(TablePlayerSaga())
     context.event = None
     context.source_root = b"table-1"
 
 
 @given("a HandPayoutSaga registered in a Router")
 def step_given_hand_payout_saga_router(context):
-    """Register the production HandPayoutSaga (hand.PotAwarded source)."""
-    context.router = _make_router_with(HandPayoutSaga())
+    """Register the production HandPlayerSaga (hand.PotAwarded source)."""
+    context.router = _make_router_with(HandPlayerSaga())
     context.event = None
     context.source_root = b"hand-1"
 
 
 @given("a Router with TableSyncStartSaga, HandResultsSaga, and HandPayoutSaga")
 def step_given_multi_saga_router(context):
-    """Register all three sagas in a single Router for the fan-out scenario."""
+    """Register all three production sagas in one Router for fan-out scenarios."""
     context.router = _make_router_with(
-        TableSyncStartSaga(), HandResultsSaga(), HandPayoutSaga()
+        TableHandSaga(), TablePlayerSaga(), HandPlayerSaga()
     )
     context.event = None
     context.source_root = b"table-1"
@@ -717,9 +745,7 @@ def step_given_multi_saga_router(context):
 def step_when_dispatch_saga_request(context, dest_seqs):
     """Build a SagaHandleRequest and dispatch via the configured Router.
 
-    ``dest_seqs`` is a comma-separated list of ``domain=sequence`` entries
-    (e.g. ``"hand=0"`` or ``"hand=0,table=0,player=0"``). Empty string means
-    no destination sequences.
+    ``dest_seqs`` is a comma-separated list of ``domain=sequence`` entries.
     """
     source_domain = _source_domain_for(context.event)
     root = getattr(context, "source_root", None) or b"source-1"
@@ -793,7 +819,7 @@ def step_then_end_hand_result(context, count, winner, amount):
     ), f"Expected {count} results, got {len(cmd.results)}"
     result = cmd.results[0]
     assert (
-        result.winner_root == winner.encode()
+        result.winner_root == uuid_for(winner)
     ), f"Expected winner {winner}, got {result.winner_root!r}"
     assert result.amount == int(
         amount
@@ -870,7 +896,7 @@ def step_then_deposit_funds_index(context, index, amount, pid):
         amount
     ), f"Expected amount {amount}, got {cmd.amount.amount}"
     assert (
-        cmd_book.cover.root.value == pid.encode()
+        cmd_book.cover.root.value == uuid_for(pid)
     ), f"Expected root {pid}, got {cmd_book.cover.root.value!r}"
 
 

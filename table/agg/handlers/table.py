@@ -7,11 +7,35 @@ from typing import Optional
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client import applies, command_handler, handles, now
-from angzarr_client.errors import CommandRejectedError
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import buy_in_pb2 as buy_in_proto
 from angzarr_client.proto.examples import rebuy_pb2 as rebuy_proto
 from angzarr_client.proto.examples import table_pb2 as table_proto
+
+from table.agg.errors import (
+    AmountMustBePositive,
+    BigBlindMustExceedSmallBlind,
+    BuyInAboveMax,
+    BuyInBelowMin,
+    CannotLeaveDuringHand,
+    HandAlreadyInProgress,
+    HandRootMismatch,
+    MaxBuyInMustExceedMinBuyIn,
+    MaxPlayersOutOfRange,
+    MinBuyInMustBePositive,
+    NoHandInProgress,
+    NotEnoughPlayersToStartHand,
+    PlayerAlreadySeated,
+    PlayerNotSeated,
+    PlayerRootRequired,
+    SeatOccupied,
+    SeatPositionMismatch,
+    SmallBlindMustBePositive,
+    TableAlreadyExists,
+    TableIsFull,
+    TableNameRequired,
+    TableNotFound,
+)
 
 
 @dataclass
@@ -342,19 +366,19 @@ class Table:
         saved = self._router_bind(state) if router_mode else None
         try:
             if self.exists:
-                raise CommandRejectedError("Table already exists")
+                raise TableAlreadyExists()
             if not cmd.table_name:
-                raise CommandRejectedError("table_name is required")
+                raise TableNameRequired()
             if cmd.small_blind <= 0:
-                raise CommandRejectedError.invalid_argument("SMALL_BLIND_MUST_BE_POSITIVE", "small_blind must be positive")
+                raise SmallBlindMustBePositive(value=cmd.small_blind)
             if cmd.big_blind <= 0 or cmd.big_blind < cmd.small_blind:
-                raise CommandRejectedError("big_blind must be >= small_blind")
+                raise BigBlindMustExceedSmallBlind(lhs=cmd.big_blind, rhs=cmd.small_blind)
             if cmd.min_buy_in <= 0:
-                raise CommandRejectedError.invalid_argument("MIN_BUY_IN_MUST_BE_POSITIVE", "min_buy_in must be positive")
+                raise MinBuyInMustBePositive(value=cmd.min_buy_in)
             if cmd.max_buy_in < cmd.min_buy_in:
-                raise CommandRejectedError("max_buy_in must be >= min_buy_in")
+                raise MaxBuyInMustExceedMinBuyIn(lhs=cmd.max_buy_in, rhs=cmd.min_buy_in)
             if cmd.max_players < 2 or cmd.max_players > 10:
-                raise CommandRejectedError("max_players must be 2-10")
+                raise MaxPlayersOutOfRange(got=cmd.max_players)
 
             event = table_proto.TableCreated(
                 table_name=cmd.table_name,
@@ -388,20 +412,20 @@ class Table:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Table does not exist")
+                raise TableNotFound()
             if not cmd.player_root:
-                raise CommandRejectedError("player_root is required")
+                raise PlayerRootRequired()
             if self.find_player_seat(cmd.player_root):
-                raise CommandRejectedError("Player already seated at table")
+                raise PlayerAlreadySeated()
             if self.is_full:
-                raise CommandRejectedError("Table is full")
+                raise TableIsFull()
             if cmd.buy_in_amount < self.min_buy_in:
-                raise CommandRejectedError.invalid_argument("BUY_IN_MUST_BE_AT_LEAST", f"Buy-in must be at least {self.min_buy_in}")
+                raise BuyInBelowMin(got=cmd.buy_in_amount, bound=self.min_buy_in)
             if cmd.buy_in_amount > self.max_buy_in:
-                raise CommandRejectedError.invalid_argument("BUY_IN_CANNOT_EXCEED", f"Buy-in cannot exceed {self.max_buy_in}")
+                raise BuyInAboveMax(got=cmd.buy_in_amount, bound=self.max_buy_in)
             if cmd.preferred_seat >= 0 and cmd.preferred_seat < self.max_players:
                 if self.get_seat(cmd.preferred_seat) is not None:
-                    raise CommandRejectedError("Seat is occupied")
+                    raise SeatOccupied(seat=cmd.preferred_seat)
                 seat_position = cmd.preferred_seat
             else:
                 seat_position = self._find_available_seat(-1)
@@ -432,15 +456,15 @@ class Table:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Table does not exist")
+                raise TableNotFound()
             if not cmd.player_root:
-                raise CommandRejectedError("player_root is required")
+                raise PlayerRootRequired()
 
             seat = self.find_player_seat(cmd.player_root)
             if not seat:
-                raise CommandRejectedError("Player is not seated at table")
+                raise PlayerNotSeated()
             if self.status == "in_hand":
-                raise CommandRejectedError("Cannot leave table during a hand")
+                raise CannotLeaveDuringHand()
 
             event = table_proto.PlayerLeft(
                 player_root=cmd.player_root,
@@ -467,11 +491,14 @@ class Table:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Table does not exist")
+                raise TableNotFound()
             if self.status == "in_hand":
-                raise CommandRejectedError("Hand already in progress")
+                raise HandAlreadyInProgress()
             if self.active_player_count < 2:
-                raise CommandRejectedError("Not enough players to start hand")
+                raise NotEnoughPlayersToStartHand(
+                    requested=2,
+                    available=self.active_player_count,
+                )
 
             s = self._state
 
@@ -542,11 +569,11 @@ class Table:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Table does not exist")
+                raise TableNotFound()
             if self.status != "in_hand":
-                raise CommandRejectedError("No hand in progress")
+                raise NoHandInProgress()
             if cmd.hand_root != self.current_hand_root:
-                raise CommandRejectedError("Hand root mismatch")
+                raise HandRootMismatch()
 
             stack_changes = {}
             for result in cmd.results:
@@ -584,7 +611,7 @@ class Table:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Table does not exist")
+                raise TableNotFound()
 
             reason: str | None = None
             seat_position = cmd.seat
@@ -644,16 +671,16 @@ class Table:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Table does not exist")
+                raise TableNotFound()
             if not cmd.player_root:
-                raise CommandRejectedError("player_root is required")
+                raise PlayerRootRequired()
             if cmd.amount <= 0:
-                raise CommandRejectedError.invalid_argument("AMOUNT_MUST_BE_POSITIVE", "amount must be positive")
+                raise AmountMustBePositive(value=cmd.amount)
             seat = self.find_player_seat(cmd.player_root)
             if seat is None:
-                raise CommandRejectedError("Player is not seated at this table")
+                raise PlayerNotSeated()
             if seat.position != cmd.seat:
-                raise CommandRejectedError("Seat position mismatch")
+                raise SeatPositionMismatch(expected=seat.position, got=cmd.seat)
 
             event = rebuy_proto.RebuyChipsAdded(
                 player_root=cmd.player_root,

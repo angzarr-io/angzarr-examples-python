@@ -5,7 +5,28 @@ from dataclasses import dataclass, field
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client import applies, command_handler, handles, now
-from angzarr_client.errors import CommandRejectedError
+from .errors import (
+    BlindStructureExhausted,
+    BuyInMustBePositive,
+    CannotOpenRegistrationRunning,
+    MaxPlayersTooFew,
+    MinPlayersExceedsMax,
+    MinPlayersTooFew,
+    NameRequired,
+    NotEnoughPlayersToStart,
+    PlayerNotRegistered,
+    PlayerRootRequired,
+    RegistrationAlreadyOpen,
+    RegistrationNotOpen,
+    StartingStackMustBePositive,
+    TournamentAlreadyCompleted,
+    TournamentAlreadyExists,
+    TournamentAlreadyPaused,
+    TournamentNotFound,
+    TournamentNotPaused,
+    TournamentNotRunning,
+    TournamentNotRunningOrPaused,
+)
 from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import tournament_pb2 as tournament
 
@@ -111,10 +132,6 @@ class Tournament:
             event.rebuy_config if event.HasField("rebuy_config") else None
         )
         state.blind_structure = list(event.blind_structure)
-        if not state.blind_structure:
-            state.blind_structure.append(
-                tournament.BlindLevel(level=1, small_blind=0, big_blind=0, ante=0)
-            )
         state.current_level = 1
 
     @applies(tournament.RegistrationOpened)
@@ -306,19 +323,21 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if self.exists:
-                raise CommandRejectedError("Tournament already exists")
+                raise TournamentAlreadyExists()
             if not cmd.name:
-                raise CommandRejectedError("name is required")
+                raise NameRequired()
             if cmd.buy_in <= 0:
-                raise CommandRejectedError("buy_in must be positive")
+                raise BuyInMustBePositive(value=cmd.buy_in)
             if cmd.starting_stack <= 0:
-                raise CommandRejectedError("starting_stack must be positive")
+                raise StartingStackMustBePositive(value=cmd.starting_stack)
             if cmd.max_players < 2:
-                raise CommandRejectedError("max_players must be at least 2")
+                raise MaxPlayersTooFew(got=cmd.max_players)
             if cmd.min_players < 2:
-                raise CommandRejectedError("min_players must be at least 2")
+                raise MinPlayersTooFew(got=cmd.min_players)
             if cmd.min_players > cmd.max_players:
-                raise CommandRejectedError("min_players cannot exceed max_players")
+                raise MinPlayersExceedsMax(
+                    lhs=cmd.min_players, rhs=cmd.max_players
+                )
 
             event = tournament.TournamentCreated(
                 name=cmd.name,
@@ -356,13 +375,11 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Tournament does not exist")
+                raise TournamentNotFound()
             if self.is_running:
-                raise CommandRejectedError(
-                    "Cannot open registration on a running tournament"
-                )
+                raise CannotOpenRegistrationRunning()
             if self.is_registration_open:
-                raise CommandRejectedError("Registration is already open")
+                raise RegistrationAlreadyOpen()
             event = tournament.RegistrationOpened(opened_at=now())
             if not router_mode:
                 self._emit(event)
@@ -383,9 +400,9 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Tournament does not exist")
+                raise TournamentNotFound()
             if not self.is_registration_open:
-                raise CommandRejectedError("Registration is not open")
+                raise RegistrationNotOpen()
             event = tournament.RegistrationClosed(
                 total_registrations=len(self.registered_players),
                 closed_at=now(),
@@ -409,7 +426,7 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Tournament does not exist")
+                raise TournamentNotFound()
 
             rejection_reason = None
             if not cmd.player_root:
@@ -459,9 +476,9 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Tournament does not exist")
+                raise TournamentNotFound()
             if not self.is_running:
-                raise CommandRejectedError("Tournament is not running")
+                raise TournamentNotRunning()
 
             rejection_reason = None
             if not cmd.player_root:
@@ -515,18 +532,26 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Tournament does not exist")
+                raise TournamentNotFound()
             if not self.is_running:
-                raise CommandRejectedError("Tournament is not running")
+                raise TournamentNotRunning()
 
             s = self._state
+            # Reject when the structure is exhausted (or empty). Emitting a
+            # BlindLevelAdvanced past the declared structure would write a
+            # lie into the event log; surface the decision to the operator
+            # instead.
+            max_defined_level = len(s.blind_structure)
             new_level = s.current_level + 1
-            small_blind = big_blind = ante = 0
-            if new_level <= len(s.blind_structure):
-                level_config = s.blind_structure[new_level - 1]
-                small_blind = level_config.small_blind
-                big_blind = level_config.big_blind
-                ante = level_config.ante
+            if new_level > max_defined_level:
+                raise BlindStructureExhausted(
+                    current=s.current_level,
+                    max_value=max_defined_level,
+                )
+            level_config = s.blind_structure[new_level - 1]
+            small_blind = level_config.small_blind
+            big_blind = level_config.big_blind
+            ante = level_config.ante
 
             event = tournament.BlindLevelAdvanced(
                 level=new_level,
@@ -554,13 +579,13 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Tournament does not exist")
+                raise TournamentNotFound()
             if not self.is_running:
-                raise CommandRejectedError("Tournament is not running")
+                raise TournamentNotRunning()
             if not cmd.player_root:
-                raise CommandRejectedError("player_root is required")
+                raise PlayerRootRequired()
             if not self.is_player_registered(cmd.player_root.hex()):
-                raise CommandRejectedError("Player is not registered")
+                raise PlayerNotRegistered(player_root_hex=cmd.player_root.hex())
 
             event = tournament.PlayerEliminated(
                 player_root=cmd.player_root,
@@ -588,11 +613,11 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Tournament does not exist")
+                raise TournamentNotFound()
             if self.status == tournament.TournamentStatus.TOURNAMENT_PAUSED:
-                raise CommandRejectedError("Tournament is already paused")
+                raise TournamentAlreadyPaused()
             if not self.is_running:
-                raise CommandRejectedError("Tournament is not running")
+                raise TournamentNotRunning()
             event = tournament.TournamentPaused(reason=cmd.reason, paused_at=now())
             if not router_mode:
                 self._emit(event)
@@ -613,9 +638,9 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Tournament does not exist")
+                raise TournamentNotFound()
             if self.status != tournament.TournamentStatus.TOURNAMENT_PAUSED:
-                raise CommandRejectedError("Tournament is not paused")
+                raise TournamentNotPaused()
             event = tournament.TournamentResumed(resumed_at=now())
             if not router_mode:
                 self._emit(event)
@@ -636,11 +661,14 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Tournament does not exist")
+                raise TournamentNotFound()
             if not self.is_registration_open:
-                raise CommandRejectedError("Registration is not open")
+                raise RegistrationNotOpen()
             if len(self.registered_players) < self.min_players:
-                raise CommandRejectedError("Not enough players to start")
+                raise NotEnoughPlayersToStart(
+                    requested=self.min_players,
+                    available=len(self.registered_players),
+                )
             event = tournament.TournamentStarted(
                 total_players=len(self.registered_players),
                 total_prize_pool=self.total_prize_pool,
@@ -671,16 +699,14 @@ class Tournament:
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
-                raise CommandRejectedError("Tournament does not exist")
+                raise TournamentNotFound()
             if self.status == tournament.TournamentStatus.TOURNAMENT_COMPLETED:
-                raise CommandRejectedError("Tournament is already completed")
+                raise TournamentAlreadyCompleted()
             if self.status not in (
                 tournament.TournamentStatus.TOURNAMENT_RUNNING,
                 tournament.TournamentStatus.TOURNAMENT_PAUSED,
             ):
-                raise CommandRejectedError(
-                    "Tournament must be running or paused to complete"
-                )
+                raise TournamentNotRunningOrPaused()
             event = tournament.TournamentCompleted(
                 winner_root=cmd.winner_root,
                 total_prize_pool=self.total_prize_pool,

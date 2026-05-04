@@ -97,6 +97,11 @@ def _pack(msg) -> ProtoAny:
 def _command_book(
     domain: str, root: bytes, cmd, sequence: int = 0
 ) -> types.CommandBook:
+    # PM-emitted commands set ``sync_mode = SYNC_MODE_DECISION`` so the
+    # PM gets the accept/reject answer synchronously while projectors
+    # and sagas still run async. Honoured by the PM coordinator's
+    # per-command override path
+    # (`core/main/src/orchestration/process_manager/mod.rs`).
     return types.CommandBook(
         cover=types.Cover(
             domain=domain,
@@ -104,7 +109,10 @@ def _command_book(
         ),
         pages=[
             types.CommandPage(
-                header=types.PageHeader(sequence=sequence),
+                header=types.PageHeader(
+                    sequence=sequence,
+                    sync_mode=types.SYNC_MODE_DECISION,
+                ),
                 command=_pack(cmd),
             )
         ],
