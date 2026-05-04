@@ -94,11 +94,7 @@ pytest_add_cli_args_test_selection = [
 ]
 
 [tool.ruff]
-# angzarr-project is a submodule with cross-repo symlinks (e.g. its
-# acceptance environment.py points into per-consumer tests/ paths that
-# don't exist in this repo). Excluded from lint here; the submodule
-# has its own validation upstream.
-extend-exclude = ["**/*_pb2.py", "**/*_pb2_grpc.py", "**/angzarr-core", "**/angzarr-core/**", "angzarr-project", "angzarr-project/**"]
+extend-exclude = ["**/*_pb2.py", "**/*_pb2_grpc.py", "**/angzarr-core", "**/angzarr-core/**"]
 
 [tool.ruff.lint.per-file-ignores]
 # These files require sys.path manipulation before imports
