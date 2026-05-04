@@ -66,7 +66,7 @@ class StructuredCommandError(CommandRejectedError):
         cached = getattr(type(self), "_SHAPE_NAME_CACHE", None)
         if cached is not None:
             return cached
-        from angzarr_examples import error_shapes as _shapes
+        from poker import error_shapes as _shapes
 
         # The two tier-2 abstracts are NOT shapes — they're status defaults.
         # Any concrete shape is a strict subclass of one of these.

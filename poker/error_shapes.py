@@ -49,7 +49,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from angzarr_examples.errors import StructuredCommandError
+from poker.errors import StructuredCommandError
 
 # =============================================================================
 # Tier 2 — status defaults

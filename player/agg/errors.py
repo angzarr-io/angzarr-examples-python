@@ -1,7 +1,7 @@
 """Player-domain command error catalog.
 
 One leaf per distinct rejection. Leaves now inherit from a shape parent
-(see ``angzarr_examples.error_shapes``) for cross-cutting classification;
+(see ``poker.error_shapes``) for cross-cutting classification;
 the shape parent supplies the canonical field schema (``got``/``bound``,
 ``requested``/``available``, etc.) and the right ``STATUS`` default.
 
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from angzarr_examples.error_shapes import (
+from poker.error_shapes import (
     AggregateAlreadyExists,
     AggregateNotFound,
     EntityKeyedConflict,

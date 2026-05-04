@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from angzarr_examples.error_shapes import (
+from poker.error_shapes import (
     AggregateAlreadyExists,
     AggregateNotFound,
     BoundViolation,
@@ -33,7 +33,7 @@ from angzarr_examples.error_shapes import (
     ValueOutOfRange,
     VariantMismatch,
 )
-from angzarr_examples.errors import StructuredCommandError
+from poker.errors import StructuredCommandError
 
 # Import all leaves from all four domains.
 from hand.agg import errors as hand_errors

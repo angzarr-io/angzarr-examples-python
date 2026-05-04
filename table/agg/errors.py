@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from angzarr_examples.error_shapes import (
+from poker.error_shapes import (
     AggregateAlreadyExists,
     AggregateNotFound,
     BoundViolation,

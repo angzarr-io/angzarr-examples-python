@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import pytest
 
 from angzarr_client.errors import CommandRejectedError
-from angzarr_examples.errors import StructuredCommandError
+from poker.errors import StructuredCommandError
 
 
 @dataclass

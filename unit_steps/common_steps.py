@@ -62,7 +62,7 @@ def step_then_result_is_examples_event(context, event_type):
 
 # --- Then steps for structured-rejection assertions ---
 # Cucumber asserts rejections by stable code + structured details, never by
-# rendered message text. See ``angzarr_examples.errors.StructuredCommandError``.
+# rendered message text. See ``poker.errors.StructuredCommandError``.
 
 
 @then(r'the command is rejected with code "(?P<code>[^"]+)"')

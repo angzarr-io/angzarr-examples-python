@@ -8,7 +8,7 @@ preserves ``isinstance`` classification through the inheritance chain.
 from dataclasses import dataclass
 
 from angzarr_client.errors import CommandRejectedError
-from angzarr_examples.error_shapes import (
+from poker.error_shapes import (
     AggregateAlreadyExists,
     AggregateNotFound,
     BoundViolation,
@@ -30,7 +30,7 @@ from angzarr_examples.error_shapes import (
     ValueOutOfRange,
     VariantMismatch,
 )
-from angzarr_examples.errors import StructuredCommandError
+from poker.errors import StructuredCommandError
 
 # --- Sample leaves used to exercise each shape ---
 
