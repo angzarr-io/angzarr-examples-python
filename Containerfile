@@ -49,7 +49,6 @@ COPY hand-flow ./hand-flow
 COPY prj-output ./prj-output
 COPY prj_training ./prj_training
 COPY poker ./poker
-COPY sagas ./sagas
 COPY tournament ./tournament
 COPY reservation ./reservation
 
