@@ -45,6 +45,7 @@ from ..errors import (
     PlayerRootRequired,
     RaiseBelowMin,
     RaiseExceedsStack,
+    RevealOutOfOrder,
     TooManyDiscards,
     WinnerNotEligibleForPot,
     WrongCardCountForPhase,
@@ -98,6 +99,10 @@ class _HandState:
     small_blind: int = 0
     big_blind: int = 0
     status: str = ""
+    # Ordered queue of player_roots awaiting showdown reveal (head = next
+    # to act). Populated by ShowdownStarted; advanced by CardsRevealed /
+    # CardsMucked appliers.
+    showdown_order: list = field(default_factory=list)
 
 
 _APPLIER_REGISTRY: list[tuple[type, str]] = []
@@ -326,6 +331,22 @@ class Hand:
         self, state: _HandState, event: hand_proto.ShowdownStarted
     ) -> None:
         state.status = "showdown"
+        state.showdown_order = list(event.players_to_show)
+
+    @applies(hand_proto.CardsRevealed)
+    def apply_cards_revealed(
+        self, state: _HandState, event: hand_proto.CardsRevealed
+    ) -> None:
+        # Pop the head of the showdown queue if it matches the revealer.
+        if state.showdown_order and state.showdown_order[0] == event.player_root:
+            state.showdown_order.pop(0)
+
+    @applies(hand_proto.CardsMucked)
+    def apply_cards_mucked(
+        self, state: _HandState, event: hand_proto.CardsMucked
+    ) -> None:
+        if state.showdown_order and state.showdown_order[0] == event.player_root:
+            state.showdown_order.pop(0)
 
     @applies(hand_proto.DrawCompleted)
     def apply_draw_completed(
@@ -908,6 +929,13 @@ class Hand:
                 raise PlayerNotInHand()
             if player.has_folded:
                 raise PlayerHasFolded()
+
+            # Showdown order (TDA Rule 36): if the queue is populated,
+            # only the head player may reveal/muck. Out-of-order attempts
+            # are rejected.
+            order = self._state.showdown_order
+            if order and order[0] != cmd.player_root:
+                raise RevealOutOfOrder()
 
             if cmd.muck:
                 event = hand_proto.CardsMucked(

@@ -64,6 +64,11 @@ class _TableState:
     action_timeout_seconds: int = 30
     seats: dict = field(default_factory=dict)  # position -> _SeatState
     dealer_position: int = 0
+    # Last hand's blind positions, retained between hands so the
+    # dead-button advancement rule (TDA Rule 6) can compute the next
+    # BB without re-deriving from the seat layout alone.
+    last_big_blind_position: int = -1
+    last_small_blind_position: int = -1
     hand_count: int = 0
     current_hand_root: bytes = b""
     status: str = ""
@@ -185,6 +190,8 @@ class Table:
         state.hand_count = event.hand_number
         state.current_hand_root = event.hand_root
         state.dealer_position = event.dealer_position
+        state.last_small_blind_position = event.small_blind_position
+        state.last_big_blind_position = event.big_blind_position
         state.status = "in_hand"
 
     @applies(table_proto.HandEnded)
@@ -337,6 +344,68 @@ class Table:
                 break
         next_idx = (current_idx + 1) % len(positions)
         return positions[next_idx]
+
+    def _advance_blinds_with_dead_button(self) -> tuple[int, int, int] | None:
+        """Compute (dealer_position, sb_position, bb_position) for the
+        next hand using the TDA dead-button rule.
+
+        Invariant: every player must pay the BB exactly once per orbit.
+        The new BB is the next active seat clockwise of the previous BB
+        seat — even if that means the dealer button "freezes" or moves
+        to a vacated seat.
+
+        Returns None when the seats can't support a hand (< 2 active).
+        """
+        state = self._state
+        active = sorted(
+            pos
+            for pos, seat in state.seats.items()
+            if not seat.is_sitting_out
+        )
+        if len(active) < 2:
+            return None
+
+        # First hand: prior BB position is unset (-1). Use the standard
+        # advance from the legacy dealer_position.
+        prev_bb = state.last_big_blind_position
+        if prev_bb < 0:
+            dealer = self._next_dealer_position()
+            return self._derive_blind_positions(active, dealer)
+
+        # Subsequent hands: find next active seat clockwise of prev BB.
+        new_bb = next(
+            (s for s in active if s > prev_bb),
+            active[0],
+        )
+        if len(active) == 2:
+            # Heads-up: dealer = SB; the player who is NOT the new BB.
+            new_sb = next(s for s in active if s != new_bb)
+            return (new_sb, new_sb, new_bb)
+        # 3+ players: SB = active seat just before BB clockwise.
+        bb_idx = active.index(new_bb)
+        new_sb = active[(bb_idx - 1) % len(active)]
+        # Dealer = active seat just before SB clockwise.
+        sb_idx = active.index(new_sb)
+        new_dealer = active[(sb_idx - 1) % len(active)]
+        return (new_dealer, new_sb, new_bb)
+
+    def _derive_blind_positions(
+        self, active: list[int], dealer: int
+    ) -> tuple[int, int, int]:
+        """Standard blind derivation from a known dealer position. Used
+        for the first hand when prior BB position is unset.
+        """
+        if dealer in active:
+            d_idx = active.index(dealer)
+        else:
+            d_idx = 0
+        if len(active) == 2:
+            sb = active[d_idx]
+            bb = active[(d_idx + 1) % 2]
+            return (dealer, sb, bb)
+        sb = active[(d_idx + 1) % len(active)]
+        bb = active[(d_idx + 2) % len(active)]
+        return (dealer, sb, bb)
 
     # --- Command handlers ---
     #
@@ -507,24 +576,23 @@ class Table:
             hand_hash = hashlib.sha256(hand_root_input.encode()).digest()
             hand_root = hand_hash[:16]
 
-            dealer_position = self._next_dealer_position()
-
+            advance = self._advance_blinds_with_dead_button()
+            if advance is None:
+                # Defensive fallback to naive rotation if not enough seats
+                # — handler-level guard above already caught < 2 players,
+                # so this is unreachable in practice.
+                dealer_position = self._next_dealer_position()
+                active_positions = sorted(
+                    pos for pos, seat in s.seats.items() if not seat.is_sitting_out
+                )
+                dealer_position, sb_position, bb_position = self._derive_blind_positions(
+                    active_positions, dealer_position
+                )
+            else:
+                dealer_position, sb_position, bb_position = advance
             active_positions = sorted(
                 pos for pos, seat in s.seats.items() if not seat.is_sitting_out
             )
-
-            dealer_idx = 0
-            for i, pos in enumerate(active_positions):
-                if pos == dealer_position:
-                    dealer_idx = i
-                    break
-
-            if len(active_positions) == 2:
-                sb_position = active_positions[dealer_idx]
-                bb_position = active_positions[(dealer_idx + 1) % 2]
-            else:
-                sb_position = active_positions[(dealer_idx + 1) % len(active_positions)]
-                bb_position = active_positions[(dealer_idx + 2) % len(active_positions)]
 
             active_players = []
             for pos in active_positions:

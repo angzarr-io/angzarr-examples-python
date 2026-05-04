@@ -505,6 +505,63 @@ def step_then_score_less_than_other(context, other_hole, other_community):
     )
 
 
+# --- Pot-limit Omaha bet sizing (EU-0738) ---
+#
+# Pure-arithmetic steps that exercise the PLO max-raise formula:
+#     max_raise_to = pot + 2 * current_bet
+# (current_bet to call + the pot after the call would be made).
+
+
+@given(r"Pot-Limit Omaha rules")
+def step_given_plo_rules(context):
+    """Tag the context as PLO so the math step uses pot-limit clamp."""
+    context.variant = "POT_LIMIT_OMAHA"
+
+
+@given(r"the pot is (?P<pot>\d+) and current_bet is (?P<bet>\d+)")
+def step_given_plo_pot_state(context, pot, bet):
+    context.pot = int(pot)
+    context.current_bet = int(bet)
+
+
+@when(r"I compute the maximum raise-to amount")
+def step_when_compute_max_raise(context):
+    """PLO max raise-to = pot + 2 * current_bet."""
+    context.max_raise_to = context.pot + 2 * context.current_bet
+
+
+@when(r"I attempt a raise-to of (?P<amt>\d+)")
+def step_when_attempt_raise_to(context, amt):
+    raise_to = int(amt)
+    cap = context.pot + 2 * context.current_bet
+    if raise_to > cap:
+        class _PLORejection(Exception):
+            def __init__(self, code, **fields):
+                self.code = code
+                self.details = {k: str(v) for k, v in fields.items()}
+                super().__init__(f"{code}: {fields}")
+
+        context.error = _PLORejection(
+            "EXCEEDS_POT_LIMIT", got=raise_to, bound=cap
+        )
+    else:
+        context.error = None
+
+
+@then(r"the maximum raise-to is (?P<expected>\d+)")
+def step_then_max_raise_to(context, expected):
+    assert context.max_raise_to == int(expected), (
+        f"Expected max raise-to {expected}, got {context.max_raise_to}"
+    )
+
+
+@then(r'the raise is rejected with code "(?P<code>[^"]+)"')
+def step_then_raise_rejected(context, code):
+    err = getattr(context, "error", None)
+    assert err is not None, "Expected raise to be rejected, but it was accepted"
+    assert err.code == code, f"Expected code {code!r}, got {err.code!r}"
+
+
 @then(r"hand (?P<a>\w+) score is greater than hand (?P<b>\w+) score")
 def step_then_hand_score_greater(context, a, b):
     """Assert hand A strictly outranks hand B.

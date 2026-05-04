@@ -296,6 +296,19 @@ class CannotPostAnteAfterBlinds(InvalidOperationInState):
 
 
 @dataclass
+class RevealOutOfOrder(InvalidOperationInState):
+    """Showdown reveal attempted out of order (TDA Rule 36).
+
+    The last aggressive bettor on the river shows first; absent any
+    river action, the first un-folded seat clockwise of the dealer
+    shows first; remaining players follow clockwise.
+    """
+
+    CODE = "REVEAL_OUT_OF_ORDER"
+    TEMPLATE = "Reveal out of order"
+
+
+@dataclass
 class WinnerNotEligibleForPot(InvalidOperationInState):
     """Award assigns chips from a pot the player cannot legally win.
 
@@ -363,4 +376,5 @@ __all__ = [
     "WinnerNotEligibleForPot",
     "BetBelowBigBlind",
     "CannotPostAnteAfterBlinds",
+    "RevealOutOfOrder",
 ]

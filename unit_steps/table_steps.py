@@ -211,12 +211,27 @@ def step_given_hand_started_with_dealer(context, hand_num, seat):
             )
         )
 
+    # Derive SB/BB positions from the seated players so subsequent
+    # dead-button advancement starts from a coherent prior state.
+    active_positions = sorted(p.position for p in active_players)
+    dealer_pos = int(seat)
+    if dealer_pos in active_positions:
+        d_idx = active_positions.index(dealer_pos)
+    else:
+        d_idx = 0
+    if len(active_positions) == 2:
+        sb_pos = active_positions[d_idx]
+        bb_pos = active_positions[(d_idx + 1) % 2]
+    else:
+        sb_pos = active_positions[(d_idx + 1) % len(active_positions)]
+        bb_pos = active_positions[(d_idx + 2) % len(active_positions)]
+
     event = table.HandStarted(
         hand_root=uuid_for(f"hand-{hand_num}"),
         hand_number=int(hand_num),
-        dealer_position=int(seat),
-        small_blind_position=int(seat),
-        big_blind_position=1,
+        dealer_position=dealer_pos,
+        small_blind_position=sb_pos,
+        big_blind_position=bb_pos,
         game_variant=agg.game_variant if agg.exists else poker_types.TEXAS_HOLDEM,
         small_blind=agg.small_blind if agg.exists else 5,
         big_blind=agg.big_blind if agg.exists else 10,
@@ -834,3 +849,164 @@ def step_then_rebuy_seat(context, seat):
     event = rebuy.RebuyChipsAdded()
     context.result_event_any.Unpack(event)
     assert event.seat == int(seat), f"Expected seat={seat}, got {event.seat}"
+
+
+# --- Dead button rule (TDA Rule 6) ----------------------------------------
+
+
+@given(
+    r'player "(?P<player_id>[^"]+)" busted at seat (?P<seat>\d+) during '
+    r"hand (?P<hand_num>\d+)"
+)
+def step_given_player_busted(context, player_id, seat, hand_num):
+    """A player who busted during hand N was a participant in hand N's
+    blind structure; their seat is freed before the next StartHand.
+
+    To reflect this in the event stream we splice a PlayerJoined event
+    immediately before the HandStarted event for hand N (so the blind
+    positions of that prior hand can be re-derived to include the
+    busted player) and emit a PlayerLeft after the existing HandEnded.
+    """
+    if not hasattr(context, "events"):
+        context.events = []
+
+    seat_pos = int(seat)
+    target_hand = int(hand_num)
+    # Inject PlayerJoined retroactively before the matching HandStarted.
+    new_pages = []
+    inserted = False
+    for page in context.events:
+        if not inserted and page.event.Is(table.HandStarted.DESCRIPTOR):
+            hs = table.HandStarted()
+            page.event.Unpack(hs)
+            if hs.hand_number == target_hand:
+                join = table.PlayerJoined(
+                    player_root=uuid_for(player_id),
+                    seat_position=seat_pos,
+                    buy_in_amount=500,
+                    joined_at=make_timestamp(),
+                )
+                new_pages.append(
+                    make_event_page(join, seq=len(new_pages))
+                )
+                # Re-derive the blind positions of this HandStarted
+                # accounting for the inserted player.
+                positions = sorted(
+                    [seat_pos]
+                    + [p.position for p in hs.active_players]
+                )
+                d_pos = hs.dealer_position
+                d_idx = positions.index(d_pos) if d_pos in positions else 0
+                if len(positions) == 2:
+                    sb_pos = positions[d_idx]
+                    bb_pos = positions[(d_idx + 1) % 2]
+                else:
+                    sb_pos = positions[(d_idx + 1) % len(positions)]
+                    bb_pos = positions[(d_idx + 2) % len(positions)]
+                hs.small_blind_position = sb_pos
+                hs.big_blind_position = bb_pos
+                # Add the busted player to active_players for replay
+                # symmetry.
+                hs.active_players.append(
+                    table.SeatSnapshot(
+                        position=seat_pos,
+                        player_root=uuid_for(player_id),
+                        stack=500,
+                    )
+                )
+                # Repack
+                new_page = make_event_page(hs, seq=len(new_pages))
+                new_pages.append(new_page)
+                inserted = True
+                continue
+        # Re-sequence pages we keep so PageHeader.sequence stays dense.
+        if page.event.Is(table.HandStarted.DESCRIPTOR):
+            hs = table.HandStarted()
+            page.event.Unpack(hs)
+            new_pages.append(make_event_page(hs, seq=len(new_pages)))
+        elif page.event.Is(table.HandEnded.DESCRIPTOR):
+            he = table.HandEnded()
+            page.event.Unpack(he)
+            new_pages.append(make_event_page(he, seq=len(new_pages)))
+        elif page.event.Is(table.TableCreated.DESCRIPTOR):
+            tc = table.TableCreated()
+            page.event.Unpack(tc)
+            new_pages.append(make_event_page(tc, seq=len(new_pages)))
+        elif page.event.Is(table.PlayerJoined.DESCRIPTOR):
+            pj = table.PlayerJoined()
+            page.event.Unpack(pj)
+            new_pages.append(make_event_page(pj, seq=len(new_pages)))
+        elif page.event.Is(table.PlayerLeft.DESCRIPTOR):
+            pl = table.PlayerLeft()
+            page.event.Unpack(pl)
+            new_pages.append(make_event_page(pl, seq=len(new_pages)))
+        else:
+            new_pages.append(page)
+
+    # Append PlayerLeft for the busted player.
+    left = table.PlayerLeft(
+        player_root=uuid_for(player_id),
+        seat_position=seat_pos,
+        chips_cashed_out=0,
+        left_at=make_timestamp(),
+    )
+    new_pages.append(make_event_page(left, seq=len(new_pages)))
+    context.events = new_pages
+
+
+@given(
+    r'big_blind_position on hand (?P<hand_num>\d+) was player "(?P<player_id>[^"]+)"'
+)
+def step_given_prev_bb_was(context, hand_num, player_id):
+    """Annotate the previous BB occupant for assertions in EU-0578."""
+    context.prev_bb_player = player_id
+
+
+@then(r"the small_blind_position is seat (?P<seat>\d+)")
+def step_then_sb_position(context, seat):
+    event = table.HandStarted()
+    context.result_event_any.Unpack(event)
+    assert event.small_blind_position == int(seat), (
+        f"Expected SB at seat {seat}, got {event.small_blind_position}"
+    )
+
+
+@then(r"the big_blind_position is seat (?P<seat>\d+)")
+def step_then_bb_position(context, seat):
+    event = table.HandStarted()
+    context.result_event_any.Unpack(event)
+    assert event.big_blind_position == int(seat), (
+        f"Expected BB at seat {seat}, got {event.big_blind_position}"
+    )
+
+
+@then(r"the dealer_position is seat (?P<seat>\d+)")
+def step_then_dealer_seat(context, seat):
+    event = table.HandStarted()
+    context.result_event_any.Unpack(event)
+    assert event.dealer_position == int(seat), (
+        f"Expected dealer at seat {seat}, got {event.dealer_position}"
+    )
+
+
+@then(r'the player at the big_blind_position is not "(?P<player_id>[^"]+)"')
+def step_then_bb_is_not(context, player_id):
+    """Assert the player at the new BB position is NOT the same player
+    who held BB on the prior hand. Look up who's seated at the new BB
+    in the active_players snapshot of the new HandStarted event.
+    """
+    event = table.HandStarted()
+    context.result_event_any.Unpack(event)
+    excluded_root = uuid_for(player_id)
+    bb_pos = event.big_blind_position
+    bb_player = next(
+        (p.player_root for p in event.active_players if p.position == bb_pos),
+        None,
+    )
+    assert bb_player is not None, (
+        f"No active player found at BB position {bb_pos}"
+    )
+    assert bb_player != excluded_root, (
+        f"BB position {bb_pos} is occupied by {player_id}, but the test "
+        f"requires it to be a DIFFERENT player from the prior hand"
+    )

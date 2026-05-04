@@ -2339,3 +2339,177 @@ def step_then_pot_awarded_emitted(context):
     assert event_any.Is(hand.PotAwarded.DESCRIPTOR), (
         f"Expected PotAwarded, got {event_any.TypeName()}"
     )
+
+
+# --- Showdown reveal order (TDA Rule 36) ----------------------------------
+
+
+@given(r"a hand at showdown with:")
+def step_given_hand_at_showdown(context):
+    """Set up a hand at showdown from a player table.
+
+    Columns: ``player_root``, ``seat``, ``folded``. Stores per-player
+    state on context so subsequent steps can compute the showdown
+    order from the (last aggressor or dealer) and emit ShowdownStarted.
+    """
+    if not hasattr(context, "events"):
+        context.events = []
+    showdown_players = []
+    for row in context.table:
+        row_dict = {
+            context.table.headings[j]: row[j]
+            for j in range(len(context.table.headings))
+        }
+        showdown_players.append(
+            {
+                "name": row_dict["player_root"],
+                "seat": int(row_dict["seat"]),
+                "folded": row_dict["folded"].lower() == "true",
+            }
+        )
+    context.showdown_players = showdown_players
+
+    # Seed a CardsDealt event so the aggregate has a hand.
+    dealt = hand.CardsDealt(
+        table_root=b"table-1",
+        hand_number=1,
+        game_variant=poker_types.TEXAS_HOLDEM,
+        dealer_position=0,  # default; overridable by later step
+        dealt_at=make_timestamp(),
+    )
+    for sp in showdown_players:
+        dealt.players.append(
+            hand.PlayerInHand(
+                player_root=uuid_for(sp["name"]),
+                position=sp["seat"],
+                stack=500,
+            )
+        )
+    context.events.append(make_event_page(dealt, len(context.events)))
+
+    # Apply folds for any folded players.
+    for sp in showdown_players:
+        if sp["folded"]:
+            fold = hand.ActionTaken(
+                player_root=uuid_for(sp["name"]),
+                action=poker_types.FOLD,
+                amount=0,
+                action_at=make_timestamp(),
+            )
+            context.events.append(make_event_page(fold, len(context.events)))
+
+
+@given(r'the last aggressive action on the river was by "(?P<player_id>[^"]+)"')
+def step_given_last_aggressor(context, player_id):
+    context.last_aggressor = player_id
+    context.has_river_action = True
+
+
+@given(r"there was no aggressive action on the river")
+def step_given_no_river_action(context):
+    context.last_aggressor = None
+    context.has_river_action = False
+
+
+@given(r"the dealer is at seat (?P<seat>\d+)")
+def step_given_dealer_seat(context, seat):
+    context.dealer_seat = int(seat)
+
+
+@given(
+    r'a hand at showdown with players_to_show order "(?P<order>[^"]+)"'
+)
+def step_given_explicit_showdown_order(context, order):
+    """Pre-emit a ShowdownStarted with the explicit order. Used when
+    the test only cares about post-showdown reveal mechanics, not the
+    derivation of the order.
+    """
+    if not hasattr(context, "events"):
+        context.events = []
+    names = [n.strip() for n in order.split(",")]
+    # Need a CardsDealt seeding the players if not present.
+    has_dealt = any(
+        page.event.Is(hand.CardsDealt.DESCRIPTOR) for page in context.events
+    )
+    if not has_dealt:
+        dealt = hand.CardsDealt(
+            table_root=b"table-1",
+            hand_number=1,
+            game_variant=poker_types.TEXAS_HOLDEM,
+            dealer_position=0,
+            dealt_at=make_timestamp(),
+        )
+        for i, name in enumerate(names):
+            dealt.players.append(
+                hand.PlayerInHand(
+                    player_root=uuid_for(name), position=i, stack=500
+                )
+            )
+        context.events.append(make_event_page(dealt, len(context.events)))
+    sd = hand.ShowdownStarted(started_at=make_timestamp())
+    for name in names:
+        sd.players_to_show.append(uuid_for(name))
+    context.events.append(make_event_page(sd, len(context.events)))
+
+
+def _compute_showdown_order(context) -> list[bytes]:
+    """Compute showdown order from prior context: last aggressor first
+    (then clockwise from them), or first un-folded clockwise of dealer.
+    """
+    players = sorted(context.showdown_players, key=lambda p: p["seat"])
+    un_folded = [p for p in players if not p["folded"]]
+    if not un_folded:
+        return []
+    last = getattr(context, "last_aggressor", None)
+    if last:
+        # Find index of aggressor in un_folded; rotate.
+        for i, p in enumerate(un_folded):
+            if p["name"] == last:
+                ordered = un_folded[i:] + un_folded[:i]
+                return [uuid_for(p["name"]) for p in ordered]
+    # No aggressor — start at first un_folded clockwise of dealer.
+    dealer_seat = getattr(context, "dealer_seat", 0)
+    # Find first un_folded with seat > dealer_seat (or wrap around).
+    sorted_un = sorted(un_folded, key=lambda p: p["seat"])
+    after = [p for p in sorted_un if p["seat"] > dealer_seat]
+    before = [p for p in sorted_un if p["seat"] <= dealer_seat]
+    ordered = after + before
+    return [uuid_for(p["name"]) for p in ordered]
+
+
+@when(r"the ShowdownStarted event is emitted")
+def step_when_showdown_started_emitted(context):
+    """Compute the order, emit ShowdownStarted, accumulate on events."""
+    order = _compute_showdown_order(context)
+    sd = hand.ShowdownStarted(started_at=make_timestamp())
+    for root in order:
+        sd.players_to_show.append(root)
+    if not hasattr(context, "events"):
+        context.events = []
+    context.events.append(make_event_page(sd, len(context.events)))
+    context.last_showdown_order = order
+
+
+@then(r'the showdown players_to_show order is "(?P<order>[^"]+)"')
+def step_then_showdown_order(context, order):
+    expected = [uuid_for(n.strip()) for n in order.split(",")]
+    actual = context.last_showdown_order
+    assert actual == expected, (
+        f"Showdown order mismatch.\n"
+        f"  expected: {[r.hex()[:8] for r in expected]}\n"
+        f"  actual:   {[r.hex()[:8] for r in actual]}"
+    )
+
+
+@then(r'the next showdown player is "(?P<player_id>[^"]+)"')
+def step_then_next_showdown_player(context, player_id):
+    """After a reveal/muck, the head of the order should advance."""
+    book = _make_event_book(context.events)
+    agg = Hand(book)
+    order = agg._state.showdown_order
+    expected = uuid_for(player_id)
+    assert order, "showdown_order is empty"
+    assert order[0] == expected, (
+        f"Expected next player {player_id} ({expected.hex()[:8]}), "
+        f"got {order[0].hex()[:8]}"
+    )
