@@ -169,7 +169,6 @@ def test_every_leaf_inherits_from_structured_command_error(leaf_cls, _expected_s
 
 def test_validation_shapes_have_invalid_argument_status():
     """All ValidationError descendants default to INVALID_ARGUMENT."""
-    validation_shapes = (FieldRequired, MustBePositive, MustBeNonZero, ValueOutOfRange)
     for leaf_cls, expected_shape in _LEAF_SHAPE_TABLE:
         if not issubclass(expected_shape, ValidationError):
             continue

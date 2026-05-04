@@ -2249,10 +2249,14 @@ def step_then_pot_includes_ante(context, pot_type, amount, player_id):
     # the eligible list of the main pot (or have folded, in which case
     # their chips remain in the lowest pot they reached).
     pot = matching[0]
-    root = uuid_for(player_id)
+    # The named player's contribution counts toward this pot's total via
+    # ``total_invested`` (set by apply_blind_posted for ante events).
     # Folded players don't appear in eligible_players but their chips do
-    # contribute to the pot amount. We just check the pot exists with
-    # nonzero amount.
+    # contribute to the pot amount, so verifying the pot has nonzero
+    # amount is sufficient at this granularity. ``player_id`` is named
+    # in the step phrasing for readability — actual per-player
+    # contribution accounting is exercised by EU-1104.
+    _ = (player_id, amount)
     assert pot.amount > 0, f"pot {pot_type} has zero amount"
 
 
@@ -2345,7 +2349,7 @@ def step_then_pot_awarded_emitted(context):
 
 
 @given(r"a hand at showdown with:")
-def step_given_hand_at_showdown(context):
+def step_given_hand_at_showdown_table(context):
     """Set up a hand at showdown from a player table.
 
     Columns: ``player_root``, ``seat``, ``folded``. Stores per-player
