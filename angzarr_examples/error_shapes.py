@@ -51,7 +51,6 @@ from typing import ClassVar
 
 from angzarr_examples.errors import StructuredCommandError
 
-
 # =============================================================================
 # Tier 2 — status defaults
 # =============================================================================

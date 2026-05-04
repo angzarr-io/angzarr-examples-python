@@ -30,7 +30,6 @@ from angzarr_examples.error_shapes import (
     VariantMismatch,
 )
 
-
 # --- DealCards ---
 
 
@@ -207,9 +206,7 @@ class WrongCardCountForPhase(IdentityMismatch):
 @dataclass
 class NotEnoughCardsInDeck(InsufficientCapacity):
     CODE = "NOT_ENOUGH_CARDS_IN_DECK"
-    TEMPLATE = (
-        "Not enough cards in deck: requested {requested}, available {available}"
-    )
+    TEMPLATE = "Not enough cards in deck: requested {requested}, available {available}"
 
 
 # --- RequestDraw ---

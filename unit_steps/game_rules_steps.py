@@ -469,18 +469,16 @@ def step_then_both_hands_rank(context, rank):
     one of the hands (e.g. flushes one but not the other) before the
     score-comparison step runs, giving a clearer failure message.
     """
-    assert getattr(context, "hand_results", None), (
-        "No labeled hand results stored — call `I evaluate hand <label> ...` first"
-    )
+    assert getattr(
+        context, "hand_results", None
+    ), "No labeled hand results stored — call `I evaluate hand <label> ...` first"
     expected = _rank_type_from_name(rank)
     mismatches = {
         label: _rank_name(result["rank"])
         for label, result in context.hand_results.items()
         if result["rank"] != expected
     }
-    assert not mismatches, (
-        f"Expected every hand to rank {rank}, but got: {mismatches}"
-    )
+    assert not mismatches, f"Expected every hand to rank {rank}, but got: {mismatches}"
 
 
 @then(
@@ -501,7 +499,7 @@ def step_then_score_less_than_other(context, other_hole, other_community):
     )
     assert context.score < other_score, (
         f"Expected score {context.score} to be less than {other_score} "
-        f'(other hand: hole={other_hole!r}, community={other_community!r})'
+        f"(other hand: hole={other_hole!r}, community={other_community!r})"
     )
 
 
@@ -535,24 +533,23 @@ def step_when_attempt_raise_to(context, amt):
     raise_to = int(amt)
     cap = context.pot + 2 * context.current_bet
     if raise_to > cap:
+
         class _PLORejection(Exception):
             def __init__(self, code, **fields):
                 self.code = code
                 self.details = {k: str(v) for k, v in fields.items()}
                 super().__init__(f"{code}: {fields}")
 
-        context.error = _PLORejection(
-            "EXCEEDS_POT_LIMIT", got=raise_to, bound=cap
-        )
+        context.error = _PLORejection("EXCEEDS_POT_LIMIT", got=raise_to, bound=cap)
     else:
         context.error = None
 
 
 @then(r"the maximum raise-to is (?P<expected>\d+)")
 def step_then_max_raise_to(context, expected):
-    assert context.max_raise_to == int(expected), (
-        f"Expected max raise-to {expected}, got {context.max_raise_to}"
-    )
+    assert context.max_raise_to == int(
+        expected
+    ), f"Expected max raise-to {expected}, got {context.max_raise_to}"
 
 
 @then(r'the raise is rejected with code "(?P<code>[^"]+)"')

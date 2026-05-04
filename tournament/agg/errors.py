@@ -128,7 +128,9 @@ class TournamentNotPaused(StateMismatch):
 @dataclass
 class NotEnoughPlayersToStart(InsufficientCapacity):
     CODE = "NOT_ENOUGH_PLAYERS_TO_START"
-    TEMPLATE = "Not enough players to start: requested {requested}, available {available}"
+    TEMPLATE = (
+        "Not enough players to start: requested {requested}, available {available}"
+    )
 
 
 @dataclass
@@ -158,9 +160,7 @@ class FinishingOrderShorterThanPayoutPositions(BoundViolation):
     configured payout_structure requires."""
 
     CODE = "FINISHING_ORDER_SHORTER_THAN_PAYOUT_POSITIONS"
-    TEMPLATE = (
-        "finishing_order length {got} is less than payout positions {bound}"
-    )
+    TEMPLATE = "finishing_order length {got} is less than payout positions {bound}"
     KIND: ClassVar[str] = "below_min"
 
 

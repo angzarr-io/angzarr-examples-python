@@ -575,9 +575,9 @@ def step_then_command_has_deck_seed_equal_hand_root(context):
     cmd = hand.DealCards()
     cmd_any.Unpack(cmd)
     expected = bytes(context.event.hand_root)
-    assert cmd.deck_seed == expected, (
-        f"Expected deck_seed=hand_root ({expected!r}), got {bytes(cmd.deck_seed)!r}"
-    )
+    assert (
+        cmd.deck_seed == expected
+    ), f"Expected deck_seed=hand_root ({expected!r}), got {bytes(cmd.deck_seed)!r}"
 
 
 @then("the command has (?P<count>\\d+) result")
@@ -600,8 +600,8 @@ def step_then_result_has_winner(context, winner, amount):
     cmd_any.Unpack(cmd)
     result = cmd.results[0]
     expected_amount = int(amount)
-    assert (
-        result.winner_root == uuid_for(winner)
+    assert result.winner_root == uuid_for(
+        winner
     ), f"Expected {winner}, got {result.winner_root}"
     assert (
         result.amount == expected_amount
@@ -623,8 +623,8 @@ def step_then_first_command_has_amount(context, amount, player_id):
     assert (
         cmd.amount.amount == expected_amount
     ), f"Expected {expected_amount}, got {cmd.amount.amount}"
-    assert (
-        deposit_cmds[0].cover.root.value == uuid_for(player_id)
+    assert deposit_cmds[0].cover.root.value == uuid_for(
+        player_id
     ), f"Expected root {player_id}, got {deposit_cmds[0].cover.root.value!r}"
 
 
@@ -643,8 +643,8 @@ def step_then_second_command_has_amount(context, amount, player_id):
     assert (
         cmd.amount.amount == expected_amount
     ), f"Expected {expected_amount}, got {cmd.amount.amount}"
-    assert (
-        deposit_cmds[1].cover.root.value == uuid_for(player_id)
+    assert deposit_cmds[1].cover.root.value == uuid_for(
+        player_id
     ), f"Expected root {player_id}, got {deposit_cmds[1].cover.root.value!r}"
 
 
@@ -818,8 +818,8 @@ def step_then_end_hand_result(context, count, winner, amount):
         count
     ), f"Expected {count} results, got {len(cmd.results)}"
     result = cmd.results[0]
-    assert (
-        result.winner_root == uuid_for(winner)
+    assert result.winner_root == uuid_for(
+        winner
     ), f"Expected winner {winner}, got {result.winner_root!r}"
     assert result.amount == int(
         amount
@@ -895,8 +895,8 @@ def step_then_deposit_funds_index(context, index, amount, pid):
     assert cmd.amount.amount == int(
         amount
     ), f"Expected amount {amount}, got {cmd.amount.amount}"
-    assert (
-        cmd_book.cover.root.value == uuid_for(pid)
+    assert cmd_book.cover.root.value == uuid_for(
+        pid
     ), f"Expected root {pid}, got {cmd_book.cover.root.value!r}"
 
 

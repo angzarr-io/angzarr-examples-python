@@ -32,7 +32,6 @@ from angzarr_examples.error_shapes import (
 )
 from angzarr_examples.errors import StructuredCommandError
 
-
 # --- Sample leaves used to exercise each shape ---
 
 

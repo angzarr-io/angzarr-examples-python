@@ -85,22 +85,20 @@ def step_then_rejection_has_shape(context, shape):
     actual = ""
     if hasattr(context.error, "shape_name"):
         actual = context.error.shape_name()
-    assert actual == shape, (
-        f"Rejection shape: expected {shape!r}, got {actual!r}"
-    )
+    assert actual == shape, f"Rejection shape: expected {shape!r}, got {actual!r}"
 
 
 @then(r'the rejection field "(?P<field>[^"]+)" equals "(?P<value>[^"]*)"')
 def step_then_rejection_field_equals(context, field, value):
     assert context.error is not None, "Expected command to be rejected but it succeeded"
     details = getattr(context.error, "details", {}) or {}
-    assert field in details, (
-        f"Rejection has no field {field!r}; available fields: {sorted(details)}"
-    )
+    assert (
+        field in details
+    ), f"Rejection has no field {field!r}; available fields: {sorted(details)}"
     actual = details[field]
-    assert actual == value, (
-        f"Rejection field {field!r}: expected {value!r}, got {actual!r}"
-    )
+    assert (
+        actual == value
+    ), f"Rejection field {field!r}: expected {value!r}, got {actual!r}"
 
 
 # --- Then steps for rejection cover (addressing envelope) ---
@@ -109,7 +107,7 @@ def step_then_rejection_field_equals(context, field, value):
 # cover.root.value (as hex), and cover.correlation_id directly.
 
 
-@then(r'the rejection cover has (?P<spec>.+)')
+@then(r"the rejection cover has (?P<spec>.+)")
 def step_then_rejection_cover_has(context, spec):
     """Compound assertion accepting one or more `field "value"` pairs joined
     by ` and `, e.g.::
@@ -122,9 +120,9 @@ def step_then_rejection_cover_has(context, spec):
     cover = _rejection_cover_or_fail(context)
     for field, value in _parse_cover_spec(spec):
         actual = _read_cover_field(cover, field)
-        assert actual == value, (
-            f"Rejection cover {field}: expected {value!r}, got {actual!r}"
-        )
+        assert (
+            actual == value
+        ), f"Rejection cover {field}: expected {value!r}, got {actual!r}"
 
 
 def _rejection_cover_or_fail(context):
@@ -156,10 +154,10 @@ def _ensure_command_cover(context):
 def _parse_cover_spec(spec):
     """Yield ``(field, value)`` pairs from a compound spec like::
 
-        domain "player" and correlation_id "X" and root_hex "abc"
+    domain "player" and correlation_id "X" and root_hex "abc"
     """
     pairs = list(_COVER_FIELD_RE.finditer(spec))
-    assert pairs, f"No `field \"value\"` pairs found in cover spec: {spec!r}"
+    assert pairs, f'No `field "value"` pairs found in cover spec: {spec!r}'
     for match in pairs:
         yield match.group("field"), match.group("value")
 
@@ -189,7 +187,7 @@ def _read_cover_field(cover, field):
     )
 
 
-@given(r'the command cover has (?P<spec>.+)')
+@given(r"the command cover has (?P<spec>.+)")
 def step_given_cover_has(context, spec):
     """Compound setter accepting one or more `field "value"` pairs joined
     by ` and `, e.g.::

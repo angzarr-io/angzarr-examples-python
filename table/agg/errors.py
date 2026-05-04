@@ -139,7 +139,9 @@ class HandAlreadyInProgress(StateAlreadyEntered):
 @dataclass
 class NotEnoughPlayersToStartHand(InsufficientCapacity):
     CODE = "NOT_ENOUGH_PLAYERS_TO_START_HAND"
-    TEMPLATE = "Not enough players to start hand: requested {requested}, available {available}"
+    TEMPLATE = (
+        "Not enough players to start hand: requested {requested}, available {available}"
+    )
 
 
 @dataclass

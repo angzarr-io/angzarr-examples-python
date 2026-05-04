@@ -585,9 +585,7 @@ def step_when_buy_in_orchestrator_handles_request(context):
     """Dispatch BuyInRequested through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_BUY_IN)
-    response = pm.on_buy_in_requested(
-        context.buy_in_event, state, destinations=None
-    )
+    response = pm.on_buy_in_requested(context.buy_in_event, state, destinations=None)
     _record_response(context, response)
 
 
@@ -677,9 +675,7 @@ def step_when_rebuy_orchestrator_handles_request(context):
     """Dispatch RebuyRequested through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_REBUY)
-    response = pm.on_rebuy_requested(
-        context.rebuy_event, state, destinations=None
-    )
+    response = pm.on_rebuy_requested(context.rebuy_event, state, destinations=None)
     _record_response(context, response)
 
 
@@ -803,9 +799,7 @@ def step_then_pm_emits_no_commands(context):
     workflow_cmds = [
         c for c in context.emitted_commands if c not in _RELEASE_COMPENSATIONS
     ]
-    assert (
-        not workflow_cmds
-    ), f"Expected no workflow commands, got {workflow_cmds}"
+    assert not workflow_cmds, f"Expected no workflow commands, got {workflow_cmds}"
 
 
 # =============================================================================
@@ -820,7 +814,9 @@ def _assert_event(context, name: str) -> None:
 
 def _assert_failure_code(context, event_name: str, code: str) -> None:
     matches = [(n, c) for n, c in context.emitted_events if n == event_name]
-    assert matches, f"Expected {event_name} event, got {[n for n, _ in context.emitted_events]}"
+    assert (
+        matches
+    ), f"Expected {event_name} event, got {[n for n, _ in context.emitted_events]}"
     assert matches[0][1] == code, f"Expected code '{code}', got '{matches[0][1]}'"
 
 

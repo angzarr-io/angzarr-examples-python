@@ -70,9 +70,14 @@ class StructuredCommandError(CommandRejectedError):
 
         # The two tier-2 abstracts are NOT shapes — they're status defaults.
         # Any concrete shape is a strict subclass of one of these.
-        skip = {_shapes.PreconditionError, _shapes.ValidationError, StructuredCommandError}
+        skip = {
+            _shapes.PreconditionError,
+            _shapes.ValidationError,
+            StructuredCommandError,
+        }
         shape_classes = {
-            cls for name in _shapes.__all__
+            cls
+            for name in _shapes.__all__
             for cls in [getattr(_shapes, name)]
             if isinstance(cls, type) and cls not in skip
         }

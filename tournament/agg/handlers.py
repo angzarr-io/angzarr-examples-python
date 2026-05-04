@@ -5,7 +5,10 @@ from dataclasses import dataclass, field
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client import applies, command_handler, handles, now
-from .errors import FinishingOrderShorterThanPayoutPositions, PayoutsDoNotSumToPool  # noqa: E501
+from .errors import (
+    FinishingOrderShorterThanPayoutPositions,
+    PayoutsDoNotSumToPool,
+)  # noqa: E501
 from .errors import (
     BlindStructureExhausted,
     BuyInMustBePositive,
@@ -358,9 +361,7 @@ class Tournament:
             if cmd.min_players < 2:
                 raise MinPlayersTooFew(got=cmd.min_players)
             if cmd.min_players > cmd.max_players:
-                raise MinPlayersExceedsMax(
-                    lhs=cmd.min_players, rhs=cmd.max_players
-                )
+                raise MinPlayersExceedsMax(lhs=cmd.min_players, rhs=cmd.max_players)
 
             event = tournament.TournamentCreated(
                 name=cmd.name,
@@ -740,13 +741,9 @@ class Tournament:
                         bound=len(payout_structure),
                     )
                 pool = self.total_prize_pool
-                payouts = [
-                    pool * pp.percentage // 100 for pp in payout_structure
-                ]
+                payouts = [pool * pp.percentage // 100 for pp in payout_structure]
                 if sum(payouts) != pool:
-                    raise PayoutsDoNotSumToPool(
-                        got=sum(payouts), bound=pool
-                    )
+                    raise PayoutsDoNotSumToPool(got=sum(payouts), bound=pool)
                 for pp, payout, root in zip(
                     payout_structure, payouts, cmd.finishing_order
                 ):

@@ -886,15 +886,10 @@ def step_given_player_busted(context, player_id, seat, hand_num):
                     buy_in_amount=500,
                     joined_at=make_timestamp(),
                 )
-                new_pages.append(
-                    make_event_page(join, seq=len(new_pages))
-                )
+                new_pages.append(make_event_page(join, seq=len(new_pages)))
                 # Re-derive the blind positions of this HandStarted
                 # accounting for the inserted player.
-                positions = sorted(
-                    [seat_pos]
-                    + [p.position for p in hs.active_players]
-                )
+                positions = sorted([seat_pos] + [p.position for p in hs.active_players])
                 d_pos = hs.dealer_position
                 d_idx = positions.index(d_pos) if d_pos in positions else 0
                 if len(positions) == 2:
@@ -966,27 +961,27 @@ def step_given_prev_bb_was(context, hand_num, player_id):
 def step_then_sb_position(context, seat):
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert event.small_blind_position == int(seat), (
-        f"Expected SB at seat {seat}, got {event.small_blind_position}"
-    )
+    assert event.small_blind_position == int(
+        seat
+    ), f"Expected SB at seat {seat}, got {event.small_blind_position}"
 
 
 @then(r"the big_blind_position is seat (?P<seat>\d+)")
 def step_then_bb_position(context, seat):
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert event.big_blind_position == int(seat), (
-        f"Expected BB at seat {seat}, got {event.big_blind_position}"
-    )
+    assert event.big_blind_position == int(
+        seat
+    ), f"Expected BB at seat {seat}, got {event.big_blind_position}"
 
 
 @then(r"the dealer_position is seat (?P<seat>\d+)")
 def step_then_dealer_seat(context, seat):
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert event.dealer_position == int(seat), (
-        f"Expected dealer at seat {seat}, got {event.dealer_position}"
-    )
+    assert event.dealer_position == int(
+        seat
+    ), f"Expected dealer at seat {seat}, got {event.dealer_position}"
 
 
 @then(r'the player at the big_blind_position is not "(?P<player_id>[^"]+)"')
@@ -1003,9 +998,7 @@ def step_then_bb_is_not(context, player_id):
         (p.player_root for p in event.active_players if p.position == bb_pos),
         None,
     )
-    assert bb_player is not None, (
-        f"No active player found at BB position {bb_pos}"
-    )
+    assert bb_player is not None, f"No active player found at BB position {bb_pos}"
     assert bb_player != excluded_root, (
         f"BB position {bb_pos} is occupied by {player_id}, but the test "
         f"requires it to be a DIFFERENT player from the prior hand"

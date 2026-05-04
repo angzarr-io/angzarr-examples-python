@@ -532,9 +532,7 @@ class Hand:
         # folded players' chip levels feed the layer they reached, but
         # never split it into a new pot (folded chips have no claimant
         # whose all-in we need to honour).
-        levels = sorted(
-            {effective[r] for r, _, folded in contributions if not folded}
-        )
+        levels = sorted({effective[r] for r, _, folded in contributions if not folded})
         levels = [lvl for lvl in levels if lvl > 0]
         pots: list[_PotInfo] = []
         prev_level = 0

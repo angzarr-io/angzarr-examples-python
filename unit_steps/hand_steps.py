@@ -1451,9 +1451,9 @@ def step_given_capture_hole_cards(context, player_id, label):
                 break
         if snapshot is not None:
             break
-    assert snapshot is not None, (
-        f"No CardsDealt event found carrying hole cards for player {player_id!r}"
-    )
+    assert (
+        snapshot is not None
+    ), f"No CardsDealt event found carrying hole cards for player {player_id!r}"
     if not hasattr(context, "card_snapshots"):
         context.card_snapshots = {}
     context.card_snapshots[label] = snapshot
@@ -1485,7 +1485,9 @@ def step_then_reveal_has_player_cards(context, player_id):
     assert context.result_event_any is not None, "No result event"
     event = hand.CardsRevealed()
     context.result_event_any.Unpack(event)
-    assert event.player_root == uuid_for(player_id), f"Wrong player: {event.player_root}"
+    assert event.player_root == uuid_for(
+        player_id
+    ), f"Wrong player: {event.player_root}"
     assert len(event.cards) > 0, "No cards in reveal event"
 
 
@@ -1955,10 +1957,7 @@ def _seed_action(context, player_id, action_name, amount):
     context.events.append(make_event_page(event, len(context.events)))
 
 
-@given(
-    r"all three players are all-in with totals "
-    r"(?P<a>\d+)/(?P<b>\d+)/(?P<c>\d+)"
-)
+@given(r"all three players are all-in with totals " r"(?P<a>\d+)/(?P<b>\d+)/(?P<c>\d+)")
 def step_given_three_all_in(context, a, b, c):
     _seed_action(context, "player-A", "ALL_IN", a)
     _seed_action(context, "player-B", "ALL_IN", b)
@@ -1976,10 +1975,7 @@ def step_given_four_all_in(context, a, b, c, d):
     _seed_action(context, "player-D", "ALL_IN", d)
 
 
-@given(
-    r'player "(?P<player_id>[^"]+)" has invested (?P<amount>\d+) then '
-    r"folded"
-)
+@given(r'player "(?P<player_id>[^"]+)" has invested (?P<amount>\d+) then ' r"folded")
 def step_given_invested_then_folded(context, player_id, amount):
     _seed_action(context, player_id, "ALL_IN", amount)
     fold = hand.ActionTaken(
@@ -1993,16 +1989,12 @@ def step_given_invested_then_folded(context, player_id, amount):
     context.events.append(make_event_page(fold, len(context.events)))
 
 
-@given(
-    r'player "(?P<a>[^"]+)" is all-in for (?P<amt_a>\d+)'
-)
+@given(r'player "(?P<a>[^"]+)" is all-in for (?P<amt_a>\d+)')
 def step_given_player_all_in_only(context, a, amt_a):
     _seed_action(context, a, "ALL_IN", amt_a)
 
 
-@given(
-    r'player "(?P<a>[^"]+)" called (?P<amt>\d+)'
-)
+@given(r'player "(?P<a>[^"]+)" called (?P<amt>\d+)')
 def step_given_player_called(context, a, amt):
     _seed_action(context, a, "CALL", amt)
 
@@ -2175,8 +2167,12 @@ def step_when_compute_side_pots(context):
 @then(r"there are (?P<count>\d+) pots")
 def step_then_pot_count(context, count):
     pots = getattr(context, "computed_pots", None)
-    assert pots is not None, "No computed_pots on context — run 'When the side pots are computed' first"
-    assert len(pots) == int(count), f"Expected {count} pots, got {len(pots)}: {[p.pot_type for p in pots]}"
+    assert (
+        pots is not None
+    ), "No computed_pots on context — run 'When the side pots are computed' first"
+    assert len(pots) == int(
+        count
+    ), f"Expected {count} pots, got {len(pots)}: {[p.pot_type for p in pots]}"
 
 
 @then(r"there is 1 pot")
@@ -2193,9 +2189,9 @@ def step_then_pot_amount_eligible(context, pot_type, amount, players):
     matching = [p for p in pots if p.pot_type == pot_type]
     assert matching, f"No pot of type {pot_type!r}; have {[p.pot_type for p in pots]}"
     pot = matching[0]
-    assert pot.amount == int(amount), (
-        f"pot {pot_type}: expected amount {amount}, got {pot.amount}"
-    )
+    assert pot.amount == int(
+        amount
+    ), f"pot {pot_type}: expected amount {amount}, got {pot.amount}"
     expected_eligibles = {uuid_for(name.strip()) for name in players.split(",")}
     actual_eligibles = set(pot.eligible_players)
     assert expected_eligibles == actual_eligibles, (
@@ -2209,17 +2205,15 @@ def step_then_pot_amount(context, pot_type, amount):
     pots = getattr(context, "computed_pots", [])
     matching = [p for p in pots if p.pot_type == pot_type]
     assert matching, f"No pot of type {pot_type!r}"
-    assert matching[0].amount == int(amount), (
-        f"pot {pot_type}: expected amount {amount}, got {matching[0].amount}"
-    )
+    assert matching[0].amount == int(
+        amount
+    ), f"pot {pot_type}: expected amount {amount}, got {matching[0].amount}"
 
 
 @then(r'the uncontested return to "(?P<player_id>[^"]+)" is (?P<amount>\d+)')
 def step_then_uncontested_return(context, player_id, amount):
     actual = getattr(context, "uncontested_return", 0)
-    assert actual == int(amount), (
-        f"Expected uncontested return {amount}, got {actual}"
-    )
+    assert actual == int(amount), f"Expected uncontested return {amount}, got {actual}"
 
 
 @then(r"the sum of all pot amounts equals (?P<total>\d+)")
@@ -2228,9 +2222,7 @@ def step_then_pot_sum(context, total):
     pot per the real-poker rule (it returns to the player's stack)."""
     pots = getattr(context, "computed_pots", [])
     actual = sum(p.amount for p in pots)
-    assert actual == int(total), (
-        f"Expected sum of pots {total}, got {actual}"
-    )
+    assert actual == int(total), f"Expected sum of pots {total}, got {actual}"
 
 
 @then(
@@ -2271,11 +2263,13 @@ def step_then_award_winner_at(context, idx, player_id, amount, pot_type):
     i = int(idx)
     assert i < len(evt.winners), f"Only {len(evt.winners)} winners, asked for index {i}"
     w = evt.winners[i]
-    assert w.player_root == uuid_for(player_id), (
-        f"winner {i}: expected {player_id}, got root={w.player_root.hex()}"
-    )
+    assert w.player_root == uuid_for(
+        player_id
+    ), f"winner {i}: expected {player_id}, got root={w.player_root.hex()}"
     assert w.amount == int(amount), f"winner {i}: expected {amount}, got {w.amount}"
-    assert w.pot_type == pot_type, f"winner {i}: expected pot_type {pot_type!r}, got {w.pot_type!r}"
+    assert (
+        w.pot_type == pot_type
+    ), f"winner {i}: expected pot_type {pot_type!r}, got {w.pot_type!r}"
 
 
 @then(r'the award event winner (?P<idx>\d+) has pot_type "(?P<pot_type>[^"]+)"')
@@ -2295,9 +2289,9 @@ def step_then_handcomplete_winners(context, count):
     events = getattr(context, "result_events", None)
     assert events and len(events) >= 2, "Expected (PotAwarded, HandComplete) tuple"
     hc = events[1]
-    assert len(hc.winners) == int(count), (
-        f"Expected {count} HandComplete winners, got {len(hc.winners)}"
-    )
+    assert len(hc.winners) == int(
+        count
+    ), f"Expected {count} HandComplete winners, got {len(hc.winners)}"
 
 
 @then(
@@ -2309,7 +2303,9 @@ def step_then_handcomplete_winner_includes(context, player_id, pot_type):
     assert events and len(events) >= 2
     hc = events[1]
     root = uuid_for(player_id)
-    matches = [w for w in hc.winners if w.player_root == root and w.pot_type == pot_type]
+    matches = [
+        w for w in hc.winners if w.player_root == root and w.pot_type == pot_type
+    ]
     assert matches, (
         f"No HandComplete winner with player {player_id!r} and pot_type {pot_type!r}; "
         f"got {[(w.player_root.hex(), w.pot_type) for w in hc.winners]}"
@@ -2340,9 +2336,9 @@ def step_then_pot_awarded_emitted(context):
     """Verify a PotAwarded was the (or first) emitted event."""
     event_any = getattr(context, "result_event_any", None)
     assert event_any is not None, "No event was emitted"
-    assert event_any.Is(hand.PotAwarded.DESCRIPTOR), (
-        f"Expected PotAwarded, got {event_any.TypeName()}"
-    )
+    assert event_any.Is(
+        hand.PotAwarded.DESCRIPTOR
+    ), f"Expected PotAwarded, got {event_any.TypeName()}"
 
 
 # --- Showdown reveal order (TDA Rule 36) ----------------------------------
@@ -2420,9 +2416,7 @@ def step_given_dealer_seat(context, seat):
     context.dealer_seat = int(seat)
 
 
-@given(
-    r'a hand at showdown with players_to_show order "(?P<order>[^"]+)"'
-)
+@given(r'a hand at showdown with players_to_show order "(?P<order>[^"]+)"')
 def step_given_explicit_showdown_order(context, order):
     """Pre-emit a ShowdownStarted with the explicit order. Used when
     the test only cares about post-showdown reveal mechanics, not the
@@ -2445,9 +2439,7 @@ def step_given_explicit_showdown_order(context, order):
         )
         for i, name in enumerate(names):
             dealt.players.append(
-                hand.PlayerInHand(
-                    player_root=uuid_for(name), position=i, stack=500
-                )
+                hand.PlayerInHand(player_root=uuid_for(name), position=i, stack=500)
             )
         context.events.append(make_event_page(dealt, len(context.events)))
     sd = hand.ShowdownStarted(started_at=make_timestamp())

@@ -63,7 +63,9 @@ class AmountMustBeNonZero(MustBeNonZero):
 @dataclass
 class InsufficientAvailableBalance(InsufficientCapacity):
     CODE = "INSUFFICIENT_AVAILABLE_BALANCE"
-    TEMPLATE = "Insufficient available balance: requested {requested}, available {available}"
+    TEMPLATE = (
+        "Insufficient available balance: requested {requested}, available {available}"
+    )
 
 
 @dataclass
@@ -101,7 +103,9 @@ class KeyRequired(FieldRequired):
 @dataclass
 class AmountExceedsReservedFunds(InsufficientCapacity):
     CODE = "AMOUNT_EXCEEDS_RESERVED_FUNDS"
-    TEMPLATE = "Amount exceeds reserved funds: requested {requested}, available {available}"
+    TEMPLATE = (
+        "Amount exceeds reserved funds: requested {requested}, available {available}"
+    )
 
 
 __all__ = [

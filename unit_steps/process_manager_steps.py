@@ -195,7 +195,9 @@ def step_given_blind_posted_event(context, blind_type):
         else context.process.big_blind
     )
     context.event = hand.BlindPosted(
-        player_root=uuid_for("player-1") if blind_type == "small" else uuid_for("player-2"),
+        player_root=(
+            uuid_for("player-1") if blind_type == "small" else uuid_for("player-2")
+        ),
         blind_type=blind_type,
         amount=amount,
         pot_total=(
@@ -839,13 +841,13 @@ def step_given_dealer_and_seated(context, dealer, count, positions):
     players; this step replaces them with PlayerStates at the listed
     positions (default stack 1000) and pins the dealer.
     """
-    assert hasattr(context, "process") and context.process is not None, (
-        "No active hand process — run an `active hand process` Given first"
-    )
+    assert (
+        hasattr(context, "process") and context.process is not None
+    ), "No active hand process — run an `active hand process` Given first"
     seats = [int(s.strip()) for s in positions.split(",") if s.strip()]
-    assert len(seats) == int(count), (
-        f"Expected {count} positions, got {len(seats)}: {seats}"
-    )
+    assert len(seats) == int(
+        count
+    ), f"Expected {count} positions, got {len(seats)}: {seats}"
 
     context.process.dealer_position = int(dealer)
     context.process.players = {}
@@ -992,9 +994,9 @@ def step_then_betting_not_complete(context):
 def step_then_action_on_position(context, pos):
     """Assert the current action_on seat matches the expected position."""
     assert hasattr(context, "process") and context.process is not None, "No process"
-    assert context.process.action_on == int(pos), (
-        f"Expected action_on={pos}, got {context.process.action_on}"
-    )
+    assert context.process.action_on == int(
+        pos
+    ), f"Expected action_on={pos}, got {context.process.action_on}"
 
 
 # ============================================================================

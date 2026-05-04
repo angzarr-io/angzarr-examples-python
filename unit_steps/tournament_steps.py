@@ -386,9 +386,9 @@ def step_then_event_has_starting_stack(context, stack):
     for cls in (tournament.TournamentCreated, tournament.TournamentPlayerEnrolled):
         event = try_unpack(context.result_event_any, cls)
         if event is not None:
-            assert event.starting_stack == int(stack), (
-                f"Expected starting_stack={stack}, got {event.starting_stack}"
-            )
+            assert event.starting_stack == int(
+                stack
+            ), f"Expected starting_stack={stack}, got {event.starting_stack}"
             return
     raise AssertionError("event has no starting_stack field")
 
@@ -720,7 +720,9 @@ def step_given_running_at_final_blind_level(context):
     _append_player_enrolled(context, "p1")
     _append_tournament_started(context)
     # Advance from default level 1 to level 2 — the final defined level.
-    _append_blind_level_advanced(context, level=2, small_blind=50, big_blind=100, ante=10)
+    _append_blind_level_advanced(
+        context, level=2, small_blind=50, big_blind=100, ante=10
+    )
 
 
 @given(r"a running tournament with no blind structure")
@@ -1069,9 +1071,7 @@ def step_then_state_no_player(context, label):
 # --- Late registration / multi-place payout ---------------------------------
 
 
-@given(
-    r"a running tournament with registration open and (?P<n>\d+) enrolled players"
-)
+@given(r"a running tournament with registration open and (?P<n>\d+) enrolled players")
 def step_given_running_with_open_reg(context, n):
     """Tournament that is running but registration is still open
     (TDA Rule 30 — late registration)."""
@@ -1135,9 +1135,7 @@ def step_given_running_with_cutoff(context, cut, level, n):
         context.events.append(make_event_page(adv, seq=len(context.events)))
 
 
-@given(
-    r"a running tournament with (?P<n>\d+) enrolled players"
-)
+@given(r"a running tournament with (?P<n>\d+) enrolled players")
 def step_given_running_with_n_simple(context, n):
     _append_created(
         context,
@@ -1234,9 +1232,7 @@ def step_given_finishing_order(context, order):
     context.finishing_order = [name.strip() for name in order.split(",")]
 
 
-@when(
-    r'I handle a CompleteTournament command with winner "(?P<winner>[^"]+)"'
-)
+@when(r'I handle a CompleteTournament command with winner "(?P<winner>[^"]+)"')
 def step_when_complete_tournament_simple(context, winner):
     cmd = tournament.CompleteTournament(winner_root=uuid_for(winner))
     finishing = getattr(context, "finishing_order", [])
@@ -1260,18 +1256,16 @@ def step_when_complete_tournament_with_order(context, winner, order):
 def step_then_event_winner_root(context, label):
     evt = tournament.TournamentCompleted()
     context.result_event_any.Unpack(evt)
-    assert evt.winner_root == uuid_for(label), (
-        f"winner_root: expected {label}, got {evt.winner_root.hex()[:8]}"
-    )
+    assert evt.winner_root == uuid_for(
+        label
+    ), f"winner_root: expected {label}, got {evt.winner_root.hex()[:8]}"
 
 
 @then(r"the tournament event has (?P<n>\d+) results?")
 def step_then_event_n_results(context, n):
     evt = tournament.TournamentCompleted()
     context.result_event_any.Unpack(evt)
-    assert len(evt.results) == int(n), (
-        f"Expected {n} results, got {len(evt.results)}"
-    )
+    assert len(evt.results) == int(n), f"Expected {n} results, got {len(evt.results)}"
 
 
 @then(
@@ -1285,9 +1279,9 @@ def step_then_result_at(context, idx, pos, label, payout):
     assert i < len(evt.results), f"Only {len(evt.results)} results"
     r = evt.results[i]
     assert r.position == int(pos), f"position: expected {pos}, got {r.position}"
-    assert r.player_root == uuid_for(label), (
-        f"player_root: expected {label}, got {r.player_root.hex()[:8]}"
-    )
+    assert r.player_root == uuid_for(
+        label
+    ), f"player_root: expected {label}, got {r.player_root.hex()[:8]}"
     assert r.payout == int(payout), f"payout: expected {payout}, got {r.payout}"
 
 
@@ -1297,9 +1291,7 @@ def step_then_no_result_with_player(context, label):
     context.result_event_any.Unpack(evt)
     target = uuid_for(label)
     matches = [r for r in evt.results if r.player_root == target]
-    assert not matches, (
-        f"Expected no result for {label}, but found {len(matches)}"
-    )
+    assert not matches, f"Expected no result for {label}, but found {len(matches)}"
 
 
 # Update the existing rejection-field-equals step to translate player labels.

@@ -369,9 +369,7 @@ class Table:
         """
         state = self._state
         active = sorted(
-            pos
-            for pos, seat in state.seats.items()
-            if not seat.is_sitting_out
+            pos for pos, seat in state.seats.items() if not seat.is_sitting_out
         )
         if len(active) < 2:
             return None
@@ -407,7 +405,9 @@ class Table:
         # vacated BB seat; BB follows.
         prev_bb_busted = prev_bb not in active
         if prev_bb_busted:
-            new_dealer = prev_dealer if prev_dealer in active else self._next_dealer_position()
+            new_dealer = (
+                prev_dealer if prev_dealer in active else self._next_dealer_position()
+            )
             new_sb = next(
                 (s for s in active if s > prev_bb),
                 active[0],
@@ -479,7 +479,9 @@ class Table:
             if cmd.small_blind <= 0:
                 raise SmallBlindMustBePositive(value=cmd.small_blind)
             if cmd.big_blind <= 0 or cmd.big_blind < cmd.small_blind:
-                raise BigBlindMustExceedSmallBlind(lhs=cmd.big_blind, rhs=cmd.small_blind)
+                raise BigBlindMustExceedSmallBlind(
+                    lhs=cmd.big_blind, rhs=cmd.small_blind
+                )
             if cmd.min_buy_in <= 0:
                 raise MinBuyInMustBePositive(value=cmd.min_buy_in)
             if cmd.max_buy_in < cmd.min_buy_in:
@@ -623,8 +625,8 @@ class Table:
                 active_positions = sorted(
                     pos for pos, seat in s.seats.items() if not seat.is_sitting_out
                 )
-                dealer_position, sb_position, bb_position = self._derive_blind_positions(
-                    active_positions, dealer_position
+                dealer_position, sb_position, bb_position = (
+                    self._derive_blind_positions(active_positions, dealer_position)
                 )
             else:
                 dealer_position, sb_position, bb_position = advance
