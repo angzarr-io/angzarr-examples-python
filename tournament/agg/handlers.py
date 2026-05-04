@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client import applies, command_handler, handles, now
+from .errors import FinishingOrderShorterThanPayoutPositions, PayoutsDoNotSumToPool  # noqa: E501
 from .errors import (
     BlindStructureExhausted,
     BuyInMustBePositive,
@@ -62,6 +63,17 @@ class _TournamentState:
     registered_players: dict[str, _PlayerRegistration] = field(default_factory=dict)
     players_remaining: int = 0
     total_prize_pool: int = 0
+    # Registration is tracked independently of tournament status so that
+    # late registration (TDA Rule 30) can keep the gate open into a
+    # Running tournament until either the configured cutoff level or
+    # an explicit CloseRegistration.
+    registration_open: bool = False
+    registration_cutoff_level: int = 0  # 0 = no auto-close
+    payout_structure: list = field(default_factory=list)  # PayoutPosition entries
+    # Hand-for-hand bookkeeping (TDA Rule 12).
+    hand_for_hand: bool = False
+    hand_for_hand_pending_tables: set = field(default_factory=set)
+    hand_for_hand_round: int = 0
 
 
 _APPLIER_REGISTRY: list[tuple[type, str]] = []
@@ -133,18 +145,25 @@ class Tournament:
         )
         state.blind_structure = list(event.blind_structure)
         state.current_level = 1
+        state.registration_cutoff_level = event.registration_cutoff_level
+        state.payout_structure = list(event.payout_structure)
 
     @applies(tournament.RegistrationOpened)
     def apply_registration_opened(
         self, state: _TournamentState, _event: tournament.RegistrationOpened
     ) -> None:
-        state.status = tournament.TournamentStatus.TOURNAMENT_REGISTRATION_OPEN
+        # Registration_open is its own dimension — separate from status
+        # so the gate can stay open into a Running tournament for late
+        # registration (TDA Rule 30).
+        state.registration_open = True
+        if state.status == tournament.TournamentStatus.TOURNAMENT_CREATED:
+            state.status = tournament.TournamentStatus.TOURNAMENT_REGISTRATION_OPEN
 
     @applies(tournament.RegistrationClosed)
     def apply_registration_closed(
         self, state: _TournamentState, _event: tournament.RegistrationClosed
     ) -> None:
-        pass
+        state.registration_open = False
 
     @applies(tournament.TournamentPlayerEnrolled)
     def apply_player_enrolled(
@@ -186,6 +205,13 @@ class Tournament:
         self, state: _TournamentState, event: tournament.BlindLevelAdvanced
     ) -> None:
         state.current_level = event.level
+        # Auto-close registration once we pass the configured cutoff.
+        if (
+            state.registration_cutoff_level > 0
+            and event.level > state.registration_cutoff_level
+            and state.registration_open
+        ):
+            state.registration_open = False
 
     @applies(tournament.PlayerEliminated)
     def apply_player_eliminated(
@@ -227,10 +253,7 @@ class Tournament:
 
     @property
     def is_registration_open(self) -> bool:
-        return (
-            self._state.status
-            == tournament.TournamentStatus.TOURNAMENT_REGISTRATION_OPEN
-        )
+        return self._state.registration_open
 
     @property
     def is_running(self) -> bool:
@@ -707,11 +730,40 @@ class Tournament:
                 tournament.TournamentStatus.TOURNAMENT_PAUSED,
             ):
                 raise TournamentNotRunningOrPaused()
+
+            results = []
+            payout_structure = self._state.payout_structure
+            if payout_structure:
+                if len(cmd.finishing_order) < len(payout_structure):
+                    raise FinishingOrderShorterThanPayoutPositions(
+                        got=len(cmd.finishing_order),
+                        bound=len(payout_structure),
+                    )
+                pool = self.total_prize_pool
+                payouts = [
+                    pool * pp.percentage // 100 for pp in payout_structure
+                ]
+                if sum(payouts) != pool:
+                    raise PayoutsDoNotSumToPool(
+                        got=sum(payouts), bound=pool
+                    )
+                for pp, payout, root in zip(
+                    payout_structure, payouts, cmd.finishing_order
+                ):
+                    results.append(
+                        tournament.TournamentResult(
+                            position=pp.position,
+                            player_root=root,
+                            payout=payout,
+                        )
+                    )
+
             event = tournament.TournamentCompleted(
                 winner_root=cmd.winner_root,
                 total_prize_pool=self.total_prize_pool,
                 completed_at=now(),
             )
+            event.results.extend(results)
             if not router_mode:
                 self._emit(event)
             return event

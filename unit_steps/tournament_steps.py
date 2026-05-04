@@ -158,6 +158,8 @@ def _execute_handler(context, method_name: str, cmd):
         context.result = _make_event_book([result_page])
         context.result_event_any = event_any
         context.error = None
+        # Accumulate the emitted event so chained When steps see it.
+        context.events.append(result_page)
         context.agg = agg
     except CommandRejectedError as e:
         _stamp_scenario_cover(context, e)
@@ -379,11 +381,16 @@ def step_then_event_has_buy_in(context, buy_in):
 
 @then(r"the tournament event has starting_stack (?P<stack>-?\d+)")
 def step_then_event_has_starting_stack(context, stack):
-    event = try_unpack(context.result_event_any, tournament.TournamentCreated)
-    assert event is not None
-    assert event.starting_stack == int(
-        stack
-    ), f"Expected starting_stack={stack}, got {event.starting_stack}"
+    """starting_stack is on TournamentCreated and TournamentPlayerEnrolled
+    — try both event types so this step works for either context."""
+    for cls in (tournament.TournamentCreated, tournament.TournamentPlayerEnrolled):
+        event = try_unpack(context.result_event_any, cls)
+        if event is not None:
+            assert event.starting_stack == int(stack), (
+                f"Expected starting_stack={stack}, got {event.starting_stack}"
+            )
+            return
+    raise AssertionError("event has no starting_stack field")
 
 
 @then(r'the tournament event has player_root "(?P<label>[^"]*)"')
@@ -1057,3 +1064,247 @@ def step_then_state_no_player(context, label):
     assert (
         player_hex not in context.agg.registered_players
     ), f"Expected {label!r} absent, but it is registered"
+
+
+# --- Late registration / multi-place payout ---------------------------------
+
+
+@given(
+    r"a running tournament with registration open and (?P<n>\d+) enrolled players"
+)
+def step_given_running_with_open_reg(context, n):
+    """Tournament that is running but registration is still open
+    (TDA Rule 30 — late registration)."""
+    _append_created(
+        context,
+        name="Test Tournament",
+        buy_in=100,
+        starting_stack=1000,
+        max_players=100,
+        min_players=2,
+    )
+    _append_registration_opened(context)
+    for i in range(int(n)):
+        _append_player_enrolled(context, f"p{i}")
+    _append_tournament_started(context)
+
+
+@given(
+    r"a running tournament with starting_stack (?P<stack>\d+), registration "
+    r"open, and (?P<n>\d+) enrolled players"
+)
+def step_given_running_with_stack_and_open_reg(context, stack, n):
+    _append_created(
+        context,
+        name="Test Tournament",
+        buy_in=100,
+        starting_stack=int(stack),
+        max_players=100,
+        min_players=2,
+    )
+    _append_registration_opened(context)
+    for i in range(int(n)):
+        _append_player_enrolled(context, f"p{i}")
+    _append_tournament_started(context)
+
+
+@given(
+    r"a running tournament with registration_cutoff_level (?P<cut>\d+) at "
+    r"level (?P<level>\d+) and (?P<n>\d+) enrolled players"
+)
+def step_given_running_with_cutoff(context, cut, level, n):
+    _ensure_events(context)
+    event = tournament.TournamentCreated(
+        name="Test Tournament",
+        game_variant=poker_types.GameVariant.TEXAS_HOLDEM,
+        buy_in=100,
+        starting_stack=1000,
+        max_players=100,
+        min_players=2,
+        registration_cutoff_level=int(cut),
+        created_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, seq=len(context.events)))
+    _append_registration_opened(context)
+    for i in range(int(n)):
+        _append_player_enrolled(context, f"p{i}")
+    _append_tournament_started(context)
+    # Advance to the configured level via BlindLevelAdvanced events.
+    for lvl in range(2, int(level) + 1):
+        adv = tournament.BlindLevelAdvanced(level=lvl, advanced_at=make_timestamp())
+        context.events.append(make_event_page(adv, seq=len(context.events)))
+
+
+@given(
+    r"a running tournament with (?P<n>\d+) enrolled players"
+)
+def step_given_running_with_n_simple(context, n):
+    _append_created(
+        context,
+        name="Test Tournament",
+        buy_in=100,
+        starting_stack=1000,
+        max_players=100,
+        min_players=2,
+    )
+    _append_registration_opened(context)
+    for i in range(int(n)):
+        _append_player_enrolled(context, f"p{i}")
+    _append_tournament_started(context)
+
+
+@given(
+    r'a running tournament "(?P<name>[^"]+)" with total_prize_pool '
+    r"(?P<pool>\d+) and (?P<n>\d+) enrolled players"
+)
+def step_given_running_with_pool(context, name, pool, n):
+    """Set up a running tournament whose accumulated prize pool matches
+    the requested amount. We pick buy_in = pool / n so N enrollments
+    produce the total pool exactly.
+    """
+    n_int = int(n)
+    pool_int = int(pool)
+    buy_in = pool_int // max(n_int, 1)
+    _append_created(
+        context,
+        name=name,
+        buy_in=buy_in,
+        starting_stack=1500,
+        max_players=max(n_int, 9),
+        min_players=2,
+    )
+    _append_registration_opened(context)
+    for i in range(n_int):
+        _append_player_enrolled(context, f"p{i + 1}")
+    _append_tournament_started(context)
+
+
+@given(
+    r"a payout_structure paying positions (?P<positions>[\d, ]+) at "
+    r"percentages (?P<percentages>[\d, ]+)"
+)
+def step_given_payout_structure(context, positions, percentages):
+    """Re-emit the TournamentCreated with payout_structure populated.
+
+    The simplest approach: rebuild context.events by replacing the
+    initial TournamentCreated with one carrying the payout_structure.
+    """
+    pos_list = [int(p.strip()) for p in positions.split(",")]
+    pct_list = [int(p.strip()) for p in percentages.split(",")]
+    new_events = []
+    for page in context.events:
+        if page.event.Is(tournament.TournamentCreated.DESCRIPTOR):
+            tc = tournament.TournamentCreated()
+            page.event.Unpack(tc)
+            for pos, pct in zip(pos_list, pct_list):
+                tc.payout_structure.append(
+                    tournament.PayoutPosition(position=pos, percentage=pct)
+                )
+            new_events.append(make_event_page(tc, seq=len(new_events)))
+        else:
+            # Re-emit untouched events with fresh sequence numbers.
+            cls_map = {
+                tournament.RegistrationOpened: tournament.RegistrationOpened,
+                tournament.RegistrationClosed: tournament.RegistrationClosed,
+                tournament.TournamentPlayerEnrolled: tournament.TournamentPlayerEnrolled,
+                tournament.TournamentStarted: tournament.TournamentStarted,
+                tournament.TournamentPaused: tournament.TournamentPaused,
+                tournament.TournamentResumed: tournament.TournamentResumed,
+                tournament.BlindLevelAdvanced: tournament.BlindLevelAdvanced,
+                tournament.RebuyProcessed: tournament.RebuyProcessed,
+                tournament.PlayerEliminated: tournament.PlayerEliminated,
+                tournament.TournamentCompleted: tournament.TournamentCompleted,
+            }
+            unpacked = None
+            for cls in cls_map:
+                if page.event.Is(cls.DESCRIPTOR):
+                    inst = cls()
+                    page.event.Unpack(inst)
+                    unpacked = inst
+                    break
+            if unpacked is not None:
+                new_events.append(make_event_page(unpacked, seq=len(new_events)))
+            else:
+                new_events.append(page)
+    context.events = new_events
+
+
+@given(r'finishing order "(?P<order>[^"]+)"')
+def step_given_finishing_order(context, order):
+    context.finishing_order = [name.strip() for name in order.split(",")]
+
+
+@when(
+    r'I handle a CompleteTournament command with winner "(?P<winner>[^"]+)"'
+)
+def step_when_complete_tournament_simple(context, winner):
+    cmd = tournament.CompleteTournament(winner_root=uuid_for(winner))
+    finishing = getattr(context, "finishing_order", [])
+    for name in finishing:
+        cmd.finishing_order.append(uuid_for(name))
+    _execute_handler(context, "complete", cmd)
+
+
+@when(
+    r'I handle a CompleteTournament command with winner "(?P<winner>[^"]+)" '
+    r'and finishing order "(?P<order>[^"]+)"'
+)
+def step_when_complete_tournament_with_order(context, winner, order):
+    cmd = tournament.CompleteTournament(winner_root=uuid_for(winner))
+    for name in order.split(","):
+        cmd.finishing_order.append(uuid_for(name.strip()))
+    _execute_handler(context, "complete", cmd)
+
+
+@then(r'the tournament event has winner_root "(?P<label>[^"]+)"')
+def step_then_event_winner_root(context, label):
+    evt = tournament.TournamentCompleted()
+    context.result_event_any.Unpack(evt)
+    assert evt.winner_root == uuid_for(label), (
+        f"winner_root: expected {label}, got {evt.winner_root.hex()[:8]}"
+    )
+
+
+@then(r"the tournament event has (?P<n>\d+) results?")
+def step_then_event_n_results(context, n):
+    evt = tournament.TournamentCompleted()
+    context.result_event_any.Unpack(evt)
+    assert len(evt.results) == int(n), (
+        f"Expected {n} results, got {len(evt.results)}"
+    )
+
+
+@then(
+    r"TournamentResult (?P<idx>\d+) has position (?P<pos>\d+) "
+    r'player_root "(?P<label>[^"]+)" payout (?P<payout>\d+)'
+)
+def step_then_result_at(context, idx, pos, label, payout):
+    evt = tournament.TournamentCompleted()
+    context.result_event_any.Unpack(evt)
+    i = int(idx)
+    assert i < len(evt.results), f"Only {len(evt.results)} results"
+    r = evt.results[i]
+    assert r.position == int(pos), f"position: expected {pos}, got {r.position}"
+    assert r.player_root == uuid_for(label), (
+        f"player_root: expected {label}, got {r.player_root.hex()[:8]}"
+    )
+    assert r.payout == int(payout), f"payout: expected {payout}, got {r.payout}"
+
+
+@then(r'no TournamentResult has player_root "(?P<label>[^"]+)"')
+def step_then_no_result_with_player(context, label):
+    evt = tournament.TournamentCompleted()
+    context.result_event_any.Unpack(evt)
+    target = uuid_for(label)
+    matches = [r for r in evt.results if r.player_root == target]
+    assert not matches, (
+        f"Expected no result for {label}, but found {len(matches)}"
+    )
+
+
+# Update the existing rejection-field-equals step to translate player labels.
+# (The common_steps version already handles the basic case; this is local
+# augmentation if needed.)
+
+
+_HANDLER_MAP["complete"] = "handle_complete_tournament"

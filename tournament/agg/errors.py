@@ -9,10 +9,12 @@ rejections — they reach the saga as event-shape, not as gRPC errors. Only
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 from angzarr_examples.error_shapes import (
     AggregateAlreadyExists,
     AggregateNotFound,
+    BoundViolation,
     EntityNotInContainer,
     Exhausted,
     FieldRequired,
@@ -148,6 +150,28 @@ class BlindStructureExhausted(Exhausted):
         "Blind structure exhausted at level {current};"
         " max defined level is {max_value}"
     )
+
+
+@dataclass
+class FinishingOrderShorterThanPayoutPositions(BoundViolation):
+    """CompleteTournament: finishing_order has fewer entries than the
+    configured payout_structure requires."""
+
+    CODE = "FINISHING_ORDER_SHORTER_THAN_PAYOUT_POSITIONS"
+    TEMPLATE = (
+        "finishing_order length {got} is less than payout positions {bound}"
+    )
+    KIND: ClassVar[str] = "below_min"
+
+
+@dataclass
+class PayoutsDoNotSumToPool(BoundViolation):
+    """The configured percentages don't yield a whole-chip distribution
+    that sums exactly to total_prize_pool."""
+
+    CODE = "PAYOUTS_DO_NOT_SUM_TO_POOL"
+    TEMPLATE = "payouts sum to {got} but prize pool is {bound}"
+    KIND: ClassVar[str] = "mismatch"
 
 
 __all__ = [
