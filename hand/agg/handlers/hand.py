@@ -18,6 +18,7 @@ from ..errors import (
     BetExceedsStack,
     BlindAmountMustBePositive,
     CannotBetOverExistingBet,
+    CannotPostAnteAfterBlinds,
     CannotCheckWithBet,
     CannotRaiseWithoutBet,
     CommunityCardsNotUsedInVariant,
@@ -227,11 +228,19 @@ class Hand:
     def apply_blind_posted(
         self, state: _HandState, event: hand_proto.BlindPosted
     ) -> None:
+        is_ante = event.blind_type in ("ante", "bb_ante")
         for player in state.players.values():
             if player.player_root == event.player_root:
                 player.stack = event.player_stack
-                player.bet_this_round = event.amount
+                # Antes go to the pot but do NOT count toward the player's
+                # ``bet_this_round`` — they are not part of the betting
+                # round's call/raise threshold (TDA Rule 7). Side-pot
+                # accounting still tracks them via ``total_invested``.
+                if not is_ante:
+                    player.bet_this_round = event.amount
                 player.total_invested += event.amount
+                if player.stack == 0:
+                    player.is_all_in = True
                 if event.blind_type == "small":
                     state.small_blind_position = player.position
                     state.small_blind = event.amount
@@ -456,46 +465,92 @@ class Hand:
         if not contributions:
             return [], 0
 
-        # Layer levels are the distinct invested amounts of un-folded
-        # players, ascending. Folded players' contributions count toward
-        # whichever layers they reached but they are never eligible to win.
-        active_levels = sorted(
-            {amount for _, amount, folded in contributions if not folded}
-        )
-        if not active_levels:
-            # Everyone folded. Whatever is in the pot goes uncontested to
-            # whoever was last to act — caller decides; here just return
-            # one main pot with the full sum and no eligibles.
-            total = sum(amount for _, amount, _ in contributions)
-            return ([_PotInfo(amount=total, eligible_players=[], pot_type="main")], 0)
+        # Real-poker side-pot algorithm:
+        #
+        # 1. For each player, ``effective_contribution`` is capped at the
+        #    maximum amount any opponent invested. Chips beyond that cap
+        #    can never have been called and return to the player as an
+        #    "uncontested over-bet" — but only if the player did not
+        #    fold (folded chips stay in the pot).
+        # 2. Pot layers form at distinct effective contribution amounts.
+        #    Each layer's amount = sum of (effective_capped at level -
+        #    prev_level) over all players. Eligibility = un-folded
+        #    players whose effective contribution >= the level.
+        # 3. A layer with no un-folded eligibles is folded into the
+        #    previous pot (folded chips that never had a contest still
+        #    belong to whichever pot they reached).
 
+        # Effective contribution per player: capped at the deepest
+        # opponent's investment.
+        all_amounts = [c[1] for c in contributions]
+        effective: dict[bytes, int] = {}
+        for root, amount, _folded in contributions:
+            others_max = max(
+                (a for r, a, _f in contributions if r != root),
+                default=0,
+            )
+            effective[root] = min(amount, others_max)
+
+        # Uncontested return: only un-folded players reclaim over-bets.
+        uncontested = 0
+        for root, amount, folded in contributions:
+            if not folded and amount > effective[root]:
+                uncontested += amount - effective[root]
+
+        # If no un-folded player has any contribution, everyone folded —
+        # roll the whole thing into a single main pot with no eligibles.
+        if not any(not folded for _, _, folded in contributions):
+            total = sum(all_amounts)
+            return (
+                [_PotInfo(amount=total, eligible_players=[], pot_type="main")],
+                0,
+            )
+
+        # Layer the effective contributions. Side pot boundaries form
+        # only at distinct effective amounts of un-folded players —
+        # folded players' chip levels feed the layer they reached, but
+        # never split it into a new pot (folded chips have no claimant
+        # whose all-in we need to honour).
+        levels = sorted(
+            {effective[r] for r, _, folded in contributions if not folded}
+        )
+        levels = [lvl for lvl in levels if lvl > 0]
         pots: list[_PotInfo] = []
         prev_level = 0
-        for idx, level in enumerate(active_levels):
+        for idx, level in enumerate(levels):
             layer_amount = 0
             eligible: list[bytes] = []
-            for root, invested, folded in contributions:
-                slice_size = max(0, min(invested, level) - prev_level)
+            for root, amount, folded in contributions:
+                eff = effective[root]
+                slice_size = max(0, min(eff, level) - prev_level)
                 layer_amount += slice_size
-                if not folded and invested >= level:
+                if not folded and eff >= level:
                     eligible.append(root)
             pot_type = "main" if idx == 0 else f"side_{idx}"
-            pots.append(
-                _PotInfo(
-                    amount=layer_amount,
-                    eligible_players=eligible,
-                    pot_type=pot_type,
+            if eligible:
+                pots.append(
+                    _PotInfo(
+                        amount=layer_amount,
+                        eligible_players=eligible,
+                        pot_type=pot_type,
+                    )
                 )
-            )
+            elif pots:
+                # No un-folded eligibles for this layer — fold its
+                # amount into the previous pot.
+                pots[-1].amount += layer_amount
+            else:
+                # Edge case: no prior pot yet and no eligibles — open
+                # a main pot with no eligibles. (Folded-only contributions
+                # below the first un-folded layer.)
+                pots.append(
+                    _PotInfo(
+                        amount=layer_amount,
+                        eligible_players=[],
+                        pot_type=pot_type,
+                    )
+                )
             prev_level = level
-
-        # Uncontested over-bet: any chips the deepest stack invested
-        # beyond the highest active all-in level (no one could match).
-        deepest_active = active_levels[-1]
-        uncontested = 0
-        for root, invested, folded in contributions:
-            if not folded and invested > deepest_active:
-                uncontested += invested - deepest_active
 
         return pots, uncontested
 
@@ -576,6 +631,16 @@ class Hand:
                 raise PlayerHasFolded()
             if cmd.amount <= 0:
                 raise BlindAmountMustBePositive(value=cmd.amount)
+
+            # Antes must be posted BEFORE the small/big blind (TDA Rule 7).
+            # Once a non-ante blind has been recorded, ante posting is
+            # rejected.
+            is_ante = cmd.blind_type in ("ante", "bb_ante")
+            blinds_already_posted = (
+                self._state.small_blind > 0 or self._state.big_blind > 0
+            )
+            if is_ante and blinds_already_posted:
+                raise CannotPostAnteAfterBlinds()
 
             actual_amount = min(cmd.amount, player.stack)
             new_stack = player.stack - actual_amount
@@ -928,7 +993,15 @@ class Hand:
                         )
 
             total_awarded = sum(a.amount for a in cmd.awards)
-            pot_total = self.get_pot_total()
+            # The pot ceiling for AWARDS_EXCEED_POT is the maximum chips
+            # legitimately in play: the legacy single-pot accumulator
+            # OR the sum of computed side pots plus any uncontested
+            # over-bet (which logically belongs to the winner's stack
+            # but may be expressed as part of the AwardPot when there
+            # is only a single pot). Whichever is larger.
+            legacy_total = self.get_pot_total()
+            computed_total = sum(p.amount for p in computed_pots) + _uncontested
+            pot_total = max(legacy_total, computed_total)
             if total_awarded > pot_total:
                 raise AwardsExceedPot(got=total_awarded, bound=pot_total)
             awards = list(cmd.awards)

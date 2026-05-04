@@ -288,6 +288,14 @@ class AwardsExceedPot(BoundViolation):
 
 
 @dataclass
+class CannotPostAnteAfterBlinds(InvalidOperationInState):
+    """Antes must be collected before SB/BB are posted (TDA Rule 7)."""
+
+    CODE = "CANNOT_POST_ANTE_AFTER_BLINDS"
+    TEMPLATE = "Cannot post ante after blinds are already posted"
+
+
+@dataclass
 class WinnerNotEligibleForPot(InvalidOperationInState):
     """Award assigns chips from a pot the player cannot legally win.
 
@@ -354,4 +362,5 @@ __all__ = [
     "AwardsExceedPot",
     "WinnerNotEligibleForPot",
     "BetBelowBigBlind",
+    "CannotPostAnteAfterBlinds",
 ]

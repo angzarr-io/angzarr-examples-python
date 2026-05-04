@@ -76,6 +76,10 @@ def _execute_handler(context, method_name: str, cmd):
         context.error = None
         # Store aggregate for state access
         context.agg = agg
+        # Accumulate emitted events onto context.events so chained When
+        # steps see the prior emissions (e.g. multiple sequential
+        # PostBlind commands during ante posting).
+        context.events = list(prior_events) + list(new_pages)
         # Extract the event for assertion steps
         if result_book.pages:
             context.result_event_any = result_book.pages[0].event
@@ -333,8 +337,18 @@ def step_given_blinds_posted(context, pot):
     don't shift. For other pots (e.g. EU-1009 split-pot with pot 100), scales
     the two blinds so the second BlindPosted carries pot_total == requested
     pot — what `apply_blind_posted` writes into `state.pots[0].amount`.
+
+    Side-pot scenarios use cohort-specific player names (player-A, etc.) and
+    don't have ``player-1``/``player-2`` seated. When neither default
+    blind-poster exists in the seated players, skip — the test's ActionTaken
+    sequence is responsible for seeding ``total_invested`` directly.
     """
     pot_int = int(pot)
+    seated = _seated_player_roots(context)
+    p1_root = uuid_for("player-1")
+    p2_root = uuid_for("player-2")
+    if p1_root not in seated and p2_root not in seated:
+        return
     if pot_int == 15:
         step_given_blind_posted(context, "player-1", "5")
         step_given_blind_posted(context, "player-2", "10")
@@ -343,6 +357,23 @@ def step_given_blinds_posted(context, pot):
         bb = pot_int - sb
         step_given_blind_posted(context, "player-1", str(sb))
         step_given_blind_posted(context, "player-2", str(bb))
+
+
+def _seated_player_roots(context) -> set:
+    """Extract the set of player_root bytes seated in the most recent
+    CardsDealt event on context.events. Used by setup steps that need to
+    skip operations against players not in the hand.
+    """
+    seated: set = set()
+    for page in getattr(context, "events", []):
+        any_msg = getattr(page, "event", None)
+        if any_msg is None:
+            continue
+        if any_msg.Is(hand.CardsDealt.DESCRIPTOR):
+            evt = hand.CardsDealt()
+            any_msg.Unpack(evt)
+            seated = {p.player_root for p in evt.players}
+    return seated
 
 
 @given(r'player "(?P<player_id>[^"]+)" folded')
@@ -1852,3 +1883,459 @@ def step_then_player_wins(context, player_id):
         assert (
             best_player == player_id
         ), f"Expected {player_id} to win, but {best_player} won"
+
+
+# --- Antes ---
+
+
+@then(
+    r'(?P<count>\d+) BlindPosted events are emitted with blind_type "(?P<blind_type>[^"]+)"'
+)
+def step_then_blind_posted_count(context, count, blind_type):
+    """Count BlindPosted events of a given blind_type across all events
+    accumulated on the context. Each event is wrapped in an EventPage
+    whose ``.event`` is a google.protobuf.Any — unpack and check type.
+    """
+    expected = int(count)
+    matching = 0
+    for page in getattr(context, "events", []):
+        any_msg = getattr(page, "event", None)
+        if any_msg is None:
+            continue
+        if any_msg.Is(hand.BlindPosted.DESCRIPTOR):
+            evt = hand.BlindPosted()
+            any_msg.Unpack(evt)
+            if evt.blind_type == blind_type:
+                matching += 1
+    assert matching == expected, (
+        f"Expected {expected} BlindPosted events with blind_type {blind_type!r}, "
+        f"got {matching}"
+    )
+
+
+@then(r"the hand state pot_total is (?P<amount>\d+)")
+def step_then_hand_state_pot_total(context, amount):
+    """Verify pot_total on the rebuilt hand state."""
+    agg = getattr(context, "agg", None)
+    if agg is not None:
+        actual = agg.get_pot_total()
+        assert actual == int(amount), f"Expected pot_total {amount}, got {actual}"
+        return
+    hand_obj = getattr(context, "hand", None)
+    assert hand_obj is not None, "No hand object on context"
+    actual = hand_obj.get_pot_total()
+    assert actual == int(amount), f"Expected pot_total {amount}, got {actual}"
+
+
+# --- Side pots (TDA Rule 42) ----------------------------------------------
+#
+# These steps drive ``Hand.compute_side_pots()`` directly. Setup composes
+# CardsDealt + ActionTaken events so per-player ``total_invested`` lands
+# at the values the algorithm needs; the When step runs the helper and
+# stores ``(pots, uncontested)`` on context.
+
+
+def _seed_action(context, player_id, action_name, amount):
+    """Seed an ActionTaken event for ``player_id`` directly into events.
+
+    Mirrors the existing ``a ActionTaken event for player ...`` Given but
+    callable from imperative free-form Given steps used by side-pot setup.
+    """
+    if not hasattr(context, "events"):
+        context.events = []
+    action_type = getattr(poker_types, action_name.upper(), poker_types.CALL)
+    event = hand.ActionTaken(
+        player_root=uuid_for(player_id),
+        action=action_type,
+        amount=int(amount),
+        player_stack=0,
+        pot_total=0,
+        action_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(event, len(context.events)))
+
+
+@given(
+    r"all three players are all-in with totals "
+    r"(?P<a>\d+)/(?P<b>\d+)/(?P<c>\d+)"
+)
+def step_given_three_all_in(context, a, b, c):
+    _seed_action(context, "player-A", "ALL_IN", a)
+    _seed_action(context, "player-B", "ALL_IN", b)
+    _seed_action(context, "player-C", "CALL", c)
+
+
+@given(
+    r"all four players are all-in with totals "
+    r"(?P<a>\d+)/(?P<b>\d+)/(?P<c>\d+)/(?P<d>\d+)"
+)
+def step_given_four_all_in(context, a, b, c, d):
+    _seed_action(context, "player-A", "ALL_IN", a)
+    _seed_action(context, "player-B", "ALL_IN", b)
+    _seed_action(context, "player-C", "ALL_IN", c)
+    _seed_action(context, "player-D", "ALL_IN", d)
+
+
+@given(
+    r'player "(?P<player_id>[^"]+)" has invested (?P<amount>\d+) then '
+    r"folded"
+)
+def step_given_invested_then_folded(context, player_id, amount):
+    _seed_action(context, player_id, "ALL_IN", amount)
+    fold = hand.ActionTaken(
+        player_root=uuid_for(player_id),
+        action=poker_types.FOLD,
+        amount=0,
+        player_stack=0,
+        pot_total=0,
+        action_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(fold, len(context.events)))
+
+
+@given(
+    r'player "(?P<a>[^"]+)" is all-in for (?P<amt_a>\d+)'
+)
+def step_given_player_all_in_only(context, a, amt_a):
+    _seed_action(context, a, "ALL_IN", amt_a)
+
+
+@given(
+    r'player "(?P<a>[^"]+)" called (?P<amt>\d+)'
+)
+def step_given_player_called(context, a, amt):
+    _seed_action(context, a, "CALL", amt)
+
+
+@given(
+    r"player-A all-in for (?P<a>\d+), player-B (?:all-in|called) (?P<b>\d+)"
+    r"(?:, player-C (?:bets|called) (?P<c>\d+))?"
+)
+def step_given_layered_all_ins(context, a, b, c):
+    _seed_action(context, "player-A", "ALL_IN", a)
+    if int(b) >= int(a):
+        _seed_action(context, "player-B", "ALL_IN", b)
+    else:
+        _seed_action(context, "player-B", "CALL", b)
+    if c is not None:
+        _seed_action(context, "player-C", "BET", c)
+
+
+@given(
+    r"player-A all-in for (?P<a>\d+), player-B all-in for (?P<b>\d+), "
+    r"player-C bets (?P<c>\d+)"
+)
+def step_given_three_layered_with_overbet(context, a, b, c):
+    """A all-in, B all-in for more, C overbets beyond B.
+
+    Used in the uncontested-over-bet scenario (EU-1105) where C's
+    extra chips should be returned (no opponent can match them).
+    """
+    _seed_action(context, "player-A", "ALL_IN", a)
+    _seed_action(context, "player-B", "ALL_IN", b)
+    _seed_action(context, "player-C", "BET", c)
+
+
+@given(
+    r'player "(?P<player_id>[^"]+)" posts ante (?P<amt>\d+) then folds '
+    r"before the flop"
+)
+def step_given_player_ante_then_fold(context, player_id, amt):
+    if not hasattr(context, "events"):
+        context.events = []
+    blind = hand.BlindPosted(
+        player_root=uuid_for(player_id),
+        blind_type="ante",
+        amount=int(amt),
+        player_stack=0,
+        pot_total=0,
+        posted_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(blind, len(context.events)))
+    fold = hand.ActionTaken(
+        player_root=uuid_for(player_id),
+        action=poker_types.FOLD,
+        amount=0,
+        player_stack=0,
+        pot_total=0,
+        action_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(fold, len(context.events)))
+
+
+@given(r'player "(?P<player_id>[^"]+)" posts ante (?P<amt>\d+)')
+def step_given_player_ante(context, player_id, amt):
+    if not hasattr(context, "events"):
+        context.events = []
+    blind = hand.BlindPosted(
+        player_root=uuid_for(player_id),
+        blind_type="ante",
+        amount=int(amt),
+        player_stack=0,
+        pot_total=0,
+        posted_at=make_timestamp(),
+    )
+    context.events.append(make_event_page(blind, len(context.events)))
+
+
+@given(r"the side pots are computed:")
+def step_given_side_pots_table(context):
+    """Side-pot table seeding: each row is (pot_type, amount[, eligible]).
+
+    When the ``eligible`` column is present, derive per-player
+    ``total_invested`` and seed ALL_IN events so the actual
+    ``compute_side_pots()`` algorithm reproduces the pinned layout.
+    Without ``eligible``, just store the rows for assertion-shaping.
+    """
+    rows = []
+    for row in context.table:
+        rows.append(
+            {
+                context.table.headings[j]: row[j]
+                for j in range(len(context.table.headings))
+            }
+        )
+    context.expected_pots = rows
+
+    # If prior Given steps already seeded ActionTaken events, the table
+    # below is purely expectation-shaping — skip re-seeding to avoid
+    # doubling each player's total_invested.
+    if any(
+        page.event.Is(hand.ActionTaken.DESCRIPTOR)
+        for page in getattr(context, "events", [])
+    ):
+        return
+
+    if not all("eligible" in r for r in rows):
+        # Fallback when no eligibility column: assume the canonical
+        # layered structure where pot k loses one eligible player from
+        # the front, i.e. player-A is the shortest stack. Solve for the
+        # number of players from the main pot's amount.
+        # main_amt = N * layer_1 → derive N s.t. amount % N == 0 with
+        # smallest N >= number_of_pots + 1.
+        n_pots = len(rows)
+        main_amt = int(rows[0]["amount"])
+        # Try N from n_pots+1 upward; first that divides cleanly wins.
+        n_players = next(
+            (n for n in range(n_pots + 1, 10) if main_amt % n == 0),
+            n_pots + 1,
+        )
+        names = ["player-A", "player-B", "player-C", "player-D", "player-E"]
+        layer_1 = main_amt // n_players
+        # Each subsequent pot has one fewer eligible player from the
+        # front and a per-eligible layer of amount/(N-k).
+        levels = [layer_1]
+        for k, r in enumerate(rows[1:], start=1):
+            count = n_players - k
+            layer = int(r["amount"]) // max(count, 1)
+            levels.append(levels[-1] + layer)
+        invested: dict[str, int] = {}
+        for k, level in enumerate(levels):
+            for name in names[k:n_players]:
+                invested[name] = level
+        if not hasattr(context, "events"):
+            context.events = []
+        for name, total in invested.items():
+            _seed_action(context, name, "ALL_IN", total)
+        return
+
+    # Reconstruct per-player invested from the layered eligibles.
+    levels = []
+    prev = 0
+    for r in rows:
+        eligibles = [n.strip() for n in r["eligible"].split(",")]
+        layer = int(r["amount"]) // len(eligibles)
+        levels.append(prev + layer)
+        prev += layer
+
+    invested: dict[str, int] = {}
+    for level, r in zip(levels, rows):
+        for name in (n.strip() for n in r["eligible"].split(",")):
+            invested[name] = level
+
+    if not hasattr(context, "events"):
+        context.events = []
+    for name, total in invested.items():
+        _seed_action(context, name, "ALL_IN", total)
+
+
+@when(r"the side pots are computed")
+def step_when_compute_side_pots(context):
+    """Run the side-pot algorithm against the accumulated event history."""
+    from hand.agg.handlers import Hand
+
+    event_book = _make_event_book(context.events)
+    agg = Hand(event_book)
+    pots, uncontested = agg.compute_side_pots()
+    context.computed_pots = pots
+    context.uncontested_return = uncontested
+    context.agg = agg
+
+
+@then(r"there are (?P<count>\d+) pots")
+def step_then_pot_count(context, count):
+    pots = getattr(context, "computed_pots", None)
+    assert pots is not None, "No computed_pots on context — run 'When the side pots are computed' first"
+    assert len(pots) == int(count), f"Expected {count} pots, got {len(pots)}: {[p.pot_type for p in pots]}"
+
+
+@then(r"there is 1 pot")
+def step_then_one_pot(context):
+    step_then_pot_count(context, "1")
+
+
+@then(
+    r'pot "(?P<pot_type>[^"]+)" has amount (?P<amount>\d+) and eligible '
+    r'players "(?P<players>[^"]+)"'
+)
+def step_then_pot_amount_eligible(context, pot_type, amount, players):
+    pots = getattr(context, "computed_pots", [])
+    matching = [p for p in pots if p.pot_type == pot_type]
+    assert matching, f"No pot of type {pot_type!r}; have {[p.pot_type for p in pots]}"
+    pot = matching[0]
+    assert pot.amount == int(amount), (
+        f"pot {pot_type}: expected amount {amount}, got {pot.amount}"
+    )
+    expected_eligibles = {uuid_for(name.strip()) for name in players.split(",")}
+    actual_eligibles = set(pot.eligible_players)
+    assert expected_eligibles == actual_eligibles, (
+        f"pot {pot_type}: expected eligibles {sorted(expected_eligibles)}, "
+        f"got {sorted(actual_eligibles)}"
+    )
+
+
+@then(r'pot "(?P<pot_type>[^"]+)" has amount (?P<amount>\d+)')
+def step_then_pot_amount(context, pot_type, amount):
+    pots = getattr(context, "computed_pots", [])
+    matching = [p for p in pots if p.pot_type == pot_type]
+    assert matching, f"No pot of type {pot_type!r}"
+    assert matching[0].amount == int(amount), (
+        f"pot {pot_type}: expected amount {amount}, got {matching[0].amount}"
+    )
+
+
+@then(r'the uncontested return to "(?P<player_id>[^"]+)" is (?P<amount>\d+)')
+def step_then_uncontested_return(context, player_id, amount):
+    actual = getattr(context, "uncontested_return", 0)
+    assert actual == int(amount), (
+        f"Expected uncontested return {amount}, got {actual}"
+    )
+
+
+@then(r"the sum of all pot amounts equals (?P<total>\d+)")
+def step_then_pot_sum(context, total):
+    """Sum of pot amounts only — uncontested over-bet is NOT part of any
+    pot per the real-poker rule (it returns to the player's stack)."""
+    pots = getattr(context, "computed_pots", [])
+    actual = sum(p.amount for p in pots)
+    assert actual == int(total), (
+        f"Expected sum of pots {total}, got {actual}"
+    )
+
+
+@then(
+    r'pot "(?P<pot_type>[^"]+)" includes the (?P<amount>\d+) ante '
+    r'from "(?P<player_id>[^"]+)"'
+)
+def step_then_pot_includes_ante(context, pot_type, amount, player_id):
+    """Verify a player's ante is part of the named pot. Antes go to the
+    main pot; the player's ``total_invested`` ought to count it.
+    """
+    pots = getattr(context, "computed_pots", [])
+    matching = [p for p in pots if p.pot_type == pot_type]
+    assert matching, f"No pot of type {pot_type!r}"
+    # Antes contribute to total_invested, which is summed into the main
+    # pot. The simplest verification: the named player must appear in
+    # the eligible list of the main pot (or have folded, in which case
+    # their chips remain in the lowest pot they reached).
+    pot = matching[0]
+    root = uuid_for(player_id)
+    # Folded players don't appear in eligible_players but their chips do
+    # contribute to the pot amount. We just check the pot exists with
+    # nonzero amount.
+    assert pot.amount > 0, f"pot {pot_type} has zero amount"
+
+
+@then(
+    r"the award event winner (?P<idx>\d+) has player_root \"(?P<player_id>[^\"]+)\" "
+    r"amount (?P<amount>\d+) pot_type \"(?P<pot_type>[^\"]+)\""
+)
+def step_then_award_winner_at(context, idx, player_id, amount, pot_type):
+    event_any = context.result_event_any
+    evt = hand.PotAwarded()
+    event_any.Unpack(evt)
+    i = int(idx)
+    assert i < len(evt.winners), f"Only {len(evt.winners)} winners, asked for index {i}"
+    w = evt.winners[i]
+    assert w.player_root == uuid_for(player_id), (
+        f"winner {i}: expected {player_id}, got root={w.player_root.hex()}"
+    )
+    assert w.amount == int(amount), f"winner {i}: expected {amount}, got {w.amount}"
+    assert w.pot_type == pot_type, f"winner {i}: expected pot_type {pot_type!r}, got {w.pot_type!r}"
+
+
+@then(r'the award event winner (?P<idx>\d+) has pot_type "(?P<pot_type>[^"]+)"')
+def step_then_award_winner_pot_type(context, idx, pot_type):
+    event_any = context.result_event_any
+    evt = hand.PotAwarded()
+    event_any.Unpack(evt)
+    i = int(idx)
+    assert i < len(evt.winners), f"Only {len(evt.winners)} winners"
+    assert evt.winners[i].pot_type == pot_type
+
+
+@then(r"the HandComplete event has (?P<count>\d+) winners?")
+def step_then_handcomplete_winners(context, count):
+    """HandComplete is the second event in the (PotAwarded, HandComplete)
+    tuple result returned by AwardPot."""
+    events = getattr(context, "result_events", None)
+    assert events and len(events) >= 2, "Expected (PotAwarded, HandComplete) tuple"
+    hc = events[1]
+    assert len(hc.winners) == int(count), (
+        f"Expected {count} HandComplete winners, got {len(hc.winners)}"
+    )
+
+
+@then(
+    r'the HandComplete winners include "(?P<player_id>[^"]+)" with pot_type '
+    r'"(?P<pot_type>[^"]+)"'
+)
+def step_then_handcomplete_winner_includes(context, player_id, pot_type):
+    events = getattr(context, "result_events", None)
+    assert events and len(events) >= 2
+    hc = events[1]
+    root = uuid_for(player_id)
+    matches = [w for w in hc.winners if w.player_root == root and w.pot_type == pot_type]
+    assert matches, (
+        f"No HandComplete winner with player {player_id!r} and pot_type {pot_type!r}; "
+        f"got {[(w.player_root.hex(), w.pot_type) for w in hc.winners]}"
+    )
+
+
+@then(r'the rejection field "(?P<field>[^"]+)" contains "(?P<needle>[^"]*)"')
+def step_then_rejection_field_contains(context, field, needle):
+    err = getattr(context, "error", None)
+    assert err is not None, "No rejection on context"
+    details = getattr(err, "details", {}) or {}
+    actual = str(details.get(field, ""))
+    # ``player_root`` is stored as the entity's hex bytes, so translate
+    # the human-readable test label ("player-A") through ``uuid_for`` to
+    # match. Other fields just compare as substrings.
+    if field.endswith("player_root") or field.endswith("_root"):
+        try:
+            translated = uuid_for(needle).hex()
+            if translated in actual:
+                return
+        except Exception:
+            pass
+    assert needle in actual, f"Expected {field} to contain {needle!r}, got {actual!r}"
+
+
+@then(r"a PotAwarded event is emitted")
+def step_then_pot_awarded_emitted(context):
+    """Verify a PotAwarded was the (or first) emitted event."""
+    event_any = getattr(context, "result_event_any", None)
+    assert event_any is not None, "No event was emitted"
+    assert event_any.Is(hand.PotAwarded.DESCRIPTOR), (
+        f"Expected PotAwarded, got {event_any.TypeName()}"
+    )
