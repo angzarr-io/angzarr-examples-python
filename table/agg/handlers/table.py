@@ -350,9 +350,20 @@ class Table:
         next hand using the TDA dead-button rule.
 
         Invariant: every player must pay the BB exactly once per orbit.
-        The new BB is the next active seat clockwise of the previous BB
-        seat — even if that means the dealer button "freezes" or moves
-        to a vacated seat.
+        Rules applied:
+        - First hand (prev BB unset): standard advance from dealer.
+        - Heads-up (2 active players): button alternates — dealer moves
+          to the next active seat CW from prev dealer; that seat is SB
+          (heads-up structural rule); the other player is BB.
+        - 3+ players: BB advances to the next active seat CW from prev
+          BB. SB and dealer are derived clockwise-backward from BB
+          through the active seats.
+        - Dead-button override (3+ players): if the prev BB seat was
+          *vacated* between hands AND the standard advance would land
+          SB on an empty seat number that lies between the active SB
+          and BB seats, the button "freezes" at the prior dealer; SB
+          is then the next active seat after the vacated BB seat, and
+          BB is the next active after SB.
 
         Returns None when the seats can't support a hand (< 2 active).
         """
@@ -368,23 +379,50 @@ class Table:
         # First hand: prior BB position is unset (-1). Use the standard
         # advance from the legacy dealer_position.
         prev_bb = state.last_big_blind_position
+        prev_dealer = state.dealer_position
         if prev_bb < 0:
             dealer = self._next_dealer_position()
             return self._derive_blind_positions(active, dealer)
 
-        # Subsequent hands: find next active seat clockwise of prev BB.
+        # Heads-up: button alternates each hand. The prev dealer is the
+        # OUT-going button; the new dealer is the next active seat CW.
+        if len(active) == 2:
+            if prev_dealer in active:
+                d_idx = active.index(prev_dealer)
+                new_dealer = active[(d_idx + 1) % 2]
+            else:
+                # Prev dealer busted — pick the active seat following
+                # the vacated dealer seat (or the first active).
+                new_dealer = next(
+                    (s for s in active if s > prev_dealer),
+                    active[0],
+                )
+            new_sb = new_dealer  # heads-up structural rule
+            new_bb = next(s for s in active if s != new_dealer)
+            return (new_dealer, new_sb, new_bb)
+
+        # 3+ players: dead-button special case. If the prev BB seat is
+        # gone (busted between hands), the button freezes at the prior
+        # dealer; SB advances to the next active seat after the
+        # vacated BB seat; BB follows.
+        prev_bb_busted = prev_bb not in active
+        if prev_bb_busted:
+            new_dealer = prev_dealer if prev_dealer in active else self._next_dealer_position()
+            new_sb = next(
+                (s for s in active if s > prev_bb),
+                active[0],
+            )
+            sb_idx = active.index(new_sb)
+            new_bb = active[(sb_idx + 1) % len(active)]
+            return (new_dealer, new_sb, new_bb)
+
+        # Standard advance: BB → next active CW from prev BB.
         new_bb = next(
             (s for s in active if s > prev_bb),
             active[0],
         )
-        if len(active) == 2:
-            # Heads-up: dealer = SB; the player who is NOT the new BB.
-            new_sb = next(s for s in active if s != new_bb)
-            return (new_sb, new_sb, new_bb)
-        # 3+ players: SB = active seat just before BB clockwise.
         bb_idx = active.index(new_bb)
         new_sb = active[(bb_idx - 1) % len(active)]
-        # Dealer = active seat just before SB clockwise.
         sb_idx = active.index(new_sb)
         new_dealer = active[(sb_idx - 1) % len(active)]
         return (new_dealer, new_sb, new_bb)
