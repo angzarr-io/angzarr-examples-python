@@ -686,7 +686,13 @@ class Tournament:
         try:
             if not self.exists:
                 raise TournamentNotFound()
-            if not self.is_registration_open:
+            # Start requires the tournament to have reached the
+            # registration-open phase. Operators may explicitly
+            # CloseRegistration before StartTournament (this happens in
+            # EA-0008), so we check the lifecycle stage (status) rather
+            # than ``registration_open`` — late registration (TDA Rule
+            # 30) decouples those concepts.
+            if self.status != tournament.TournamentStatus.TOURNAMENT_REGISTRATION_OPEN:
                 raise RegistrationNotOpen()
             if len(self.registered_players) < self.min_players:
                 raise NotEnoughPlayersToStart(
