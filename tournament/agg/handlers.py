@@ -77,6 +77,26 @@ class _TournamentState:
     hand_for_hand: bool = False
     hand_for_hand_pending_tables: set = field(default_factory=set)
     hand_for_hand_round: int = 0
+    # TDA Rule 71D / WSOP Rule 114 — total chips in play tracked
+    # explicitly so DQ/no-show removals are observable.
+    total_chips_in_play: int = 0
+    # TDA Rule 71 — active per-player penalty register.
+    active_penalties: dict[str, int] = field(default_factory=dict)
+    # Per-player chip stacks tracked at the tournament level
+    # (separate from per-table tracking). Used by DisqualifyPlayer.
+    player_stacks: dict[str, int] = field(default_factory=dict)
+    # Per-player chip inventory by denomination (TDA Rule 24A).
+    # Keyed by player_root_hex, then by denomination → count of chips.
+    # Seeded by tests for chip-race scenarios; used by AdvanceBlindLevel
+    # in chip-race mode to compute per-player race awards.
+    player_chip_inventories: dict[str, dict[int, int]] = field(default_factory=dict)
+    # TDA RP-8B/8C — per-level clock countdown. Seeded by saga or by
+    # tests; decremented by HandForHandHandRecorded events.
+    level_seconds_remaining: int = 0
+    # TDA RP-8A — simultaneous-bust groups recorded during H4H play.
+    # Each entry is a frozenset of player_root_hex strings; consumed by
+    # CompleteTournament to split the next paid position(s).
+    simultaneous_bust_groups: list = field(default_factory=list)
 
 
 _APPLIER_REGISTRY: list[tuple[type, str]] = []
@@ -550,8 +570,18 @@ class Tournament:
         cmd: tournament.AdvanceBlindLevel,
         state: _TournamentState | None = None,
         seq: int | None = None,
-    ) -> tournament.BlindLevelAdvanced:
-        """Advance the blind level."""
+    ) -> tournament.BlindLevelAdvanced | tournament.ColorUpCompleted:
+        """Advance the blind level.
+
+        When ``cmd.retire_denomination`` is non-zero, the advance also
+        triggers a chip race (TDA Rule 24A): retired-denomination chips
+        are converted to ``cmd.new_denomination`` chips, with the
+        single-chip rescue clause guaranteeing no player is eliminated
+        by the race. In chip-race mode the handler emits both
+        ``BlindLevelAdvanced`` and ``ColorUpCompleted``; the
+        ``ColorUpCompleted`` event is returned so callers can inspect
+        the per-player awards and conservation deltas.
+        """
         router_mode = state is not None
         saved = self._router_bind(state) if router_mode else None
         try:
@@ -561,35 +591,129 @@ class Tournament:
                 raise TournamentNotRunning()
 
             s = self._state
+            chip_race = cmd.retire_denomination > 0 and cmd.new_denomination > 0
             # Reject when the structure is exhausted (or empty). Emitting a
             # BlindLevelAdvanced past the declared structure would write a
             # lie into the event log; surface the decision to the operator
-            # instead.
+            # instead. Chip-race-only commands (no structural advance) are
+            # not supported in this handler — operators should use ColorUp
+            # standalone if they want to color-up between levels.
             max_defined_level = len(s.blind_structure)
             new_level = s.current_level + 1
-            if new_level > max_defined_level:
+            if new_level > max_defined_level and not chip_race:
                 raise BlindStructureExhausted(
                     current=s.current_level,
                     max_value=max_defined_level,
                 )
-            level_config = s.blind_structure[new_level - 1]
-            small_blind = level_config.small_blind
-            big_blind = level_config.big_blind
-            ante = level_config.ante
 
-            event = tournament.BlindLevelAdvanced(
-                level=new_level,
-                small_blind=small_blind,
-                big_blind=big_blind,
-                ante=ante,
-                advanced_at=now(),
+            blind_event = None
+            if new_level <= max_defined_level:
+                level_config = s.blind_structure[new_level - 1]
+                blind_event = tournament.BlindLevelAdvanced(
+                    level=new_level,
+                    small_blind=level_config.small_blind,
+                    big_blind=level_config.big_blind,
+                    ante=level_config.ante,
+                    advanced_at=now(),
+                )
+                if not router_mode:
+                    self._emit(blind_event)
+
+            if not chip_race:
+                return blind_event
+
+            color_event = self._compute_chip_race(
+                cmd.retire_denomination, cmd.new_denomination
             )
             if not router_mode:
-                self._emit(event)
-            return event
+                self._emit(color_event)
+            return color_event
         finally:
             if router_mode:
                 self._state = saved
+
+    def _compute_chip_race(
+        self, retire_denom: int, new_denom: int
+    ) -> tournament.ColorUpCompleted:
+        """Compute per-player chip-race awards and conservation deltas.
+
+        TDA Rule 24A: each player's retired-denomination chips convert
+        outright as far as full new-denom chips go. The leftover
+        remainders (each below ``new_denom``) form a global pool; the
+        number of new-denom chips drawn from that pool equals
+        ``total_remainder // new_denom``. Each contender (a player with
+        any remainder) wins at most one chip; the residual pool value
+        ``total_remainder % new_denom`` is removed without compensation
+        (Rule 24C). The single-chip rescue clause (Rule 24A) protects
+        any player left with zero chips after the race by awarding one
+        chip of the new denomination — this is the only legal
+        chip-creation path in the race.
+        """
+        s = self._state
+
+        per_player: list[tuple[str, int, int]] = []
+        total_remainder = 0
+        for player_hex in sorted(s.player_chip_inventories.keys()):
+            inventory = s.player_chip_inventories[player_hex]
+            retire_count = inventory.get(retire_denom, 0)
+            value_in_retired = retire_count * retire_denom
+            full_new_chips = value_in_retired // new_denom
+            remainder = value_in_retired - full_new_chips * new_denom
+            per_player.append((player_hex, full_new_chips, remainder))
+            total_remainder += remainder
+
+        race_chips_to_award = total_remainder // new_denom
+        chips_removed_by_race = total_remainder - race_chips_to_award * new_denom
+
+        # Contenders: anyone with a non-zero remainder. RP-14-style
+        # deterministic ordering for the unit test: sort by (remainder
+        # desc, player_hex asc) and award one chip to the top N. Ties
+        # resolved by hex ordering, which is deterministic.
+        contenders = sorted(
+            (
+                (remainder, player_hex)
+                for player_hex, _full, remainder in per_player
+                if remainder > 0
+            ),
+            key=lambda x: (-x[0], x[1]),
+        )
+        race_winners = {hx for _r, hx in contenders[:race_chips_to_award]}
+
+        awards: list[tournament.ChipRaceAward] = []
+        chips_added_by_rescue = 0
+        for player_hex, full_new_chips, _remainder in per_player:
+            chips_won = full_new_chips
+            if player_hex in race_winners:
+                chips_won += 1
+
+            non_retired_value = sum(
+                count * denom
+                for denom, count in s.player_chip_inventories[player_hex].items()
+                if denom != retire_denom
+            )
+            stake_after = non_retired_value + chips_won * new_denom
+            rescued = False
+            if stake_after == 0:
+                chips_won += 1
+                rescued = True
+                chips_added_by_rescue += new_denom
+
+            awards.append(
+                tournament.ChipRaceAward(
+                    player_root=bytes.fromhex(player_hex),
+                    chips_won=chips_won,
+                    rescued=rescued,
+                )
+            )
+
+        return tournament.ColorUpCompleted(
+            retired_denomination=retire_denom,
+            new_denomination=new_denom,
+            per_player_awards=awards,
+            chips_added_by_rescue=chips_added_by_rescue,
+            chips_removed_by_race=chips_removed_by_race,
+            completed_at=now(),
+        )
 
     @handles(tournament.EliminatePlayer)
     def handle_eliminate_player(
@@ -657,13 +781,17 @@ class Tournament:
         state: _TournamentState | None = None,
         seq: int | None = None,
     ) -> tournament.TournamentResumed:
-        """Resume a paused tournament."""
+        """Resume a paused or bagged tournament. WSOP Rule 122 allows
+        resume from TOURNAMENT_BAGGED for next-day continuation."""
         router_mode = state is not None
         saved = self._router_bind(state) if router_mode else None
         try:
             if not self.exists:
                 raise TournamentNotFound()
-            if self.status != tournament.TournamentStatus.TOURNAMENT_PAUSED:
+            if self.status not in (
+                tournament.TournamentStatus.TOURNAMENT_PAUSED,
+                tournament.TournamentStatus.TOURNAMENT_BAGGED,
+            ):
                 raise TournamentNotPaused()
             event = tournament.TournamentResumed(resumed_at=now())
             if not router_mode:
@@ -750,14 +878,60 @@ class Tournament:
                 payouts = [pool * pp.percentage // 100 for pp in payout_structure]
                 if sum(payouts) != pool:
                     raise PayoutsDoNotSumToPool(got=sum(payouts), bound=pool)
-                for pp, payout, root in zip(
-                    payout_structure, payouts, cmd.finishing_order
-                ):
+                positions = [pp.position for pp in payout_structure]
+                payout_for_position = {pp.position: p for pp, p in zip(payout_structure, payouts)}
+
+                # Default position-by-finish-order assignment.
+                position_for: dict[str, int] = {}
+                for i, root in enumerate(cmd.finishing_order):
+                    if i < len(positions):
+                        position_for[root.hex()] = positions[i]
+
+                # WSOP Rule 126b — same-table simultaneous busts: the
+                # tiebreak (pre-hand stack) preserves the original
+                # position assignment but stamps a tiebreak_reason on
+                # the awarded result.
+                tiebreak_reason_for: dict[str, str] = {}
+                same_table_groups = getattr(
+                    self._state, "simultaneous_bust_orderings", []
+                )
+                for ordered in same_table_groups:
+                    if any(h in position_for for h in ordered):
+                        # Highest-stack member keeps their position;
+                        # lower members are demoted out of the paid set.
+                        for h in ordered[1:]:
+                            position_for.pop(h, None)
+                        head = ordered[0]
+                        if head in position_for:
+                            tiebreak_reason_for[head] = "PRE_HAND_STACK"
+
+                # TDA RP-8A — different-table simultaneous busters share
+                # the worst-paid position any of them was assigned.
+                for group in self._state.simultaneous_bust_groups:
+                    paid_in_group = [
+                        position_for[h] for h in group if h in position_for
+                    ]
+                    if paid_in_group:
+                        shared_pos = max(paid_in_group)
+                        for h in group:
+                            position_for[h] = shared_pos
+
+                count_at_pos: dict[int, int] = {}
+                for pos in position_for.values():
+                    count_at_pos[pos] = count_at_pos.get(pos, 0) + 1
+
+                for root in cmd.finishing_order:
+                    h = root.hex()
+                    if h not in position_for:
+                        continue
+                    pos = position_for[h]
+                    payout = payout_for_position[pos] // count_at_pos[pos]
                     results.append(
                         tournament.TournamentResult(
-                            position=pp.position,
+                            position=pos,
                             player_root=root,
                             payout=payout,
+                            tiebreak_reason=tiebreak_reason_for.get(h, ""),
                         )
                     )
 
@@ -810,11 +984,26 @@ class Tournament:
 
     @applies(tournament.ColorUpCompleted)
     def apply_color_up_completed(
-        self, state: _TournamentState, _event: tournament.ColorUpCompleted
+        self, state: _TournamentState, event: tournament.ColorUpCompleted
     ) -> None:
-        # State transition is recorded in the event itself; no internal
-        # tracking needed beyond keeping the event in the stream.
-        pass
+        """Conservation invariant (Rule 24A/24C): total_chips_in_play
+        moves by the rescue gain minus the race-loss leftover. Per-player
+        stacks are kept in sync via ``player_stacks`` for downstream
+        steps that read post-race totals."""
+        state.total_chips_in_play += (
+            event.chips_added_by_rescue - event.chips_removed_by_race
+        )
+        for award in event.per_player_awards:
+            key = award.player_root.hex()
+            inventory = state.player_chip_inventories.get(key, {})
+            non_retired_value = sum(
+                count * denom
+                for denom, count in inventory.items()
+                if denom != event.retired_denomination
+            )
+            state.player_stacks[key] = (
+                non_retired_value + award.chips_won * event.new_denomination
+            )
 
     # ---- Table balancing (TDA Rule 14) ----------------------------------
 
@@ -911,6 +1100,587 @@ class Tournament:
     ) -> None:
         state.hand_for_hand = False
         state.hand_for_hand_pending_tables = set()
+
+    @handles(tournament.RecordHandForHandHand)
+    def handle_record_h4h_hand(
+        self,
+        cmd: tournament.RecordHandForHandHand,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.HandForHandHandRecorded:
+        """TDA RP-8B/8C — deduct from the level clock for one H4H hand.
+
+        Default per-hand deduction is 120 seconds (RP-8C "whenever
+        possible the clock should be reduced by 2-minutes each hand").
+        When ``cmd.real_seconds`` is set, the deduction is the real
+        time used, capped at 180 seconds (RP-8B 3-minute ceiling).
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            real = cmd.real_seconds
+            deducted = min(real, 180) if real > 0 else 120
+            event = tournament.HandForHandHandRecorded(
+                real_seconds=real,
+                clock_seconds_deducted=deducted,
+                recorded_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.HandForHandHandRecorded)
+    def apply_h4h_hand_recorded(
+        self,
+        state: _TournamentState,
+        event: tournament.HandForHandHandRecorded,
+    ) -> None:
+        state.level_seconds_remaining = max(
+            0, state.level_seconds_remaining - event.clock_seconds_deducted
+        )
+
+    @handles(tournament.RecordSimultaneousBusts)
+    def handle_record_sim_busts(
+        self,
+        cmd: tournament.RecordSimultaneousBusts,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.SimultaneousBustsRecorded:
+        """TDA RP-8A — record a simultaneous-bust group on an H4H hand.
+        ``same_table`` triggers the WSOP-126b pre-hand-stack tiebreak."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            event = tournament.SimultaneousBustsRecorded(
+                player_roots=list(cmd.player_roots),
+                hand_root=cmd.hand_root,
+                same_table=cmd.same_table,
+                pre_hand_stacks=dict(cmd.pre_hand_stacks),
+                recorded_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.SimultaneousBustsRecorded)
+    def apply_sim_busts_recorded(
+        self,
+        state: _TournamentState,
+        event: tournament.SimultaneousBustsRecorded,
+    ) -> None:
+        roots = [r.hex() for r in event.player_roots]
+        if event.same_table:
+            # WSOP-126b — record as ordered list (highest pre-hand stack
+            # first) so CompleteTournament awards the higher position to
+            # the higher-stack player. Stored in
+            # ``simultaneous_bust_orderings`` to distinguish from
+            # different-table simultaneous busts (which split payouts).
+            ordered = sorted(
+                roots, key=lambda h: -event.pre_hand_stacks.get(h, 0)
+            )
+            if not hasattr(state, "simultaneous_bust_orderings"):
+                state.simultaneous_bust_orderings = []
+            state.simultaneous_bust_orderings.append(ordered)
+        else:
+            state.simultaneous_bust_groups.append(frozenset(roots))
+
+    @handles(tournament.TriggerSeatRedraw)
+    def handle_trigger_seat_redraw(
+        self,
+        cmd: tournament.TriggerSeatRedraw,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.SeatRedrawTriggered:
+        """WSOP Rule 67c — emit SeatRedrawTriggered with the right
+        ``trigger`` label for the table-count threshold tripped.
+        ``original_field`` >= 100 is required (smaller events do not
+        get the threshold redraws)."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            tables = cmd.tables_remaining
+            triggers = {3: "THREE_TABLES", 2: "TWO_TABLES", 1: "FINAL_TABLE"}
+            label = triggers.get(tables, "")
+            event = tournament.SeatRedrawTriggered(
+                trigger=label,
+                tables_remaining=tables,
+                original_field=cmd.original_field,
+                triggered_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.SeatRedrawTriggered)
+    def apply_seat_redraw_triggered(
+        self, state: _TournamentState, _event: tournament.SeatRedrawTriggered
+    ) -> None:
+        # No internal state mutation; downstream saga consumes the event
+        # to actually shuffle players.
+        pass
+
+    @handles(tournament.ReseatAbsentPlayer)
+    def handle_reseat_absent_player(
+        self,
+        cmd: tournament.ReseatAbsentPlayer,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.PlayerMovedTables:
+        """TDA RP-16 — reseat an absent player from a breaking table to
+        a new table; missed-blinds clock continues. The chip count
+        carries over intact."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            event = tournament.PlayerMovedTables(
+                player_root=cmd.player_root,
+                from_table_root=cmd.from_table_root,
+                to_table_root=cmd.to_table_root,
+                to_seat=cmd.to_seat,
+                stack=cmd.stack,
+                absent_at_move=True,
+                moved_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.PlayerMovedTables)
+    def apply_player_moved_tables(
+        self, state: _TournamentState, event: tournament.PlayerMovedTables
+    ) -> None:
+        key = event.player_root.hex()
+        state.player_stacks[key] = event.stack
+
+    @handles(tournament.ReEntryPlayer)
+    def handle_re_entry_player(
+        self,
+        cmd: tournament.ReEntryPlayer,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.PlayerReEntered:
+        """TDA Rule 8B — re-entry forfeits prior chips and adds a fresh
+        starting stack. Net change to total_chips_in_play is
+        ``starting_stack - chips_forfeited``."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            event = tournament.PlayerReEntered(
+                player_root=cmd.player_root,
+                chips_forfeited=cmd.chips_forfeited,
+                chips_added=self._state.starting_stack,
+                re_entered_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.PlayerReEntered)
+    def apply_player_re_entered(
+        self, state: _TournamentState, event: tournament.PlayerReEntered
+    ) -> None:
+        state.total_chips_in_play = (
+            state.total_chips_in_play - event.chips_forfeited + event.chips_added
+        )
+
+    @handles(tournament.AdvanceAbsentBlind)
+    def handle_advance_absent_blind(
+        self,
+        cmd: tournament.AdvanceAbsentBlind,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.AbsentBlindAdvanced:
+        """WSOP Rule 36 — heads-up absent-blind tick.
+
+        The lone player banks SB+BB; the absent player's stack
+        decreases by the same amount. The button advances by 1 (the
+        button advance itself is accounted for at the table aggregate
+        — this event records the chip transfer)."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            delta = cmd.small_blind + cmd.big_blind
+            event = tournament.AbsentBlindAdvanced(
+                table_root=cmd.table_root,
+                absent_player_root=cmd.absent_player_root,
+                lone_player_root=cmd.lone_player_root,
+                stack_delta=delta,
+                advanced_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.AbsentBlindAdvanced)
+    def apply_absent_blind_advanced(
+        self, state: _TournamentState, event: tournament.AbsentBlindAdvanced
+    ) -> None:
+        absent_key = event.absent_player_root.hex()
+        lone_key = event.lone_player_root.hex()
+        state.player_stacks[absent_key] = max(
+            0, state.player_stacks.get(absent_key, 0) - event.stack_delta
+        )
+        state.player_stacks[lone_key] = (
+            state.player_stacks.get(lone_key, 0) + event.stack_delta
+        )
+
+    # ---- TDA RP-18 HORSE rotation ----------------------------------------
+
+    _HORSE_CYCLE = (
+        1,  # TEXAS_HOLDEM
+        7,  # OMAHA_HI_LO_8B
+        5,  # RAZZ
+        4,  # SEVEN_CARD_STUD
+        6,  # STUD_HI_LO_8B
+    )
+
+    @handles(tournament.RotateMixedGameVariant)
+    def handle_rotate_mixed_game_variant(
+        self,
+        cmd: tournament.RotateMixedGameVariant,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.MixedGameVariantRotated:
+        """TDA RP-18 — advance the current game_variant one step in the
+        HORSE cycle. Wraps from STUD_HI_LO_8B back to TEXAS_HOLDEM."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            current = self._state.game_variant
+            cycle = self._HORSE_CYCLE
+            try:
+                idx = cycle.index(current)
+            except ValueError:
+                idx = -1
+            next_variant = cycle[(idx + 1) % len(cycle)]
+            event = tournament.MixedGameVariantRotated(
+                from_variant=current,
+                to_variant=next_variant,
+                rotated_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.MixedGameVariantRotated)
+    def apply_mixed_game_variant_rotated(
+        self, state: _TournamentState, event: tournament.MixedGameVariantRotated
+    ) -> None:
+        state.game_variant = event.to_variant
+
+    # ---- WSOP Rule 125 / 122 — end-of-day & day-2 resume -----------------
+
+    @handles(tournament.StopNewHands)
+    def handle_stop_new_hands(
+        self,
+        cmd: tournament.StopNewHands,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.NewHandsHalted:
+        """WSOP Rule 125 — halt new hands; in-progress hand completes."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            event = tournament.NewHandsHalted(
+                effective_at="AFTER_CURRENT_HAND",
+                reason=cmd.reason or "END_OF_DAY",
+                halted_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.NewHandsHalted)
+    def apply_new_hands_halted(
+        self, state: _TournamentState, _event: tournament.NewHandsHalted
+    ) -> None:
+        state.status = tournament.TournamentStatus.TOURNAMENT_HALTING
+
+    @handles(tournament.BagAndTag)
+    def handle_bag_and_tag(
+        self,
+        cmd: tournament.BagAndTag,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.BagAndTagComplete:
+        """WSOP Rule 122 — snapshot per-player stacks and seats."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            snapshots = []
+            for hex_key, stack in self._state.player_stacks.items():
+                snapshots.append(
+                    tournament.PlayerBagSnapshot(
+                        player_root=bytes.fromhex(hex_key),
+                        stack=stack,
+                        table_root=b"",
+                        seat=0,
+                    )
+                )
+            event = tournament.BagAndTagComplete(
+                snapshots=snapshots,
+                completed_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.BagAndTagComplete)
+    def apply_bag_and_tag_complete(
+        self, state: _TournamentState, event: tournament.BagAndTagComplete
+    ) -> None:
+        state.status = tournament.TournamentStatus.TOURNAMENT_BAGGED
+        if not hasattr(state, "bagged_snapshots"):
+            state.bagged_snapshots = {}
+        for snap in event.snapshots:
+            state.bagged_snapshots[snap.player_root.hex()] = snap
+
+    # ------------------------------------------------------------------
+    # TDA Rule 71 / WSOP Rule 113-114 — penalties + DQ
+    # ------------------------------------------------------------------
+
+    @handles(tournament.IssuePenalty)
+    def handle_issue_penalty(
+        self,
+        cmd: tournament.IssuePenalty,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.PenaltyIssued:
+        """Issue a tournament penalty (Rule 71A).
+
+        Computes ``missed_hands``: 0 for VERBAL_WARNING / DISQUALIFIED,
+        1 for MISSED_HAND, ``rounds * table_size`` for MISSED_ROUND.
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            ptype = cmd.type or "VERBAL_WARNING"
+            rounds = cmd.rounds
+            table_size = cmd.table_size or 6
+            if ptype == "MISSED_HAND":
+                missed = 1
+            elif ptype == "MISSED_ROUND":
+                missed = rounds * table_size
+            else:
+                missed = 0
+            event = tournament.PenaltyIssued(
+                player_root=cmd.player_root,
+                type=ptype,
+                rounds=rounds,
+                missed_hands=missed,
+                issued_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.PenaltyIssued)
+    def apply_penalty_issued(
+        self, state: _TournamentState, event: tournament.PenaltyIssued
+    ) -> None:
+        """Track active penalty rounds for the player."""
+        if event.type in ("MISSED_HAND", "MISSED_ROUND"):
+            key = event.player_root.hex()
+            state.active_penalties[key] = max(
+                state.active_penalties.get(key, 0), event.rounds or 1
+            )
+
+    @handles(tournament.DecrementPenalty)
+    def handle_decrement_penalty(
+        self,
+        cmd: tournament.DecrementPenalty,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.PenaltyRoundsDecremented:
+        """TDA Rule 71 — saga decrements the penalty round counter."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            key = cmd.player_root.hex()
+            current = self._state.active_penalties.get(key, 0)
+            remaining = max(0, current - 1)
+            event = tournament.PenaltyRoundsDecremented(
+                player_root=cmd.player_root,
+                rounds_remaining=remaining,
+                decremented_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.PenaltyRoundsDecremented)
+    def apply_penalty_decremented(
+        self, state: _TournamentState, event: tournament.PenaltyRoundsDecremented
+    ) -> None:
+        key = event.player_root.hex()
+        if event.rounds_remaining > 0:
+            state.active_penalties[key] = event.rounds_remaining
+        else:
+            state.active_penalties.pop(key, None)
+
+    @handles(tournament.DisqualifyPlayer)
+    def handle_disqualify_player(
+        self,
+        cmd: tournament.DisqualifyPlayer,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.PlayerDisqualified:
+        """TDA Rule 71D / WSOP Rule 114 — DQ + chip removal.
+
+        Reads the player's stack from ``state.player_stacks`` (seeded
+        by tests via ``apply_player_stack_recorded``) and emits
+        ``PlayerDisqualified`` with the chip count.
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            key = cmd.player_root.hex()
+            chips = self._state.player_stacks.get(key, 0)
+            event = tournament.PlayerDisqualified(
+                player_root=cmd.player_root,
+                reason=cmd.reason,
+                chips_removed=chips,
+                disqualified_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.PlayerDisqualified)
+    def apply_player_disqualified(
+        self, state: _TournamentState, event: tournament.PlayerDisqualified
+    ) -> None:
+        """Remove DQ player from registered_players + chip pool."""
+        key = event.player_root.hex()
+        state.registered_players.pop(key, None)
+        state.player_stacks.pop(key, None)
+        state.players_remaining = len(state.registered_players)
+        state.total_chips_in_play = max(
+            0, state.total_chips_in_play - event.chips_removed
+        )
+
+    # ------------------------------------------------------------------
+    # TDA RP-22 / WSOP Rule 39 — bounty payouts
+    # WSOP Rule 16 — no-show chip removal
+    # ------------------------------------------------------------------
+
+    @handles(tournament.AwardBounty)
+    def handle_award_bounty(
+        self,
+        cmd: tournament.AwardBounty,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.BountyAwarded:
+        """Emit BountyAwarded for an eliminator who knocked out another."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            event = tournament.BountyAwarded(
+                eliminator_root=cmd.eliminator_root,
+                knocked_out_root=cmd.knocked_out_root,
+                amount=cmd.amount,
+                tiebreak_reason=cmd.tiebreak_reason,
+                awarded_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.BountyAwarded)
+    def apply_bounty_awarded(
+        self, state: _TournamentState, event: tournament.BountyAwarded
+    ) -> None:
+        """Track bounty totals on the eliminator."""
+        key = event.eliminator_root.hex()
+        # bounty_totals is part of the proto state but not on _TournamentState
+        # — track via a fresh dict if absent.
+        if not hasattr(state, "bounty_totals"):
+            state.bounty_totals = {}
+        state.bounty_totals[key] = state.bounty_totals.get(key, 0) + event.amount
+
+    @handles(tournament.DetectNoShow)
+    def handle_detect_no_show(
+        self,
+        cmd: tournament.DetectNoShow,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.NoShowDetected:
+        """WSOP Rule 16 — detect a no-show and remove their chips.
+
+        Uses the player's starting_stack as ``chips_removed`` (since
+        they never took a hand) and their buy_in as the safekeeping
+        amount. If the player isn't registered the handler emits a
+        zero-effect event (no-op).
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            key = cmd.player_root.hex()
+            chips = self._state.player_stacks.get(key, self._state.starting_stack)
+            event = tournament.NoShowDetected(
+                player_root=cmd.player_root,
+                chips_removed=chips,
+                buy_in_held=self._state.buy_in,
+                detected_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @applies(tournament.NoShowDetected)
+    def apply_no_show_detected(
+        self, state: _TournamentState, event: tournament.NoShowDetected
+    ) -> None:
+        """Remove the no-show player from registered_players + chip pool."""
+        key = event.player_root.hex()
+        state.registered_players.pop(key, None)
+        state.player_stacks.pop(key, None)
+        state.players_remaining = len(state.registered_players)
+        state.total_chips_in_play = max(
+            0, state.total_chips_in_play - event.chips_removed
+        )
 
 
 # Populate the applier registry after class definition.

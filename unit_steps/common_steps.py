@@ -60,6 +60,25 @@ def step_then_result_is_examples_event(context, event_type):
     assert actual_type == expected, f"Expected {expected} but got {actual_type}"
 
 
+@then(r"a angzarr_client\.proto\.examples\.(?P<event_type>\w+) event is emitted")
+def step_then_examples_event_is_emitted(context, event_type):
+    """Verify that an event of the given type is among emitted pages.
+
+    Sibling to ``the result is an X event`` for scenarios that prefer
+    the ``is emitted`` phrasing — looks across all newly emitted pages
+    rather than only the first.
+    """
+    assert (
+        context.result is not None
+    ), f"Expected {event_type} event but got error: {getattr(context, 'error_message', context.error)}"
+    assert context.result.pages, "No event pages emitted"
+    expected = f"angzarr_client.proto.examples.{event_type}"
+    types = [type_name_from_url(p.event.type_url) for p in context.result.pages]
+    assert expected in types, (
+        f"Expected an emitted {expected} event; got {types}"
+    )
+
+
 # --- Then steps for structured-rejection assertions ---
 # Cucumber asserts rejections by stable code + structured details, never by
 # rendered message text. See ``poker.errors.StructuredCommandError``.
@@ -96,9 +115,23 @@ def step_then_rejection_field_equals(context, field, value):
         field in details
     ), f"Rejection has no field {field!r}; available fields: {sorted(details)}"
     actual = details[field]
-    assert (
-        actual == value
-    ), f"Rejection field {field!r}: expected {value!r}, got {actual!r}"
+    if actual == value:
+        return
+    # Mirror the ``contains`` step's uuid_for translation: scenarios assert
+    # on human-readable player names ("Alice"); handlers store hex of the
+    # uuid_for() bytes. Try the translation as a fallback so the spec stays
+    # readable without forcing every handler to plumb a name back through.
+    from tests.helpers import uuid_for as _uuid_for
+
+    try:
+        translated = _uuid_for(value).hex()
+        if str(actual) == translated:
+            return
+    except Exception:
+        pass
+    raise AssertionError(
+        f"Rejection field {field!r}: expected {value!r}, got {actual!r}"
+    )
 
 
 # --- Then steps for rejection cover (addressing envelope) ---

@@ -170,6 +170,77 @@ def split_pot_by_suit(
 
 
 @dataclass(frozen=True)
+class WinnerWithCards:
+    """A tied winner and the 5-card hand they're tabling for the tiebreak.
+
+    ``cards`` is a sequence of (suit_index, rank) tuples where suit_index
+    follows the canonical 0=clubs, 1=diamonds, 2=hearts, 3=spades order
+    (same as ``WinnerWithSuit.suit_rank // 4`` decomposition) and rank is
+    2..14 (Ace high). Used by ``split_pot_by_high_card_walk`` for the TDA
+    Rule 20B "high card by suit in the player's 5-card winning hand"
+    tiebreak — the rule walks the hand top-to-bottom rather than picking
+    a single representative card.
+    """
+
+    player_root: str
+    cards: tuple
+
+
+def split_pot_by_high_card_walk(
+    pot: int, winners: Sequence[WinnerWithCards]
+) -> list[Award]:
+    """Split ``pot`` evenly; odd chip goes to the player whose 5-card
+    winning hand has the highest card by suit, walking top-to-bottom.
+
+    Per TDA Rule 20B: in stud / razz / stud-Hi-Lo, the odd chip goes to
+    "the high card by suit in the player's 5-card winning hand." This
+    rule walks all 5 positions — the *highest* card decides first, with
+    each position breaking ties from the previous. Two FULL_HOUSE Jacks-
+    over-eights hands with disjoint suits will tie on rank alone but
+    diverge as soon as a higher-suit card appears at any position.
+
+    Args:
+        pot: Total chips to distribute.
+        winners: Tied players each carrying their 5-card winning hand
+            as a tuple of (suit_index, rank) pairs. Suit indexing must
+            follow 0=clubs, 1=diamonds, 2=hearts, 3=spades so a higher
+            integer dominates by the canonical TDA ordering.
+
+    Returns:
+        Awards summing to exactly ``pot``. When ``odd_chips`` > 0 the
+        first ``odd_chips`` winners ranked by suit-walk order each get
+        one extra chip.
+
+    Raises:
+        ValueError: if ``winners`` is empty or ``pot`` is non-positive.
+    """
+    if pot <= 0:
+        raise ValueError(f"pot must be positive, got {pot}")
+    if not winners:
+        raise ValueError("winners must be non-empty")
+
+    base_share = pot // len(winners)
+    odd_chips = pot - base_share * len(winners)
+
+    def _walk_key(w: WinnerWithCards) -> tuple:
+        # Sort cards by (rank desc, suit desc) so position 0 is the
+        # highest card; the tuple compares lexicographically with higher
+        # = stronger.
+        return tuple(sorted(w.cards, key=lambda c: (c[1], c[0]), reverse=True))
+
+    ordered = sorted(winners, key=_walk_key, reverse=True)
+    extra_recipients = {ordered[i].player_root for i in range(odd_chips)}
+
+    return [
+        Award(
+            player_root=w.player_root,
+            amount=base_share + (1 if w.player_root in extra_recipients else 0),
+        )
+        for w in winners
+    ]
+
+
+@dataclass(frozen=True)
 class HighLowSplit:
     """Result of splitting a pot between high and low sides."""
 

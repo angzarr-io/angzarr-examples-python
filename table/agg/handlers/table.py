@@ -216,6 +216,18 @@ class Table:
                 seat.stack = event.new_stack
                 break
 
+    @applies(table_proto.PlayerHandKilledByPenalty)
+    def apply_player_hand_killed_by_penalty(
+        self, state: _TableState, event: table_proto.PlayerHandKilledByPenalty
+    ) -> None:
+        """TDA Rule 71C — debit the killed seat's stack by the posted
+        blinds. The seat itself stays at the table; only the hand is
+        dead for this round."""
+        seat = state.seats.get(event.seat_position)
+        if seat is None or event.stack_charged == 0:
+            return
+        seat.stack = max(0, seat.stack - event.stack_charged)
+
     @applies(buy_in_proto.PlayerSeated)
     def apply_player_seated(
         self, state: _TableState, event: buy_in_proto.PlayerSeated
@@ -374,12 +386,14 @@ class Table:
         if len(active) < 2:
             return None
 
-        # First hand: prior BB position is unset (-1). Use the standard
-        # advance from the legacy dealer_position.
+        # First hand: prior BB position is unset (-1). WSOP Rule 85:
+        # the button begins in the seat with the first chip stack to
+        # the dealer's right (counter-clockwise), which is the
+        # highest-numbered active seat.
         prev_bb = state.last_big_blind_position
         prev_dealer = state.dealer_position
         if prev_bb < 0:
-            dealer = self._next_dealer_position()
+            dealer = max(active)
             return self._derive_blind_positions(active, dealer)
 
         # Heads-up: button alternates each hand. The prev dealer is the
@@ -654,12 +668,37 @@ class Table:
                 game_variant=s.game_variant,
                 small_blind=s.small_blind,
                 big_blind=s.big_blind,
+                blind_level=cmd.blind_level,
                 started_at=now(),
             )
             event.active_players.extend(active_players)
 
             if not router_mode:
                 self._emit(event)
+
+            # TDA Rule 71C — for each player on penalty, post their
+            # blinds from their stack and emit a kill event. The seat
+            # remains active (cards dealt) but the hand is marked dead.
+            on_penalty = {b.hex() for b in cmd.players_on_penalty}
+            if on_penalty:
+                for pos in active_positions:
+                    seat = s.seats[pos]
+                    if seat.player_root.hex() not in on_penalty:
+                        continue
+                    charge = 0
+                    if pos == sb_position:
+                        charge += s.small_blind
+                    if pos == bb_position:
+                        charge += s.big_blind
+                    kill_event = table_proto.PlayerHandKilledByPenalty(
+                        player_root=seat.player_root,
+                        hand_root=hand_root,
+                        seat_position=pos,
+                        stack_charged=charge,
+                        killed_at=now(),
+                    )
+                    if not router_mode:
+                        self._emit(kill_event)
             return event
         finally:
             if router_mode:
@@ -736,11 +775,33 @@ class Table:
                 if self.get_seat(cmd.seat) is not None:
                     reason = "Seat is occupied"
             elif cmd.seat == -1:
-                found = self._find_available_seat(-1)
-                if found is None:
-                    reason = "Table is full"
+                if cmd.tournament_mode:
+                    # TDA Rule 7 / WSOP Rule 34 — RNG-driven seat pick
+                    # over all currently-open seats. Deterministic seed
+                    # for replay: derived from rng_seed when supplied,
+                    # else from player_root + table_id.
+                    import hashlib
+                    import random as _random
+                    open_seats = sorted(
+                        s for s in range(self.max_players) if self.get_seat(s) is None
+                    )
+                    if not open_seats:
+                        reason = "Table is full"
+                    else:
+                        seed_in = cmd.rng_seed or (
+                            cmd.player_root + self.table_id.encode()
+                        )
+                        seed_bytes = hashlib.sha256(seed_in).digest()[:16]
+                        rng = _random.Random(int.from_bytes(seed_bytes[:8], "big"))
+                        seat_position = rng.choice(open_seats)
+                        # Stash the seed for the event below.
+                        cmd_seed_used = seed_bytes
                 else:
-                    seat_position = found
+                    found = self._find_available_seat(-1)
+                    if found is None:
+                        reason = "Table is full"
+                    else:
+                        seat_position = found
             else:
                 reason = "Invalid seat position"
 
@@ -750,6 +811,11 @@ class Table:
                     reservation_id=cmd.reservation_id,
                     seat_position=seat_position,
                     stack=cmd.amount,
+                    rng_seed=(
+                        locals().get("cmd_seed_used", b"")
+                        if cmd.tournament_mode
+                        else b""
+                    ),
                     seated_at=now(),
                 )
             else:

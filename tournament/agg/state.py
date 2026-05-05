@@ -41,6 +41,16 @@ class TournamentState:
     registered_players: dict[str, PlayerRegistration] = field(default_factory=dict)
     players_remaining: int = 0
     total_prize_pool: int = 0
+    # TDA Rule 71D / WSOP Rule 114 — total chips in play tracked
+    # explicitly so DQ/no-show removals are observable.
+    total_chips_in_play: int = 0
+    # TDA Rule 71 — active per-player penalty register. player_root_hex →
+    # remaining round count (0 for VERBAL_WARNING / one-hand penalties
+    # that resolve on next deal).
+    active_penalties: dict[str, int] = field(default_factory=dict)
+    # Per-player chip stacks tracked at the tournament level (separate
+    # from per-table tracking). Updated via DisqualifyPlayer for now.
+    player_stacks: dict[str, int] = field(default_factory=dict)
 
     @property
     def exists(self) -> bool:

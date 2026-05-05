@@ -293,6 +293,14 @@ class CannotPostAnteAfterBlinds(InvalidOperationInState):
 
 
 @dataclass
+class ActionClockNotOnThisPlayer(InvalidOperationInState):
+    """TDA Rule 29: action clock can only run on the seat currently to act."""
+
+    CODE = "ACTION_CLOCK_NOT_ON_THIS_PLAYER"
+    TEMPLATE = "Action clock not on this player"
+
+
+@dataclass
 class RevealOutOfOrder(InvalidOperationInState):
     """Showdown reveal attempted out of order (TDA Rule 36).
 
@@ -303,6 +311,56 @@ class RevealOutOfOrder(InvalidOperationInState):
 
     CODE = "REVEAL_OUT_OF_ORDER"
     TEMPLATE = "Reveal out of order"
+
+
+@dataclass
+class IncompleteReveal(InvalidOperationInState):
+    """TDA Rule 13A / Rule 19 — proper tabling shows ALL hole cards. A
+    partial muck forfeits any claim to the pot (including playing the
+    board); the player must table all hole cards or forfeit. The
+    template explicitly mentions "play the board" so floor logs reflect
+    the rule citation."""
+
+    CODE = "INCOMPLETE_REVEAL"
+    TEMPLATE = (
+        "Incomplete reveal: {got} of {bound} hole cards tabled — "
+        "must table all to play the board (Rule 19)"
+    )
+    got: int = 0
+    bound: int = 0
+
+
+@dataclass
+class FaceUpRequired(InvalidOperationInState):
+    """TDA Rule 16 — once a player is all-in and betting action is
+    complete, every remaining hand must be tabled. Mucking is no longer
+    permitted; pots in the main and side(s) are evaluated against live,
+    visible hands."""
+
+    CODE = "FACE_UP_REQUIRED"
+    TEMPLATE = "All hands must be tabled face-up; mucking not permitted"
+
+
+@dataclass
+class PlayerAbsentAtDeal(InvalidOperationInState):
+    """TDA Rule 30 — a player not at their seat when cards are dealt
+    has their hand killed immediately. Returning later does not
+    resurrect the hand; any action attempt is rejected."""
+
+    CODE = "PLAYER_ABSENT_AT_DEAL"
+    TEMPLATE = "Player was absent at deal; hand is dead"
+
+
+@dataclass
+class TabledWinnerCannotBeKilled(InvalidOperationInState):
+    """TDA Rule 13C — a properly tabled winning hand cannot be killed
+    by an erroneous award. The award winner must be the strongest tabled
+    hand (or share a tie). ``tabled_winner`` carries the hex of the
+    rightful winner's player_root for cross-language parity."""
+
+    CODE = "TABLED_WINNER_CANNOT_BE_KILLED"
+    TEMPLATE = "Tabled winner {tabled_winner} cannot be killed by award"
+    tabled_winner: str = ""
 
 
 @dataclass
@@ -331,6 +389,97 @@ class BetBelowBigBlind(BoundViolation):
     CODE = "BET_BELOW_BIG_BLIND"
     TEMPLATE = "Bet {got} below big blind {bound}"
     KIND: ClassVar[str] = "below_min"
+
+
+@dataclass
+class RaiseCapReached(PreconditionError):
+    """TDA Rule 48 — limit raise cap reached for this betting round.
+
+    The current_round has already seen the house-default count of
+    raises (1 bet + 4 raises by default) while more than 2 players
+    remain active. Subsequent raises are rejected with this code.
+    """
+
+    CODE = "RAISE_CAP_REACHED"
+    TEMPLATE = "Raise cap of {max_raises_per_round} reached for this round"
+    max_raises_per_round: int = 0
+
+
+@dataclass
+class BoundToCallOrRaise(PreconditionError):
+    """TDA Rule 46B — pulling back a prior-bet chip while facing a raise
+    binds the player to call or raise. Subsequent fold attempts within
+    the same action are rejected with this code.
+    """
+
+    CODE = "BOUND_TO_CALL_OR_RAISE"
+    TEMPLATE = "Player has pulled back a prior chip facing a raise; cannot fold"
+
+
+@dataclass
+class DoubledBetNotAllowed4thStreet(PreconditionError):
+    """TDA RP-10F — Seven Card Stud (high) fixed-limit: an open pair on
+    4th street does NOT permit doubling the bet to the upper limit. The
+    bet must stay at the lower limit (small_bet). The rejection carries
+    ``max_bet`` so callers can correct the action and resubmit. Not a
+    plain BoundViolation because the cucumber assertion pins
+    ``max_bet`` rather than the generic ``got``/``bound`` pair.
+    """
+
+    CODE = "DOUBLED_BET_NOT_ALLOWED_4TH_STREET"
+    TEMPLATE = "Open pair on 4th street locks bet at {max_bet}"
+    max_bet: int = 0
+
+
+@dataclass
+class OpenPairLocksLowerLimit(PreconditionError):
+    """WSOP §Seven Card Stud Hi/Lo 8 or Better — an open pair on 4th
+    street locks the bet to the lower limit. Different code from
+    RP-10F's variant since WSOP cites the rule differently for Hi/Lo
+    than TDA does for Stud Hi (Razz, by Robert's §RAZZ #3, does not
+    lock at all — see EU-1341)."""
+
+    CODE = "OPEN_PAIR_LOCKS_LOWER_LIMIT"
+    TEMPLATE = "Open pair on 4th street locks bet at lower limit {max_bet}"
+    max_bet: int = 0
+
+
+@dataclass
+class MuckedWithoutTabling(PreconditionError):
+    """TDA Rule 18A — players who mucked face-down at showdown have no
+    right to ask to see another player's hand. RequestShowHand from a
+    mucked-without-tabling player is rejected with this code."""
+
+    CODE = "MUCKED_WITHOUT_TABLING"
+    TEMPLATE = "Player mucked face down without tabling; cannot ask to see hands"
+
+
+@dataclass
+class StudMuckByPickupForbidden(PreconditionError):
+    """TDA Rule 66 — in stud, picking up the upcards while facing
+    action kills the hand. The proper muck is turning down all up
+    cards and pushing them forward face down. The aggregate rejects a
+    FOLD that signals a pickup-style muck so the floor can apply the
+    correct disciplinary procedure."""
+
+    CODE = "STUD_MUCK_BY_PICKUP_FORBIDDEN"
+    TEMPLATE = (
+        "Stud players must muck by turning upcards down — picking them "
+        "up kills the hand under Rule 66"
+    )
+
+
+@dataclass
+class StudTooManyCards(PreconditionError):
+    """Robert's §SC Stud #18 — at showdown a stud hand with more than
+    7 cards is dead. Unlike the missing-card case (which goes to floor
+    discretion via FloorDecisionRequired), too-many-cards is a hard
+    rejection: the player demonstrably has more cards than the variant
+    permits and cannot have a live hand under any ruling."""
+
+    CODE = "STUD_TOO_MANY_CARDS"
+    TEMPLATE = "Stud hand has {got} cards; maximum is 7"
+    got: int = 0
 
 
 __all__ = [
@@ -372,6 +521,13 @@ __all__ = [
     "AwardsExceedPot",
     "WinnerNotEligibleForPot",
     "BetBelowBigBlind",
+    "RaiseCapReached",
+    "BoundToCallOrRaise",
+    "DoubledBetNotAllowed4thStreet",
+    "OpenPairLocksLowerLimit",
+    "MuckedWithoutTabling",
+    "StudMuckByPickupForbidden",
+    "StudTooManyCards",
     "CannotPostAnteAfterBlinds",
     "RevealOutOfOrder",
 ]

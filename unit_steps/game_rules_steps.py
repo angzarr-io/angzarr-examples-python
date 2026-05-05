@@ -17,6 +17,9 @@ from behave import given, then, use_step_matcher, when
 from hand.agg.handlers.game_rules import (
     FiveCardDrawRules,
     OmahaRules,
+    RazzRules,
+    SevenCardStudRules,
+    StudHiLoRules,
     TexasHoldemRules,
     get_game_rules,
 )
@@ -69,13 +72,30 @@ def _parse_cards(text: str) -> list:
 
 def _rules_from_label(label: str):
     """Map the human label in a Given step to a rule instance."""
-    key = label.strip().lower().replace("'", "").replace("-", " ")
+    key = label.strip().lower().replace("'", "").replace("-", " ").replace("/", " ")
+    # Collapse runs of whitespace.
+    key = " ".join(key.split())
     if key in ("texas holdem", "texas hold em", "holdem", "hold em"):
         return TexasHoldemRules()
     if key == "omaha":
         return OmahaRules()
     if key in ("five card draw", "5 card draw", "draw"):
         return FiveCardDrawRules()
+    if key in ("seven card stud", "7 card stud", "stud"):
+        return SevenCardStudRules()
+    if key in ("razz",):
+        return RazzRules()
+    if key in (
+        "seven card stud hi lo",
+        "seven card stud hi lo 8b",
+        "seven card stud hilo",
+        "seven card stud hilo 8b",
+        "stud hi lo",
+        "stud hilo",
+        "stud hi lo 8b",
+        "stud hilo 8b",
+    ):
+        return StudHiLoRules()
     raise ValueError(f"Unknown variant label: {label!r}")
 
 
@@ -111,12 +131,19 @@ def _rank_name(value: int) -> str:
 # --- Given: rule selection ---
 
 
-@given(r"(?P<variant>Texas Hold'em|Omaha|Five Card Draw) rules")
+@given(
+    r"(?P<variant>Texas Hold'em|Omaha|Five Card Draw|Seven Card Stud Hi/Lo 8b|"
+    r"Seven Card Stud Hi/Lo|Seven Card Stud|Razz) rules"
+)
 def step_given_rules(context, variant):
     context.rules = _rules_from_label(variant)
     # Reset per-scenario evaluator inputs.
     context.hole_cards = []
     context.community_cards = []
+    context.player_cards = []
+    context.up_cards_by_player = {}
+    context.door_cards = []
+    context.hand_results = {}
 
 
 # --- Given: hole / community cards ---
@@ -577,4 +604,290 @@ def step_then_hand_score_greater(context, a, b):
         f"Expected hand {a} (score={results[a]['score']}, kickers="
         f"{results[a]['kickers']}) to outrank hand {b} (score="
         f"{results[b]['score']}, kickers={results[b]['kickers']})"
+    )
+
+
+# =============================================================================
+# Stud variant steps — EU-0750..EU-0760
+# =============================================================================
+# These steps cover stud-specific properties (initial_deal_count,
+# total_card_count, forced_bet_type, has_community_cards), bring-in
+# determination, first-to-act on later streets, and the Razz / Stud Hi/Lo
+# evaluators. Variant selection reuses the existing ``Given <variant>
+# rules`` step which now also matches "Seven Card Stud", "Razz", and
+# "Seven Card Stud Hi/Lo 8b".
+
+
+@then(r"the initial_deal_count is (?P<n>\d+)")
+def step_then_initial_deal_count(context, n):
+    expected = int(n)
+    assert context.rules.initial_deal_count == expected, (
+        f"Expected initial_deal_count={expected}, "
+        f"got {context.rules.initial_deal_count}"
+    )
+
+
+@then(r"the total_card_count is (?P<n>\d+)")
+def step_then_total_card_count(context, n):
+    expected = int(n)
+    assert context.rules.total_card_count == expected, (
+        f"Expected total_card_count={expected}, "
+        f"got {context.rules.total_card_count}"
+    )
+
+
+@then(r'the forced_bet_type is "(?P<kind>[^"]+)"')
+def step_then_forced_bet_type(context, kind):
+    assert context.rules.forced_bet_type == kind, (
+        f"Expected forced_bet_type={kind!r}, "
+        f"got {context.rules.forced_bet_type!r}"
+    )
+
+
+@then(r"has_community_cards is (?P<flag>True|False)")
+def step_then_has_community_cards(context, flag):
+    expected = flag == "True"
+    assert context.rules.has_community_cards is expected, (
+        f"Expected has_community_cards={expected}, "
+        f"got {context.rules.has_community_cards}"
+    )
+
+
+@then(r"total_card_count is (?P<n>\d+)")
+def step_then_total_card_count_lc(context, n):
+    # Alternate phrasing used after "When I check community card support".
+    step_then_total_card_count(context, n)
+
+
+@when(r"I check community card support")
+def step_when_check_community_card_support(context):
+    # Pure-property check; no side effects to record. The Then steps read
+    # off context.rules directly.
+    context.community_check = {
+        "has": context.rules.has_community_cards,
+        "total": context.rules.total_card_count,
+    }
+
+
+@then(r"the per-player cards to deal is (?P<n>\d+)")
+def step_then_per_player_to_deal(context, n):
+    expected = int(n)
+    pt = context.next_result
+    assert pt is not None, "Expected a phase transition; got None"
+    assert pt.per_player_cards_to_deal == expected, (
+        f"Expected per_player_cards_to_deal={expected}, "
+        f"got {pt.per_player_cards_to_deal}"
+    )
+
+
+@then(r"the dealt card is_up is (?P<flag>True|False)")
+def step_then_dealt_is_up(context, flag):
+    expected = flag == "True"
+    pt = context.next_result
+    assert pt is not None, "Expected a phase transition; got None"
+    assert pt.is_up_card is expected, (
+        f"Expected is_up_card={expected}, got {pt.is_up_card}"
+    )
+
+
+# --- Bring-in determination -------------------------------------------------
+
+
+@given(r'players have door cards "(?P<cards>[^"]+)"')
+def step_given_door_cards(context, cards):
+    """Door cards are listed in seat order. Each token is a single card
+    string; the per-seat door card is parsed and stored as a flat list
+    so step_when_determine_bring_in can index by position."""
+    context.door_cards = _parse_cards(cards)
+
+
+@when(r"I determine the bring-in")
+def step_when_determine_bring_in(context):
+    context.bring_in_index = context.rules.determine_bring_in(context.door_cards)
+
+
+@then(r"the bring-in player is at index (?P<idx>\d+)")
+def step_then_bring_in_index(context, idx):
+    expected = int(idx)
+    assert context.bring_in_index == expected, (
+        f"Expected bring-in at index {expected}, got {context.bring_in_index} "
+        f"(door_cards={context.door_cards})"
+    )
+
+
+# --- First-to-act on later streets ------------------------------------------
+
+
+@given(
+    r"a (?P<variant>Seven Card Stud Hi/Lo 8b|Seven Card Stud Hi/Lo|"
+    r"Seven Card Stud|Razz) hand on (?:3rd|4th|5th|6th|7th) street"
+)
+def step_given_stud_hand_on_street(context, variant):
+    """Lightweight stud-rules-only fixture for EU-1328 etc. — selects
+    the variant rule object exactly like ``Given <variant> rules`` so
+    the existing first-to-act-by-up-cards step chain works without
+    needing a full hand-aggregate state machine.
+
+    Hand-aggregate-level scenarios that need real CardsDealt / actions
+    (e.g. EU-1330 limit bet validation) use a different fixture in
+    hand_steps.py."""
+    context.rules = _rules_from_label(variant)
+    context.up_cards_by_player = {}
+
+
+@given(r"up cards by player:?")
+def step_given_up_cards_by_player(context):
+    """Reads a `| player | up_cards |` data table. up_cards is a
+    whitespace-separated card list. Player names are stored as plain
+    strings and used as the dict key for first-to-act resolution."""
+    context.up_cards_by_player = {}
+    for row in context.table:
+        player = row["player"]
+        cards = _parse_cards(row["up_cards"])
+        context.up_cards_by_player[player] = cards
+
+
+@when(r"I determine the first-to-act on (?:3rd|4th|5th|6th|7th) street")
+def step_when_determine_first_to_act(context):
+    context.first_to_act = context.rules.determine_first_to_act(
+        context.up_cards_by_player
+    )
+
+
+@then(r'the first-to-act player is "(?P<name>[^"]+)"')
+def step_then_first_to_act(context, name):
+    assert context.first_to_act == name, (
+        f"Expected first-to-act={name!r}, got {context.first_to_act!r}"
+    )
+
+
+# --- Player-cards (no community) hand evaluation ---------------------------
+
+
+@given(r'player cards "(?P<cards>[^"]+)"')
+def step_given_player_cards(context, cards):
+    context.player_cards = _parse_cards(cards)
+
+
+@when(r"the best high hand is evaluated")
+def step_when_best_high(context):
+    rank, score, kickers = context.rules.evaluate_hand(context.player_cards, [])
+    context.rank = rank
+    context.score = score
+    context.kickers = kickers
+
+
+@when(r"the best low hand is evaluated")
+def step_when_best_low(context):
+    """Razz: rank/score/kickers carry razz semantics (label / razz_value /
+    top-to-bottom rank list). The Then steps below pull from these fields."""
+    rank, score, kickers = context.rules.evaluate_hand(context.player_cards, [])
+    context.rank = rank
+    context.score = score
+    context.kickers = kickers
+
+
+@then(r'the razz rank is "(?P<label>[^"]+)"')
+def step_then_razz_rank(context, label):
+    assert context.rank == label, f"Expected razz rank {label!r}, got {context.rank!r}"
+
+
+@then(r"the razz rank value is (?P<n>\d+)")
+def step_then_razz_value(context, n):
+    expected = int(n)
+    assert context.score == expected, (
+        f"Expected razz value {expected}, got {context.score}"
+    )
+
+
+# --- Multi-hand stud / razz / hilo comparisons -----------------------------
+
+
+@when(r'I evaluate hand (?P<label>\w+) with cards "(?P<cards>[^"]+)"')
+def step_when_evaluate_labeled_cards(context, label, cards):
+    """Cards-only variant of the hold'em "I evaluate hand X with hole/
+    community" step. Stores the high evaluation and (for Stud Hi/Lo)
+    also the qualifying low under context.hand_results[label]."""
+    if not getattr(context, "hand_results", None):
+        context.hand_results = {}
+    parsed = _parse_cards(cards)
+    rank, score, kickers = context.rules.evaluate_hand(parsed, [])
+    entry = {
+        "rank": rank,
+        "score": score,
+        "kickers": list(kickers),
+        "cards": parsed,
+    }
+    if isinstance(context.rules, StudHiLoRules):
+        entry["low"] = context.rules.evaluate_low(parsed, [])
+    context.hand_results[label] = entry
+
+
+@then(r"both hands rank as razz lows")
+def step_then_both_razz_lows(context):
+    """Asserts both stored hands evaluated to a Razz low (i.e. their
+    ``rank`` field is one of the razz labels). Pinning the label first
+    surfaces an evaluator that paired one of the hands silently."""
+    razz_labels = {
+        "WHEEL", "SIX_LOW", "SEVEN_LOW", "EIGHT_LOW", "NINE_LOW",
+        "TEN_LOW", "JACK_LOW", "QUEEN_LOW", "KING_LOW",
+    }
+    results = getattr(context, "hand_results", None) or {}
+    assert results, "No labeled hands stored — call evaluate first"
+    for label, entry in results.items():
+        assert entry["rank"] in razz_labels, (
+            f"Hand {label!r} did not evaluate to a Razz low: rank={entry['rank']!r}"
+        )
+
+
+@then(r"hand (?P<a>\w+) is lower than hand (?P<b>\w+)")
+def step_then_hand_lower(context, a, b):
+    """For Razz: lower razz score = better low hand. For Stud Hi/Lo
+    qualifying lows: lower top-to-bottom rank tuple = better low."""
+    results = context.hand_results
+    assert a in results and b in results, f"Missing hand result(s): {a},{b}"
+    a_score = results[a]["score"]
+    b_score = results[b]["score"]
+    assert a_score < b_score, (
+        f"Expected hand {a} (score={a_score}) to be lower than hand {b} (score={b_score})"
+    )
+
+
+@then(r"hand (?P<label>\w+) high rank is \"(?P<rank>[^\"]+)\"")
+def step_then_hand_high_rank(context, label, rank):
+    expected = _rank_type_from_name(rank)
+    actual = context.hand_results[label]["rank"]
+    assert actual == expected, (
+        f"Expected hand {label} high rank {rank}, got {_rank_name(actual)}"
+    )
+
+
+@then(r"hand (?P<label>\w+) has a qualifying low")
+def step_then_hand_has_qualifying_low(context, label):
+    low = context.hand_results[label].get("low")
+    assert low is not None, f"Expected hand {label} to have a qualifying low; none found"
+
+
+@then(r"hand (?P<label>\w+) has no qualifying low")
+def step_then_hand_no_qualifying_low(context, label):
+    low = context.hand_results[label].get("low")
+    assert low is None, f"Expected hand {label} to have no qualifying low; got {low}"
+
+
+@then(r"hand (?P<label>\w+) low best 5 is \"(?P<ranks>[^\"]+)\"")
+def step_then_hand_low_best5(context, label, ranks):
+    """Pin the exact qualifying-low ranks (high-to-low). Format example:
+    "8 7 6 5 4". Aces are written as "A" but represented internally as 1
+    after the ace→1 conversion in the qualifier."""
+    low = context.hand_results[label].get("low")
+    assert low is not None, f"Hand {label} has no qualifying low to compare"
+    expected = []
+    for tok in ranks.split():
+        tok = tok.strip().upper()
+        if tok == "A":
+            expected.append(1)
+        else:
+            expected.append(int(tok))
+    assert list(low) == expected, (
+        f"Expected hand {label} low best-5 = {expected}, got {list(low)}"
     )

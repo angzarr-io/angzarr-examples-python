@@ -12,9 +12,11 @@ the integration with the existing event-sourcing path is exercised too.
 from behave import given, then, use_step_matcher, when
 from hand.agg.pot_distribution import (
     Award,
+    WinnerWithCards,
     WinnerWithSeat,
     WinnerWithSuit,
     split_high_low_total,
+    split_pot_by_high_card_walk,
     split_pot_by_suit,
     split_pot_clockwise_from_button,
 )
@@ -279,3 +281,106 @@ def step_then_player_receives(context, name, expected):
     assert actual == int(
         expected
     ), f"Expected {name} to receive {expected}, got {actual}"
+
+
+# === EU-1322 — TDA Rule 20B: stud high-card-by-suit walk =====================
+#
+# Stud uses a different odd-chip rule from board games: the odd chip goes
+# to the player whose 5-card winning hand has the highest card by suit
+# walking top-to-bottom. Two FULL_HOUSE Jacks-over-eights hands compare
+# Js → Js (tie), Jh → Jd (Alice's hearts wins), so Alice gets the odd chip.
+
+
+def _parse_card_pair(token: str) -> tuple:
+    """Parse 'Jh' into (suit_index, rank). Suit indexing matches
+    pot_distribution.WinnerWithCards convention (0=c,1=d,2=h,3=s)."""
+    rank_char, suit_char = token[0].upper(), token[1].lower()
+    return (_SUIT_INDEX[suit_char], _RANK_INDEX[rank_char] + 2)
+
+
+def _parse_card_list(text: str) -> tuple:
+    """Whitespace-separated card list → tuple of (suit_index, rank)."""
+    return tuple(_parse_card_pair(tok) for tok in text.split())
+
+
+@given(
+    r'a Seven Card Stud hand at showdown with player "(?P<name>[^"]+)" '
+    r'5-card hand "(?P<cards>[^"]+)"'
+)
+def step_given_stud_showdown_player_hand(context, name, cards):
+    """Record a tied stud-showdown winner with their 5-card hand. The
+    'When the pot is split' step then drives the helper directly. We
+    don't seed a hand-aggregate event chain here — the stud showdown
+    machinery isn't built yet (see Batch 8 EU-1321 etc.) — but we DO
+    drive the production helper, so any divergence between stud rule and
+    board-game rule will surface in the helper output."""
+    if not hasattr(context, "stud_winners"):
+        context.stud_winners = []
+    context.stud_winners.append(
+        WinnerWithCards(player_root=name, cards=_parse_card_list(cards))
+    )
+
+
+@given(r'player "(?P<name>[^"]+)" 5-card hand "(?P<cards>[^"]+)"')
+def step_given_stud_showdown_extra_hand(context, name, cards):
+    if not hasattr(context, "stud_winners"):
+        context.stud_winners = []
+    context.stud_winners.append(
+        WinnerWithCards(player_root=name, cards=_parse_card_list(cards))
+    )
+
+
+@when(
+    r'the pot of (?P<pot>\d+) is split between '
+    r'"(?P<player_a>[^"]+)" and "(?P<player_b>[^"]+)"'
+)
+def step_when_stud_pot_split_between(context, pot, player_a, player_b):
+    """Drive the stud high-card-by-suit-walk helper and synthesize a
+    result book so the standard ``a … PotAwarded event is emitted`` and
+    ``the award event has winner X with amount N`` Then steps match.
+    The full hand aggregate has no stud showdown path yet (Batch 8
+    EU-1321 etc.) — this step exercises the production helper directly,
+    which is the only behavior EU-1322 actually pins."""
+    from datetime import datetime, timezone
+
+    from google.protobuf.any_pb2 import Any as ProtoAny
+    from google.protobuf.timestamp_pb2 import Timestamp
+    from tests.helpers import uuid_for
+    from unit_steps.hand_steps import _make_event_book
+
+    from angzarr_client.proto.angzarr import types_pb2 as types
+    from angzarr_client.proto.examples import hand_pb2 as hand_proto
+
+    awards = split_pot_by_high_card_walk(
+        pot=int(pot), winners=context.stud_winners
+    )
+    context.suit_walk_awards = {a.player_root: a.amount for a in awards}
+
+    awarded = hand_proto.PotAwarded(
+        awarded_at=Timestamp(
+            seconds=int(datetime.now(timezone.utc).timestamp())
+        ),
+    )
+    for a in awards:
+        awarded.winners.append(
+            hand_proto.PotWinner(
+                player_root=uuid_for(a.player_root),
+                amount=a.amount,
+                pot_type="main",
+            )
+        )
+    event_any = ProtoAny()
+    event_any.Pack(awarded, type_url_prefix="type.googleapis.com/")
+    page = types.EventPage(
+        header=types.PageHeader(sequence=0),
+        event=event_any,
+        created_at=Timestamp(
+            seconds=int(datetime.now(timezone.utc).timestamp())
+        ),
+    )
+    context.result = _make_event_book([page])
+    context.result_event_any = event_any
+    context.error = None
+    if not hasattr(context, "events"):
+        context.events = []
+    context.events.append(page)
