@@ -1,13 +1,17 @@
 """Step definitions for raise-tracking arithmetic scenarios.
 
-These scenarios exercise pure arithmetic with no handlers involved. Each
-step simply reads/writes integer fields on ``context`` and computes
-``min_raise_to`` as ``current_bet + last_raise_increment``.
-
-Kept deliberately small so the arithmetic is easy to inspect.
+These scenarios exercise pure arithmetic helpers in
+``hand.agg.raise_tracking`` — no aggregate handlers. Steps call the
+production helpers directly so a mutation in either the helper or the
+step is caught by the cucumber run.
 """
 
 from behave import given, then, use_step_matcher, when
+from hand.agg.raise_tracking import (
+    apply_short_all_in,
+    reset_per_round,
+    short_all_in_initial,
+)
 
 use_step_matcher("re")
 
@@ -17,9 +21,20 @@ use_step_matcher("re")
 
 @given(r"current_bet is (?P<bet>-?\d+) and last_raise_increment is (?P<inc>-?\d+)")
 def step_given_state(context, bet, inc):
-    """Seed raise-tracking state on the context."""
+    """Seed raise-tracking state on the context.
+
+    Behave reuses the context object across scenarios within a feature
+    (only the fields listed in ``before_scenario`` are reset), so this
+    step also clears any short-all-in tracker carried from a prior
+    scenario — otherwise an EU-1140 chain would bleed into EU-1141.
+    """
     context.current_bet = int(bet)
     context.last_raise_increment = int(inc)
+    # behave's Context layers attributes per scope; setting to None at
+    # the current layer is the cleanest way to clear without tripping
+    # the "del across scope" guard rail.
+    context._short_tracker = None
+    context.action_reopened = False
 
 
 # --- When steps ---
@@ -72,11 +87,47 @@ def step_when_bet_new_round(context, amt):
     context.min_raise_to = context.current_bet + context.last_raise_increment
 
 
+def _apply_all_in_through_helper(context, amt: int) -> None:
+    """Drive the production ``apply_short_all_in`` helper.
+
+    Initialises a ``ShortAllInOutcome`` tracker on first call, then
+    advances it for each subsequent all-in. ``context.current_bet`` and
+    ``context.last_raise_increment`` are kept in sync with the tracker so
+    downstream assertions can read them through the existing accessors.
+    """
+    if not getattr(context, "_short_tracker", None):
+        context._short_tracker = short_all_in_initial(
+            context.current_bet, context.last_raise_increment
+        )
+    context._short_tracker = apply_short_all_in(context._short_tracker, amt)
+    context.current_bet = context._short_tracker.current_bet
+    context.last_raise_increment = context._short_tracker.last_raise_increment
+    context.action_reopened = context._short_tracker.action_reopened
+    context.all_in_to = amt
+    context.min_raise_to = context.current_bet + context.last_raise_increment
+
+
 @when(r"a player goes all-in to (?P<amt>-?\d+)")
 def step_when_all_in_to(context, amt):
-    """Record an all-in raise without necessarily updating the tracker."""
-    context.all_in_to = int(amt)
-    context.min_raise_to = context.current_bet + context.last_raise_increment
+    """Apply an all-in via the production short-all-in helper.
+
+    The helper distinguishes "short" all-ins (increment < last_raise) —
+    which accumulate but do not reopen action — from full-raise all-ins.
+    Cumulative shorts that reach the threshold reopen action per
+    TDA Rule 47A second sentence.
+    """
+    _apply_all_in_through_helper(context, int(amt))
+
+
+@when(r"another player goes all-in to (?P<amt>-?\d+)")
+def step_when_another_player_all_in_to(context, amt):
+    """Apply a subsequent all-in to the same chain (TDA Rule 47A).
+
+    Behaves identically to ``a player goes all-in to N`` — the helper
+    state persists across calls so cumulative-short logic accumulates
+    naturally.
+    """
+    _apply_all_in_through_helper(context, int(amt))
 
 
 # --- Then steps ---
@@ -115,6 +166,27 @@ def step_then_all_in_less_than_min_raise(context):
     assert (
         context.all_in_to < min_raise_to
     ), f"all-in {context.all_in_to} is not less than min_raise_to {min_raise_to}"
+
+
+@then(r"the bet is reopened for prior actors")
+def step_then_bet_reopened(context):
+    """Verify the cumulative-short tracker reports action_reopened=True.
+
+    Per TDA Rule 47A: when multiple short all-ins cumulatively reach a
+    full raise, betting reopens for players who already acted. The
+    ``apply_short_all_in`` helper sets ``action_reopened`` accordingly.
+    """
+    assert (
+        context.action_reopened is True
+    ), "Expected action to be reopened, but the tracker reports it is not"
+
+
+@then(r"the bet is not reopened for prior actors")
+def step_then_bet_not_reopened(context):
+    """Verify cumulative shorts below the threshold do NOT reopen action."""
+    assert (
+        context.action_reopened is False
+    ), "Expected action NOT to be reopened, but the tracker reports it is"
 
 
 # --- Per-street reset steps ---
@@ -167,9 +239,21 @@ def step_given_preflop_ended(context, inc, bb):
 
 @when(r"a new betting round begins")
 def step_when_new_betting_round(context):
-    """Reset per-street betting state. ``min_raise`` falls back to BB."""
-    context.current_bet = 0
-    context.last_raise_increment = context.big_blind
+    """Reset per-street betting state via the production helper.
+
+    Calls ``hand.agg.raise_tracking.reset_per_round`` so the cucumber
+    scenario exercises the same code path as the Hand aggregate's
+    ``apply_betting_round_complete`` applier. A divergence between the
+    cucumber tracker and the aggregate's reset behavior would surface
+    as a failing scenario here.
+    """
+    reset = reset_per_round(context.big_blind)
+    context.current_bet = reset.current_bet
+    context.last_raise_increment = reset.last_raise_increment
+    # Reset the short-all-in tracker — a fresh street has no in-flight
+    # short-all-in chain. Set to None (not del) to avoid behave's
+    # "del across scope" guard.
+    context._short_tracker = None
 
 
 class _ArithmeticRejection(Exception):

@@ -284,12 +284,16 @@ def step_given_cards_dealt_with_table(context, variant):
             all_cards.append(poker_types.Card(suit=suit, rank=rank))
 
     card_idx = 0
+    if not hasattr(context, "player_name_by_root"):
+        context.player_name_by_root = {}
     for row in context.table:
         row_dict = {
             context.table.headings[j]: row[j]
             for j in range(len(context.table.headings))
         }
-        player_root = uuid_for(row_dict.get("player_root", "player-1"))
+        name = row_dict.get("player_root", "player-1")
+        player_root = uuid_for(name)
+        context.player_name_by_root[player_root] = name
         position = int(row_dict.get("position", 0))
         stack = int(row_dict.get("stack", 500))
 
@@ -347,7 +351,14 @@ def step_given_blinds_posted(context, pot):
     seated = _seated_player_roots(context)
     p1_root = uuid_for("player-1")
     p2_root = uuid_for("player-2")
+    # Side-pot scenarios (EU-1100..) use cohort names like player-A/B/C
+    # and seed pot contributions via ActionTaken events — not blinds. Skip
+    # if neither default poster is seated.
     if p1_root not in seated and p2_root not in seated:
+        # Still record the pot total so name-agnostic odd-chip helpers
+        # (EU-1170) can read it; the scenario itself will provide the
+        # pot via blinds-posted-with-named-blinds or via ActionTaken.
+        context.pot_total = pot_int
         return
     if pot_int == 15:
         step_given_blind_posted(context, "player-1", "5")
@@ -357,6 +368,7 @@ def step_given_blinds_posted(context, pot):
         bb = pot_int - sb
         step_given_blind_posted(context, "player-1", str(sb))
         step_given_blind_posted(context, "player-2", str(bb))
+    context.pot_total = pot_int
 
 
 def _seated_player_roots(context) -> set:
@@ -374,6 +386,31 @@ def _seated_player_roots(context) -> set:
             any_msg.Unpack(evt)
             seated = {p.player_root for p in evt.players}
     return seated
+
+
+def _seated_player_names(context) -> list:
+    """Return seated player display names in seat-position order.
+
+    Recovers names from ``context.player_name_by_root`` if populated by
+    the dealing step; otherwise returns an empty list.
+    """
+    if not hasattr(context, "player_name_by_root"):
+        return []
+    # Order by seat position via the most recent CardsDealt event.
+    for page in reversed(getattr(context, "events", [])):
+        any_msg = getattr(page, "event", None)
+        if any_msg is None:
+            continue
+        if any_msg.Is(hand.CardsDealt.DESCRIPTOR):
+            evt = hand.CardsDealt()
+            any_msg.Unpack(evt)
+            ordered = sorted(evt.players, key=lambda p: p.position)
+            return [
+                context.player_name_by_root[p.player_root]
+                for p in ordered
+                if p.player_root in context.player_name_by_root
+            ]
+    return []
 
 
 @given(r'player "(?P<player_id>[^"]+)" folded')

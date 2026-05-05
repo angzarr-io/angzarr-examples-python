@@ -50,6 +50,7 @@ from ..errors import (
     WinnerNotEligibleForPot,
     WrongCardCountForPhase,
 )
+from ..raise_tracking import reset_per_round
 from .game_rules import get_game_rules
 
 
@@ -311,8 +312,12 @@ class Hand:
         for player in state.players.values():
             player.bet_this_round = 0
             player.has_acted = False
-        state.current_bet = 0
-        state.min_raise = state.big_blind
+        # Pure helper computes the reset values per TDA Rule 47A.
+        # Both this applier and the cucumber raise-tracking scenarios
+        # call into the same helper so they cannot drift.
+        reset = reset_per_round(state.big_blind)
+        state.current_bet = reset.current_bet
+        state.min_raise = reset.last_raise_increment
 
         for snap in event.stacks:
             for player in state.players.values():
