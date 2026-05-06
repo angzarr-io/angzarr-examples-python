@@ -80,6 +80,11 @@ class _TableState:
     # arms it for the next round (or ends H4H entirely on the bubble
     # break).  Empty string is the cash-game/non-H4H default.
     hand_for_hand_status: str = ""
+    # When in H4H, identifies the tournament the table is currently
+    # serving so per-table completion events can be routed back to the
+    # right tournament aggregate by saga-tournament-table-h4h. Empty
+    # bytes outside H4H or for non-tournament tables.
+    hand_for_hand_tournament_root: bytes = b""
 
 
 # Module-level registry of (event_type, applier_method_name) for replay.
@@ -222,9 +227,11 @@ class Table:
 
     @applies(table_proto.TableHandForHandWaiting)
     def apply_table_h4h_waiting(
-        self, state: _TableState, _event: table_proto.TableHandForHandWaiting
+        self, state: _TableState, event: table_proto.TableHandForHandWaiting
     ) -> None:
         state.hand_for_hand_status = "WAITING"
+        if event.tournament_root:
+            state.hand_for_hand_tournament_root = event.tournament_root
 
     @applies(table_proto.TableHandForHandRoundComplete)
     def apply_table_h4h_round_complete(
@@ -239,6 +246,7 @@ class Table:
         self, state: _TableState, _event: table_proto.TableHandForHandEnded
     ) -> None:
         state.hand_for_hand_status = ""
+        state.hand_for_hand_tournament_root = b""
 
     @applies(table_proto.ChipsAdded)
     def apply_chips_added(
@@ -913,15 +921,19 @@ class Table:
     @handles(table_proto.EnterTableHandForHand)
     def handle_enter_table_h4h(
         self,
-        _cmd: table_proto.EnterTableHandForHand,
+        cmd: table_proto.EnterTableHandForHand,
         state: _TableState | None = None,
         seq: int | None = None,
     ) -> table_proto.TableHandForHandWaiting:
         """Park the table at WAITING for the current synchronised round.
 
-        Idempotent: re-entering when already WAITING just re-emits (the
-        operator/saga can replay safely). Re-entering after COMPLETE
-        returns to WAITING — the operator/saga uses
+        ``cmd.tournament_root`` is the tournament this H4H run belongs
+        to; it rides on the emitted event so the apply can stash it on
+        state for routing the eventual completion event back via
+        saga-tournament-table-h4h.
+
+        Idempotent: re-entering when already WAITING just re-emits.
+        Re-entering after COMPLETE returns to WAITING — the saga uses
         ``EndTableHandForHand`` first when the previous-round complete
         state needs explicit clearing.
         """
@@ -930,7 +942,10 @@ class Table:
         try:
             if not self.exists:
                 raise TableNotFound()
-            event = table_proto.TableHandForHandWaiting(entered_at=now())
+            event = table_proto.TableHandForHandWaiting(
+                entered_at=now(),
+                tournament_root=cmd.tournament_root,
+            )
             if not router_mode:
                 self._emit(event)
             return event
@@ -959,6 +974,7 @@ class Table:
             event = table_proto.TableHandForHandRoundComplete(
                 hand_root=cmd.hand_root,
                 completed_at=now(),
+                tournament_root=self._state.hand_for_hand_tournament_root,
             )
             if not router_mode:
                 self._emit(event)

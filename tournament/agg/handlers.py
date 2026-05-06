@@ -76,6 +76,10 @@ class _TournamentState:
     # Hand-for-hand bookkeeping (TDA Rule 12).
     hand_for_hand: bool = False
     hand_for_hand_pending_tables: set = field(default_factory=set)
+    # Active table set for the current bubble — kept across rounds so
+    # the apply_hand_for_hand_round_complete handler can reseed
+    # hand_for_hand_pending_tables from it. Cleared on HandForHandEnded.
+    hand_for_hand_active_tables: set = field(default_factory=set)
     hand_for_hand_round: int = 0
     # TDA Rule 71D / WSOP Rule 114 — total chips in play tracked
     # explicitly so DQ/no-show removals are observable.
@@ -1092,6 +1096,12 @@ class Tournament:
         """Switch the tournament into hand-for-hand mode. Tables must
         complete each subsequent hand simultaneously until the next
         elimination ends bubble play.
+
+        ``cmd.active_table_roots`` lists the tables expected to play
+        the synchronised round; the value rides on the emitted event
+        so saga-tournament-table-h4h can fan out
+        ``EnterTableHandForHand`` to each table without a separate
+        registry lookup.
         """
         router_mode = state is not None
         saved = self._router_bind(state) if router_mode else None
@@ -1100,7 +1110,10 @@ class Tournament:
                 raise TournamentNotFound()
             if not self.is_running:
                 raise TournamentNotRunning()
-            event = tournament.HandForHandStarted(started_at=now())
+            event = tournament.HandForHandStarted(
+                started_at=now(),
+                active_table_roots=list(cmd.active_table_roots),
+            )
             if not router_mode:
                 self._emit(event)
             return event
@@ -1110,11 +1123,53 @@ class Tournament:
 
     @applies(tournament.HandForHandStarted)
     def apply_hand_for_hand_started(
-        self, state: _TournamentState, _event: tournament.HandForHandStarted
+        self, state: _TournamentState, event: tournament.HandForHandStarted
     ) -> None:
         state.hand_for_hand = True
         state.hand_for_hand_round = 0
-        state.hand_for_hand_pending_tables = set()
+        # Seed the per-round pending set from the event. The saga (or
+        # operator) calls RecordTableHandComplete(table_root) once per
+        # table as their synchronised hand finishes; when the set
+        # empties, the tournament emits HandForHandRoundComplete and
+        # the apply re-seeds for the next round.
+        state.hand_for_hand_pending_tables = set(event.active_table_roots)
+        state.hand_for_hand_active_tables = set(event.active_table_roots)
+
+    @handles(tournament.RecordTableHandComplete)
+    def handle_record_table_hand_complete(
+        self,
+        cmd: tournament.RecordTableHandComplete,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.HandForHandRoundComplete | None:
+        """Saga signal that one specific table's synchronised H4H hand
+        finished. Removes the table from the pending set; once the set
+        empties (every active table reported in) the tournament emits
+        ``HandForHandRoundComplete`` so the saga can re-arm every
+        table for the next synchronised round.
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TournamentNotFound()
+            if not self.is_running:
+                raise TournamentNotRunning()
+            self._state.hand_for_hand_pending_tables.discard(cmd.table_root)
+            if self._state.hand_for_hand_pending_tables:
+                # Still waiting on other tables — no event to emit.
+                return None
+            next_round = self._state.hand_for_hand_round + 1
+            event = tournament.HandForHandRoundComplete(
+                round_number=next_round,
+                completed_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
 
     @handles(tournament.RecordHandForHandRoundComplete)
     def handle_record_h4h_round_complete(
@@ -1152,7 +1207,9 @@ class Tournament:
         self, state: _TournamentState, event: tournament.HandForHandRoundComplete
     ) -> None:
         state.hand_for_hand_round = event.round_number
-        state.hand_for_hand_pending_tables = set()
+        # Re-seed the pending set from the active tables so the next
+        # synchronised round can be tracked independently.
+        state.hand_for_hand_pending_tables = set(state.hand_for_hand_active_tables)
 
     @applies(tournament.HandForHandEnded)
     def apply_hand_for_hand_ended(
@@ -1160,6 +1217,7 @@ class Tournament:
     ) -> None:
         state.hand_for_hand = False
         state.hand_for_hand_pending_tables = set()
+        state.hand_for_hand_active_tables = set()
 
     @handles(tournament.RecordHandForHandHand)
     def handle_record_h4h_hand(

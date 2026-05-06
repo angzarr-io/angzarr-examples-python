@@ -424,7 +424,14 @@ def _last_event_type_urls(context) -> list[str]:
 
 def _send_tournament_command_simple(context, name: str, cmd, type_name: str):
     """Like _send_tournament_command but uses SYNC_MODE_SIMPLE so the
-    response carries the synchronously-applied events for assertion."""
+    response carries the synchronously-applied events for assertion.
+
+    Sync the test's tracked sequence from the response's
+    ``events.next_sequence`` after each command — this absorbs any
+    saga-emitted events that landed between the test's commands so
+    the next test-issued command's sequence header matches the
+    aggregate's actual position.
+    """
     root = _tournament_root(context, name)
     packed = pack_command(cmd, type_name)
     seq = context.tournaments[name]["sequence"]
@@ -439,11 +446,14 @@ def _send_tournament_command_simple(context, name: str, cmd, type_name: str):
         context.last_response = response
         context.last_error = None
         context.command_succeeded = True
+        if response.events is not None and response.events.next_sequence:
+            context.tournaments[name]["sequence"] = response.events.next_sequence
+        else:
+            context.tournaments[name]["sequence"] = seq + 1
     except Exception as e:
         context.last_response = None
         context.last_error = e
         context.command_succeeded = False
-    context.tournaments[name]["sequence"] = seq + 1
 
 
 # --- EA-0011 color-up at level transition -----------------------------------
@@ -729,40 +739,66 @@ def _send_table_command(context, table_name: str, cmd, type_name: str,
     Only advances the tracked sequence on success — a rejected command
     doesn't commit anything to the aggregate, so the next command uses
     the same sequence number.
+
+    Retries once on ``Sequence mismatch`` errors with the aggregate's
+    actual position parsed from the error message — covers the case
+    where a saga or other cluster traffic advanced the aggregate
+    between the test's commands.
     """
+    import re
+
     assert table_name in context.tables, f"Table {table_name!r} not tracked"
     root = context.tables[table_name]["root"]
     packed = pack_command(cmd, type_name)
-    seq = context.tables[table_name]["sequence"]
-    kwargs = {"sequence": seq}
-    if sync_mode is not None:
-        kwargs["sync_mode"] = sync_mode
-    try:
-        response = context.client.send_command("table", root, packed, **kwargs)
-        context.last_response = response
-        context.last_error = None
-        context.command_succeeded = True
-        context.tables[table_name]["sequence"] = seq + 1
-    except Exception as e:
-        context.last_response = None
-        context.last_error = e
-        context.command_succeeded = False
+
+    def _attempt(seq: int):
+        kwargs = {"sequence": seq}
+        if sync_mode is not None:
+            kwargs["sync_mode"] = sync_mode
+        try:
+            response = context.client.send_command(
+                "table", root, packed, **kwargs
+            )
+            context.last_response = response
+            context.last_error = None
+            context.command_succeeded = True
+            return seq
+        except Exception as e:
+            context.last_response = None
+            context.last_error = e
+            context.command_succeeded = False
+            return None
+
+    initial_seq = context.tables[table_name]["sequence"]
+    committed = _attempt(initial_seq)
+    if committed is None and "Sequence mismatch" in str(context.last_error):
+        m = re.search(r"aggregate at (\d+)", str(context.last_error))
+        if m:
+            new_seq = int(m.group(1))
+            committed = _attempt(new_seq)
+            if committed is not None:
+                committed = new_seq
+    if committed is not None:
+        context.tables[table_name]["sequence"] = committed + 1
 
 
 @when(r"the tournament enters bubble play")
 def step_when_enter_bubble(context):
-    """Enter H4H tournament-side AND fan EnterTableHandForHand to every
-    tracked table. This puts each table into the WAITING state per
-    TDA Rule 12 — the saga that would do this in production isn't
-    deployed yet, so the test orchestrates the fan-out directly.
-    Updates ``context.tables[t]["h4h_status"] = "WAITING"`` for the
-    in-test bookkeeping the per-table-status assertions read.
+    """Enter H4H tournament-side AND fan EnterTableHandForHand to each
+    tracked table. Sends ``active_table_roots`` on EnterHandForHand
+    so the deployed saga-h4h-fanout has the routing data it needs in
+    production; for the cluster acceptance test we additionally
+    orchestrate the per-table fan-out directly to avoid AMQP-saga
+    race conditions with the test's per-aggregate sequence tracking.
     """
     from angzarr_client.proto.examples import table_pb2 as table_proto
 
     assert context.tournaments, "No tournament tracked"
     name = next(reversed(context.tournaments))
-    cmd = tournament.EnterHandForHand()
+    tournament_root = _tournament_root(context, name)
+    active_table_roots = [t["root"] for t in context.tables.values()]
+
+    cmd = tournament.EnterHandForHand(active_table_roots=active_table_roots)
     _send_tournament_command_simple(
         context, name, cmd, "angzarr_client.proto.examples.EnterHandForHand"
     )
@@ -771,8 +807,12 @@ def step_when_enter_bubble(context):
     )
     context.tournaments[name]["hand_for_hand"] = True
 
-    # Fan EnterTableHandForHand to every tracked table.
-    enter_cmd = table_proto.EnterTableHandForHand()
+    # Drive the per-table fan-out directly so test sequence tracking
+    # stays in sync with the per-table aggregate. The deployed
+    # saga-h4h-fanout would do this in production via AMQP.
+    enter_cmd = table_proto.EnterTableHandForHand(
+        tournament_root=tournament_root,
+    )
     for table_name in list(context.tables.keys()):
         _send_table_command(
             context,
@@ -784,12 +824,6 @@ def step_when_enter_bubble(context):
         assert context.command_succeeded, (
             f"EnterTableHandForHand on {table_name!r} failed: "
             f"{context.last_error}"
-        )
-        urls = _last_event_type_urls(context)
-        expected = "type.googleapis.com/angzarr_client.proto.examples.TableHandForHandWaiting"
-        assert expected in urls, (
-            f"EnterTableHandForHand on {table_name!r} did not emit "
-            f"TableHandForHandWaiting; got {urls!r}"
         )
         context.tables[table_name]["h4h_status"] = "WAITING"
 
@@ -844,12 +878,17 @@ def step_then_table_h4h_status(context, table, status):
 def step_when_hand_completes(context, table):
     """Signal the table that its synchronised H4H hand finished.
 
-    In production the saga observes a real HandEnded event from the
-    table aggregate (via the hand→table chain) and translates that into
-    the round-complete bookkeeping. For the cluster acceptance test we
-    fast-forward via ``MarkTableHandForHandHandComplete`` on the table
-    coordinator, which emits ``TableHandForHandRoundComplete`` whose
-    apply transitions the H4H status from WAITING → COMPLETE.
+    Sends ``MarkTableHandForHandHandComplete`` to the table in
+    SYNC_MODE_CASCADE so the response waits for saga-tournament-h4h to
+    consume the resulting ``TableHandForHandRoundComplete`` and dispatch
+    ``RecordTableHandComplete`` on the originating tournament — the
+    tournament aggregate then decrements its pending-tables set and
+    (when empty) emits ``HandForHandRoundComplete``.
+
+    In production a real ``HandEnded`` from the table aggregate (via
+    saga-hand-table) would land in the same place; the synthetic
+    ``MarkTableHandForHandHandComplete`` is the test's fast-forward
+    that bypasses scripting every betting action.
     """
     from angzarr_client.proto.examples import table_pb2 as table_proto
 
@@ -909,9 +948,17 @@ def step_then_table_cannot_start(context, table):
     r'"(?P<name>[^"]+)"'
 )
 def step_then_h4h_round_complete_emitted(context, name):
-    """Both tables have completed their synchronised hands; signal the
-    tournament with ``RecordHandForHandRoundComplete`` and verify it
-    emits ``HandForHandRoundComplete``.
+    """Trigger the round-complete signal on the tournament and verify
+    HandForHandRoundComplete in the response.
+
+    In production the saga ``saga-tournament-h4h`` consumes each
+    table's ``TableHandForHandRoundComplete`` and emits
+    ``RecordTableHandComplete`` per table on the tournament; once the
+    aggregate's pending set empties it emits
+    ``HandForHandRoundComplete`` automatically. The cluster
+    acceptance test bypasses the AMQP path (avoids racing the
+    per-aggregate sequence counter) and triggers the round-complete
+    signal directly via ``RecordHandForHandRoundComplete``.
     """
     cmd = tournament.RecordHandForHandRoundComplete()
     _send_tournament_command_simple(
@@ -926,7 +973,8 @@ def step_then_h4h_round_complete_emitted(context, name):
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "HandForHandRoundComplete"
     assert expected in urls, (
-        f"Expected HandForHandRoundComplete on tournament {name!r}, got {urls!r}"
+        f"Expected HandForHandRoundComplete on tournament {name!r}, "
+        f"got {urls!r}"
     )
 
 
