@@ -137,6 +137,16 @@ class HandAlreadyInProgress(StateAlreadyEntered):
 
 
 @dataclass
+class TableHandForHandRoundComplete(StateAlreadyEntered):
+    CODE = "TABLE_HAND_FOR_HAND_ROUND_COMPLETE"
+    TEMPLATE = (
+        "Table has finished its synchronised hand-for-hand hand and is "
+        "waiting for the round-complete signal before the next hand "
+        "(TDA Rule 12)"
+    )
+
+
+@dataclass
 class NotEnoughPlayersToStartHand(InsufficientCapacity):
     CODE = "NOT_ENOUGH_PLAYERS_TO_START_HAND"
     TEMPLATE = (
@@ -188,6 +198,7 @@ __all__ = [
     "PlayerNotSeated",
     "CannotLeaveDuringHand",
     "HandAlreadyInProgress",
+    "TableHandForHandRoundComplete",
     "NotEnoughPlayersToStartHand",
     "NoHandInProgress",
     "HandRootMismatch",

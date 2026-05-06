@@ -1116,6 +1116,37 @@ class Tournament:
         state.hand_for_hand_round = 0
         state.hand_for_hand_pending_tables = set()
 
+    @handles(tournament.RecordHandForHandRoundComplete)
+    def handle_record_h4h_round_complete(
+        self,
+        _cmd: tournament.RecordHandForHandRoundComplete,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.HandForHandRoundComplete:
+        """Operator/saga signal that every active H4H table finished
+        the current synchronised hand. Emits ``HandForHandRoundComplete``
+        with the auto-incremented ``round_number`` so the
+        operator/saga can re-arm each table for the next round.
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TournamentNotFound()
+            if not self.is_running:
+                raise TournamentNotRunning()
+            next_round = self._state.hand_for_hand_round + 1
+            event = tournament.HandForHandRoundComplete(
+                round_number=next_round,
+                completed_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
     @applies(tournament.HandForHandRoundComplete)
     def apply_hand_for_hand_round_complete(
         self, state: _TournamentState, event: tournament.HandForHandRoundComplete

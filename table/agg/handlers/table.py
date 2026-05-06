@@ -32,6 +32,7 @@ from table.agg.errors import (
     SeatPositionMismatch,
     SmallBlindMustBePositive,
     TableAlreadyExists,
+    TableHandForHandRoundComplete,
     TableIsFull,
     TableNameRequired,
     TableNotFound,
@@ -72,6 +73,13 @@ class _TableState:
     hand_count: int = 0
     current_hand_root: bytes = b""
     status: str = ""
+    # TDA Rule 12 — hand-for-hand at the bubble. Per-table status tracks
+    # the table's slot in the synchronised round.  "WAITING" means the
+    # table has been told to play one H4H hand; "COMPLETE" means that
+    # hand finished and the table is parked until the operator/saga
+    # arms it for the next round (or ends H4H entirely on the bubble
+    # break).  Empty string is the cash-game/non-H4H default.
+    hand_for_hand_status: str = ""
 
 
 # Module-level registry of (event_type, applier_method_name) for replay.
@@ -206,6 +214,31 @@ class Table:
                 if seat.player_root == player_root:
                     seat.stack += delta
                     break
+        # TDA Rule 12 — if this hand was the table's H4H synchronised
+        # hand, the completion parks the table at COMPLETE until the
+        # operator/saga arms it for the next round.
+        if state.hand_for_hand_status == "WAITING":
+            state.hand_for_hand_status = "COMPLETE"
+
+    @applies(table_proto.TableHandForHandWaiting)
+    def apply_table_h4h_waiting(
+        self, state: _TableState, _event: table_proto.TableHandForHandWaiting
+    ) -> None:
+        state.hand_for_hand_status = "WAITING"
+
+    @applies(table_proto.TableHandForHandRoundComplete)
+    def apply_table_h4h_round_complete(
+        self,
+        state: _TableState,
+        _event: table_proto.TableHandForHandRoundComplete,
+    ) -> None:
+        state.hand_for_hand_status = "COMPLETE"
+
+    @applies(table_proto.TableHandForHandEnded)
+    def apply_table_h4h_ended(
+        self, state: _TableState, _event: table_proto.TableHandForHandEnded
+    ) -> None:
+        state.hand_for_hand_status = ""
 
     @applies(table_proto.ChipsAdded)
     def apply_chips_added(
@@ -617,6 +650,12 @@ class Table:
                 raise TableNotFound()
             if self.status == "in_hand":
                 raise HandAlreadyInProgress()
+            # TDA Rule 12 — once a table has finished its synchronised
+            # H4H hand it must wait for the round-complete signal before
+            # the next hand can begin. The operator/saga issues
+            # EndTableHandForHand to clear the COMPLETE state.
+            if self._state.hand_for_hand_status == "COMPLETE":
+                raise TableHandForHandRoundComplete()
             if self.active_player_count < 2:
                 raise NotEnoughPlayersToStartHand(
                     requested=2,
@@ -864,6 +903,89 @@ class Table:
                 new_stack=seat.stack + cmd.amount,
                 added_at=now(),
             )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(table_proto.EnterTableHandForHand)
+    def handle_enter_table_h4h(
+        self,
+        _cmd: table_proto.EnterTableHandForHand,
+        state: _TableState | None = None,
+        seq: int | None = None,
+    ) -> table_proto.TableHandForHandWaiting:
+        """Park the table at WAITING for the current synchronised round.
+
+        Idempotent: re-entering when already WAITING just re-emits (the
+        operator/saga can replay safely). Re-entering after COMPLETE
+        returns to WAITING — the operator/saga uses
+        ``EndTableHandForHand`` first when the previous-round complete
+        state needs explicit clearing.
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TableNotFound()
+            event = table_proto.TableHandForHandWaiting(entered_at=now())
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(table_proto.MarkTableHandForHandHandComplete)
+    def handle_mark_table_h4h_complete(
+        self,
+        cmd: table_proto.MarkTableHandForHandHandComplete,
+        state: _TableState | None = None,
+        seq: int | None = None,
+    ) -> table_proto.TableHandForHandRoundComplete:
+        """Operator/saga signal that this table's synchronised H4H hand
+        finished. Emits ``TableHandForHandRoundComplete`` whose apply
+        flips ``hand_for_hand_status`` to COMPLETE — same end state as
+        applying a real ``HandEnded``, which is what the real saga path
+        does once it observes a HandEnded from the table aggregate.
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TableNotFound()
+            event = table_proto.TableHandForHandRoundComplete(
+                hand_root=cmd.hand_root,
+                completed_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(table_proto.EndTableHandForHand)
+    def handle_end_table_h4h(
+        self,
+        _cmd: table_proto.EndTableHandForHand,
+        state: _TableState | None = None,
+        seq: int | None = None,
+    ) -> table_proto.TableHandForHandEnded:
+        """Clear the table's H4H status — back to normal cash-game pace.
+
+        Issued either between H4H rounds (re-arm with
+        ``EnterTableHandForHand`` immediately after) or once after
+        ``HandForHandEnded`` on the tournament when the bubble breaks.
+        """
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TableNotFound()
+            event = table_proto.TableHandForHandEnded(ended_at=now())
             if not router_mode:
                 self._emit(event)
             return event
