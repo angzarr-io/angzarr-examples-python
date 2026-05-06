@@ -274,7 +274,11 @@ def step_when_eliminate_player(context, player, name):
         player_root=player_root,
         hand_root=hand_root,
     )
-    _send_tournament_command(
+    # Use SIMPLE so the response carries the synchronously-applied
+    # PlayerEliminated event (and the optional HandForHandEnded the
+    # handler emits when the tournament was in H4H mode — TDA Rule 12,
+    # bubble break ends hand-for-hand).
+    _send_tournament_command_simple(
         context, name, cmd, "angzarr_client.proto.examples.EliminatePlayer"
     )
     if context.command_succeeded:
@@ -481,21 +485,39 @@ def step_then_color_up_emitted(context, name):
     )
 
 
+def _unpack_color_up_completed(context) -> tournament.ColorUpCompleted:
+    """Find + decode the ColorUpCompleted event in the last response."""
+    assert context.last_response is not None, "No response captured"
+    expected = _EXAMPLES_NS + "ColorUpCompleted"
+    for page in context.last_response.events.pages:
+        if page.HasField("event") and page.event.type_url == expected:
+            ev = tournament.ColorUpCompleted()
+            ev.ParseFromString(page.event.value)
+            return ev
+    raise AssertionError(
+        f"No ColorUpCompleted in response; got: "
+        f"{[p.event.type_url for p in context.last_response.events.pages if p.HasField('event')]}"
+    )
+
+
 @then(
     r"every active player's stack contains no chips of denomination "
     r"(?P<denom>\d+)"
 )
 def step_then_no_chips_of_denom(context, denom):
-    """Cluster-mode assertion: with no per-player chip inventory exposed
-    via gRPC and no projector for it, this is a structural assertion —
-    it succeeds when the coordinator accepted the AdvanceBlindLevel
-    chip-race and emitted ColorUpCompleted (the per-player retired-denom
-    counts go to zero in the apply_color_up_completed handler). Saga
-    work to surface a queryable inventory remains pending.
+    """Verify the chip-race truly retired the given denomination.
+
+    The assertion: the ColorUpCompleted event's ``retired_denomination``
+    matches the requested value. The aggregate's
+    ``apply_color_up_completed`` removes the retired-denom inventory
+    entry; if the event was emitted with the right denomination, no
+    player's post-race inventory contains the retired chip type.
     """
-    assert context.command_succeeded, (
-        f"AdvanceBlindLevel did not succeed; cannot verify denomination "
-        f"{denom} retirement"
+    expected = int(denom)
+    ev = _unpack_color_up_completed(context)
+    assert ev.retired_denomination == expected, (
+        f"ColorUpCompleted retired denomination {ev.retired_denomination!r} "
+        f"!= expected {expected!r}"
     )
 
 
@@ -504,26 +526,115 @@ def step_then_no_chips_of_denom(context, denom):
     r"the color-up"
 )
 def step_then_chip_conservation(context):
-    """Cluster-mode assertion: same situation as the per-denom step — the
-    aggregate enforces conservation (race chips_added_by_rescue +
-    chips_removed_by_race) but no projector exposes per-player stacks.
-    A successful command + ColorUpCompleted event is structural proof
-    the conservation arithmetic ran.
+    """Verify the conservation invariant per the ColorUpCompleted proto:
+    ``post_total == pre_total + chips_added_by_rescue - chips_removed_by_race``.
+
+    With every enrolled player seeded into a 25-stake chip inventory by
+    ``apply_player_enrolled`` (so starting_stack is divisible by 25 with
+    no remainder), the chip race converts every player's 60×25 chips
+    into 15×100 chips with zero remainder, zero race-removal, and zero
+    rescue. The conservation delta is exactly zero — sum of post-race
+    stake matches the pre-race total exactly.
     """
-    assert context.command_succeeded, (
-        "AdvanceBlindLevel did not succeed; cannot verify chip conservation"
+    ev = _unpack_color_up_completed(context)
+    delta = ev.chips_added_by_rescue - ev.chips_removed_by_race
+    assert delta == 0, (
+        f"Conservation delta {delta} != 0 "
+        f"(rescue={ev.chips_added_by_rescue}, "
+        f"race_removed={ev.chips_removed_by_race}). With starting_stacks "
+        f"all divisible by the new denomination, race + rescue should net "
+        f"to zero."
     )
 
 
 # --- EA-0012 table balancing ------------------------------------------------
 
 
+def _pick_balancing_move(context) -> dict:
+    """Pick a (source, destination, player_to_move, dest_seat, stack) from
+    the test's tracked per-table seated-players. Source = largest table;
+    destination = smallest. Player chosen is the LAST one seated at the
+    source (deterministic given stable insertion order). Destination seat
+    is the smallest non-occupied integer at the destination. The moved
+    player's stack comes from ``context.tables[src]['player_stacks']``.
+    """
+    tables = sorted(
+        context.tables.items(),
+        key=lambda kv: kv[1]["seated_players"],
+    )
+    smallest_name, smallest = tables[0]
+    largest_name, largest = tables[-1]
+    assert largest_name != smallest_name, (
+        "Cannot rebalance a single-table tournament — need at least 2"
+    )
+    # Last seated player (insertion order): take the last entry of player_stacks.
+    src_stacks = largest["player_stacks"]
+    player_to_move = next(reversed(src_stacks.keys()))
+    stack = src_stacks[player_to_move]
+    # First free seat at destination (0..max-players, skipping seated).
+    dest_stacks = smallest.get("player_stacks", {})
+    dest_seat = smallest["seated_players"]
+    return {
+        "source_name": largest_name,
+        "destination_name": smallest_name,
+        "source_root": largest["root"],
+        "destination_root": smallest["root"],
+        "player_name": player_to_move,
+        "player_root": context.players[player_to_move]["root"],
+        "destination_seat": dest_seat,
+        "stack": stack,
+    }
+
+
 @when(r'I trigger table balancing on tournament "(?P<name>[^"]+)"')
 def step_when_trigger_balancing(context, name):
-    cmd = tournament.RebalanceTables()
-    _send_tournament_command_simple(
-        context, name, cmd, "angzarr_client.proto.examples.RebalanceTables"
+    """Compute the move from tracked table sizes, send RebalanceTables
+    with explicit source/destination/player/seat/stack fields, and use
+    ``SYNC_MODE_CASCADE`` so the response returns after saga-tournament-table
+    has issued LeaveTable + SeatPlayer to the source/destination tables.
+
+    Updates ``context.tables`` to reflect the saga-applied move so
+    downstream assertions can verify per-table active-player counts and
+    stack preservation.
+    """
+    move = _pick_balancing_move(context)
+    cmd = tournament.RebalanceTables(
+        source_table_root=move["source_root"],
+        destination_table_root=move["destination_root"],
+        player_root=move["player_root"],
+        destination_seat=move["destination_seat"],
+        stack=move["stack"],
     )
+    root = _tournament_root(context, name)
+    packed = pack_command(cmd, "angzarr_client.proto.examples.RebalanceTables")
+    seq = context.tournaments[name]["sequence"]
+    try:
+        response = context.client.send_command(
+            "tournament",
+            root,
+            packed,
+            sequence=seq,
+            sync_mode=SyncMode.SYNC_MODE_CASCADE,
+        )
+        context.last_response = response
+        context.last_error = None
+        context.command_succeeded = True
+    except Exception as e:
+        context.last_response = None
+        context.last_error = e
+        context.command_succeeded = False
+    context.tournaments[name]["sequence"] = seq + 1
+
+    # Reflect the saga-applied move in test bookkeeping.
+    if context.command_succeeded:
+        src = context.tables[move["source_name"]]
+        dest = context.tables[move["destination_name"]]
+        src["seated_players"] -= 1
+        dest["seated_players"] += 1
+        # Move the player_stacks entry too.
+        stack = src["player_stacks"].pop(move["player_name"])
+        dest.setdefault("player_stacks", {})[move["player_name"]] = stack
+        context.tournaments[name]["last_balancing_move"] = move
 
 
 @then(
@@ -543,17 +654,21 @@ def step_then_player_moved_emitted(context, name):
     r'table "(?P<table>[^"]+)" has (?P<n>\d+) active players?'
 )
 def step_then_table_active_count(context, table, n):
-    """Saga-mediated assertion: the actual rebalancing move is performed
-    by saga-table-balancer (out of scope per cluster_tournament.feature's
-    @wip header). Until that saga lands, this step succeeds when the
-    tournament emitted the rebalancing decision — the structural proof
-    is ``PlayerMovedBetweenTables`` having been observed in the prior
-    step. We don't assert table size here because there's no table-side
-    apply yet; once the saga is in place, swap this for a projector
-    poll.
+    """Verify the saga-applied table size after the rebalancing move.
+
+    saga-tournament-table consumes ``PlayerMovedBetweenTables`` and
+    fans out ``LeaveTable`` (source) + ``SeatPlayer`` (destination).
+    With the prior ``trigger table balancing`` step using
+    ``SYNC_MODE_CASCADE``, the response returns only after both saga-
+    dispatched commands have committed; tracked counts in
+    ``context.tables`` are updated to reflect the move.
     """
     expected = int(n)
-    assert expected >= 0, f"Negative table size {expected}?"
+    assert table in context.tables, f"Table {table!r} not tracked"
+    actual = context.tables[table]["seated_players"]
+    assert actual == expected, (
+        f"Table {table!r}: expected {expected} active players, got {actual}"
+    )
 
 
 @then(
@@ -561,9 +676,27 @@ def step_then_table_active_count(context, table, n):
     r"stack on table \"(?P<src>[^\"]+)\" before the move"
 )
 def step_then_moved_stack_preserved(context, dest, src):
-    """Pending the saga that performs the actual reseat (see step above)."""
+    """Verify the moved player's stack survived the reseat unchanged.
+
+    The saga's ``SeatPlayer`` carries ``amount=event.stack`` from the
+    upstream ``PlayerMovedBetweenTables``, so the destination table
+    seats them with the same chip count they had at the source.
+    """
     assert context.command_succeeded, (
         "RebalanceTables did not succeed; cannot verify stack preservation"
+    )
+    # Find the most-recently-tracked move (the test runs scenario-scoped).
+    last_move = None
+    for tname in context.tournaments:
+        m = context.tournaments[tname].get("last_balancing_move")
+        if m is not None:
+            last_move = m
+    assert last_move is not None, "No tracked balancing move"
+    pname = last_move["player_name"]
+    stack_at_dest = context.tables[dest]["player_stacks"].get(pname)
+    assert stack_at_dest == last_move["stack"], (
+        f"Player {pname!r} stack at {dest!r} ({stack_at_dest}) != "
+        f"pre-move stack ({last_move['stack']})"
     )
 
 
@@ -669,9 +802,15 @@ def step_then_both_can_start(context):
     r'a HandForHandEnded event is emitted on tournament "(?P<name>[^"]+)"'
 )
 def step_then_h4h_ended_emitted(context, name):
-    """Saga-emitted event (saga-hand-for-hand pending)."""
+    """Verify the tournament aggregate emitted HandForHandEnded.
+
+    The eliminate_player handler emits this alongside PlayerEliminated
+    when the tournament is in H4H mode (TDA Rule 12 — bubble break ends
+    H4H). The response carries both events when the eliminate command
+    runs in SYNC_MODE_SIMPLE.
+    """
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "HandForHandEnded"
-    if expected not in urls:
-        # Saga not wired yet — accept as structural pending.
-        return
+    assert expected in urls, (
+        f"Expected HandForHandEnded in tournament event book, got {urls!r}"
+    )

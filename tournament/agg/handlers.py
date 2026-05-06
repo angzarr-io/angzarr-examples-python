@@ -200,6 +200,18 @@ class Tournament:
         )
         state.total_prize_pool += event.fee_paid
         state.players_remaining = len(state.registered_players)
+        # Default chip inventory: starting_stack denominated entirely in
+        # 25-stake chips. Lets the chip-race math (TDA Rule 24A, Batch 9)
+        # have something to convert when AdvanceBlindLevel arrives with
+        # ``retire_denomination=25, new_denomination=100`` (the EA-0011
+        # cluster scenario). Tests that need a different denomination
+        # breakdown can still overwrite this entry directly via
+        # ``state.player_chip_inventories`` (see Batch 9 unit step defs).
+        if player_root_hex not in state.player_chip_inventories:
+            state.player_chip_inventories[player_root_hex] = {
+                25: event.starting_stack // 25,
+            }
+            state.total_chips_in_play += event.starting_stack
 
     @applies(tournament.TournamentEnrollmentRejected)
     def apply_enrollment_rejected(
@@ -742,8 +754,21 @@ class Tournament:
                 payout=0,
                 eliminated_at=now(),
             )
+            # TDA Rule 12 — bubble break ends hand-for-hand play. The
+            # next elimination after entering H4H is by definition the
+            # bubble; emit HandForHandEnded alongside the elimination so
+            # downstream tables can resume normal-pace hands.
+            extras = []
+            if self._state.hand_for_hand:
+                extras.append(
+                    tournament.HandForHandEnded(ended_at=now())
+                )
             if not router_mode:
                 self._emit(event)
+                for extra in extras:
+                    self._emit(extra)
+            if extras:
+                return [event, *extras]
             return event
         finally:
             if router_mode:
@@ -1030,12 +1055,16 @@ class Tournament:
                 raise TournamentNotFound()
             if not self.is_running:
                 raise TournamentNotRunning()
+            # Echo cmd fields onto the event so saga-tournament-table can
+            # fan out the actual move (LeaveTable / SeatPlayer). When the
+            # operator omits the fields we emit the legacy empty-rooted
+            # form preserved for pre-batch-16 unit tests.
             event = tournament.PlayerMovedBetweenTables(
-                player_root=b"",
-                source_table_root=b"",
-                destination_table_root=b"",
-                destination_seat=0,
-                stack=0,
+                player_root=cmd.player_root,
+                source_table_root=cmd.source_table_root,
+                destination_table_root=cmd.destination_table_root,
+                destination_seat=cmd.destination_seat,
+                stack=cmd.stack,
                 moved_at=now(),
             )
             if not router_mode:

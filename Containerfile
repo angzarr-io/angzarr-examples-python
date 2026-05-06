@@ -204,6 +204,20 @@ ENV PATH=/app/.venv/bin:$PATH \
 EXPOSE 50414
 CMD ["python", "/app/hand/saga-player/main.py"]
 
+# tournament → table: PlayerMovedBetweenTables (tournament) → LeaveTable
+# + SeatPlayer (table). Performs the actual reseat after the tournament
+# aggregate decides on a balancing move (TDA Rule 14, EA-0012).
+FROM runtime-base AS saga-tournament-table
+COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
+COPY --from=source --chown=angzarr:angzarr /app/tournament /app/tournament
+COPY --from=source --chown=angzarr:angzarr /app/table /app/table
+COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
+ENV PATH=/app/.venv/bin:$PATH \
+    PORT=50415
+EXPOSE 50415
+CMD ["python", "/app/tournament/saga-table/main.py"]
+
 # ============================================================================
 # Projectors
 # ============================================================================
