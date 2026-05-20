@@ -7,8 +7,11 @@ sending commands through the CommandClient abstraction.
 from behave import given, then, use_step_matcher, when
 
 from angzarr_client.proto.angzarr import SyncMode
+from angzarr_client.proto.examples import buy_in_pb2 as buy_in
 from angzarr_client.proto.examples import player_pb2 as player
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples import registration_pb2 as registration
 
 from common_steps import new_uuid_bytes, pack_command, send_with_retry
 
@@ -314,28 +317,82 @@ def _new_hand_root(context, name: str) -> bytes:
 
 
 def _send_player_cmd(context, name: str, cmd, type_name: str, sync_mode=None):
-    """Send a command via gRPC and stash response/error in context."""
-    root = _player_root(context, name)
+    """Send a player-domain command via gRPC, fail-fast on rejection.
+
+    Unlike ``send_with_retry`` (used in happy-path setup helpers), this
+    helper does a single send so an expected ``CommandRejectedError``
+    surfaces immediately for the matching ``Then the command fails`` step
+    instead of being swallowed by 10 retry attempts.
+    """
+    _send_cmd(context, "player", _player_root(context, name), cmd, type_name, sync_mode)
+
+
+def _send_cmd(context, domain: str, root: bytes, cmd, type_name: str, sync_mode=None):
+    """Generic single-shot gRPC send + response/error stash.
+
+    Sequence bookkeeping is per-domain — the player-domain helper threads
+    through context.players[name]["sequence"]; other domains here use
+    their own per-root sequence counter.
+    """
     packed = pack_command(cmd, f"angzarr_client.proto.examples.{type_name}")
-    seq = context.players[name]["sequence"]
+    seq_book = context._cmd_seqs = getattr(context, "_cmd_seqs", {})
+    key = (domain, bytes(root))
+    seq = seq_book.get(key, 0)
     effective_sync = sync_mode if sync_mode is not None else SyncMode.SYNC_MODE_SIMPLE
     try:
-        response = send_with_retry(
-            context, "player", root, packed, seq, sync_mode=effective_sync
+        response = context.client.send_command(
+            domain, root, packed, sequence=seq, sync_mode=effective_sync
         )
         context.last_response = response
         context.last_error = None
         context.command_succeeded = True
-        # Bump sequence to whatever the aggregate reports, in case sagas
-        # nudged it.
         if response.events is not None and response.events.next_sequence:
-            context.players[name]["sequence"] = response.events.next_sequence
+            seq_book[key] = response.events.next_sequence
         else:
-            context.players[name]["sequence"] = seq + 1
+            seq_book[key] = seq + 1
+        # Capture PM-assigned reservation_ids when the response carries
+        # BuyInRequested / RebuyRequested / RegistrationRequested events,
+        # so subsequent Confirm/Release steps that reference a logical
+        # reservation key (e.g. "res-001") can resolve to the real bytes.
+        _capture_reservation_id_from_response(context, response)
     except Exception as e:
         context.last_response = None
         context.last_error = e
         context.command_succeeded = False
+
+
+def _capture_reservation_id_from_response(context, response):
+    """If the response includes BuyInRequested / RebuyRequested /
+    RegistrationRequested, capture the PM-assigned reservation_id under
+    the logical key "auto" (the placeholder used by the Initiate* steps
+    when the .feature doesn't pre-bind a name)."""
+    if response.events is None:
+        return
+    book = getattr(context, "_reservation_keys", None)
+    if book is None:
+        book = {}
+        context._reservation_keys = book
+    for page in response.events.pages:
+        if not page.HasField("event"):
+            continue
+        evt_any = page.event
+        type_url = evt_any.type_url
+        for short in ("BuyInRequested", "RebuyRequested", "RegistrationRequested"):
+            if type_url.endswith("." + short):
+                # Find the matching event class to extract reservation_id.
+                cls = (
+                    getattr(buy_in, short, None)
+                    or getattr(rebuy, short, None)
+                    or getattr(registration, short, None)
+                )
+                if cls is None:
+                    continue
+                msg = cls()
+                evt_any.Unpack(msg)
+                rid = getattr(msg, "reservation_id", None)
+                if rid:
+                    book["auto"] = bytes(rid)
+                break
 
 
 def _emitted_events(context):
@@ -411,7 +468,7 @@ def step_given_funds_reserved(context, amount, table):
     name = _active_player(context)
     cmd = player.ReserveFunds(
         amount=poker_types.Currency(amount=int(amount), currency_code="USD"),
-        table_root=_new_table_root(context, table),
+        key=_new_table_root(context, table) if table else b"",
     )
     _send_player_cmd(context, name, cmd, "ReserveFunds")
     context.players[name]["reserved_funds"] += int(amount)
@@ -422,7 +479,7 @@ def step_given_funds_reserved(context, amount, table):
 )
 def step_given_funds_released(context, table, amount):
     name = _active_player(context)
-    cmd = player.ReleaseFunds(table_root=_new_table_root(context, table))
+    cmd = player.ReleaseFunds(key=_new_table_root(context, table) if table else b"")
     _send_player_cmd(context, name, cmd, "ReleaseFunds")
     context.players[name]["reserved_funds"] = max(
         0, context.players[name]["reserved_funds"] - int(amount)
@@ -435,13 +492,18 @@ def step_given_funds_released(context, table, amount):
 )
 def step_given_pending_buy_in(context, rid, table, seat, amount):
     name = _active_player(context)
-    cmd = player.InitiateBuyIn(
-        table_root=_new_table_root(context, table),
-        seat_position=int(seat),
+    cmd = buy_in.InitiateBuyIn(
+        table_root=_new_table_root(context, table) if table else b"",
+        seat=int(seat),
         amount=poker_types.Currency(amount=int(amount), currency_code="USD"),
-        reservation_id=_new_reservation_id(context, rid),
+        player_root=_player_root(context, name),
     )
     _send_player_cmd(context, name, cmd, "InitiateBuyIn")
+    # Map the .feature's logical name to the PM-assigned reservation_id
+    # captured in _capture_reservation_id_from_response.
+    auto = context._reservation_keys.get("auto")
+    if auto:
+        context._reservation_keys[rid] = auto
 
 
 @given(
@@ -450,12 +512,14 @@ def step_given_pending_buy_in(context, rid, table, seat, amount):
 )
 def step_given_pending_registration(context, rid, trn, fee):
     name = _active_player(context)
-    cmd = player.InitiateTournamentRegistration(
-        tournament_root=_new_tournament_root(context, trn),
-        fee=poker_types.Currency(amount=int(fee), currency_code="USD"),
-        reservation_id=_new_reservation_id(context, rid),
+    cmd = registration.InitiateTournamentRegistration(
+        tournament_root=_new_tournament_root(context, trn) if trn else b"",
+        player_root=_player_root(context, name),
     )
     _send_player_cmd(context, name, cmd, "InitiateTournamentRegistration")
+    auto = context._reservation_keys.get("auto")
+    if auto:
+        context._reservation_keys[rid] = auto
 
 
 @given(
@@ -465,15 +529,16 @@ def step_given_pending_registration(context, rid, trn, fee):
 )
 def step_given_pending_rebuy(context, rid, trn, table, seat, fee, chips):
     name = _active_player(context)
-    cmd = player.InitiateRebuy(
-        tournament_root=_new_tournament_root(context, trn),
-        table_root=_new_table_root(context, table),
-        seat_position=int(seat),
-        fee=poker_types.Currency(amount=int(fee), currency_code="USD"),
-        chips=int(chips),
-        reservation_id=_new_reservation_id(context, rid),
+    cmd = rebuy.InitiateRebuy(
+        tournament_root=_new_tournament_root(context, trn) if trn else b"",
+        table_root=_new_table_root(context, table) if table else b"",
+        seat=int(seat),
+        player_root=_player_root(context, name),
     )
     _send_player_cmd(context, name, cmd, "InitiateRebuy")
+    auto = context._reservation_keys.get("auto")
+    if auto:
+        context._reservation_keys[rid] = auto
 
 
 @given(
@@ -481,7 +546,7 @@ def step_given_pending_rebuy(context, rid, trn, table, seat, fee, chips):
 )
 def step_given_buy_in_confirmed(context, rid, table):
     name = _active_player(context)
-    cmd = player.ConfirmBuyIn(reservation_id=_new_reservation_id(context, rid))
+    cmd = buy_in.ConfirmBuyIn(reservation_id=_new_reservation_id(context, rid))
     _send_player_cmd(context, name, cmd, "ConfirmBuyIn")
 
 
@@ -490,7 +555,7 @@ def step_given_buy_in_confirmed(context, rid, table):
 )
 def step_given_registration_fee_confirmed(context, rid, trn):
     name = _active_player(context)
-    cmd = player.ConfirmRegistrationFee(
+    cmd = registration.ConfirmRegistrationFee(
         reservation_id=_new_reservation_id(context, rid)
     )
     _send_player_cmd(context, name, cmd, "ConfirmRegistrationFee")
@@ -499,7 +564,7 @@ def step_given_registration_fee_confirmed(context, rid, trn):
 @given(r"a RebuyFeeConfirmed event for reservation \"(?P<rid>[^\"]*)\"")
 def step_given_rebuy_fee_confirmed(context, rid):
     name = _active_player(context)
-    cmd = player.ConfirmRebuyFee(reservation_id=_new_reservation_id(context, rid))
+    cmd = rebuy.ConfirmRebuyFee(reservation_id=_new_reservation_id(context, rid))
     _send_player_cmd(context, name, cmd, "ConfirmRebuyFee")
 
 
@@ -570,7 +635,7 @@ def step_when_reserve(context, amount, table):
     name = _active_player(context)
     cmd = player.ReserveFunds(
         amount=poker_types.Currency(amount=int(amount), currency_code="USD"),
-        table_root=_new_table_root(context, table),
+        key=_new_table_root(context, table) if table else b"",
     )
     _send_player_cmd(context, name, cmd, "ReserveFunds")
 
@@ -578,7 +643,7 @@ def step_when_reserve(context, amount, table):
 @when(r"I handle a ReleaseFunds command for table \"(?P<table>[^\"]*)\"")
 def step_when_release(context, table):
     name = _active_player(context)
-    cmd = player.ReleaseFunds(table_root=_new_table_root(context, table))
+    cmd = player.ReleaseFunds(key=_new_table_root(context, table) if table else b"")
     _send_player_cmd(context, name, cmd, "ReleaseFunds")
 
 
@@ -604,12 +669,11 @@ def step_when_transfer(context, src, amount, hand, reason):
 )
 def step_when_initiate_buy_in(context, table, seat, amount):
     name = _active_player(context)
-    rid = _new_reservation_id(context, "auto")
-    cmd = player.InitiateBuyIn(
-        table_root=_new_table_root(context, table),
-        seat_position=int(seat),
+    cmd = buy_in.InitiateBuyIn(
+        table_root=_new_table_root(context, table) if table else b"",
+        seat=int(seat),
         amount=poker_types.Currency(amount=int(amount), currency_code="USD"),
-        reservation_id=rid,
+        player_root=_player_root(context, name),
     )
     _send_player_cmd(context, name, cmd, "InitiateBuyIn")
 
@@ -617,7 +681,7 @@ def step_when_initiate_buy_in(context, table, seat, amount):
 @when(r"I handle a ConfirmBuyIn command for reservation \"(?P<rid>[^\"]*)\"")
 def step_when_confirm_buy_in(context, rid):
     name = _active_player(context)
-    cmd = player.ConfirmBuyIn(reservation_id=_new_reservation_id(context, rid))
+    cmd = buy_in.ConfirmBuyIn(reservation_id=_new_reservation_id(context, rid))
     _send_player_cmd(context, name, cmd, "ConfirmBuyIn")
 
 
@@ -627,7 +691,7 @@ def step_when_confirm_buy_in(context, rid):
 )
 def step_when_release_buy_in(context, rid, reason):
     name = _active_player(context)
-    cmd = player.ReleaseBuyIn(
+    cmd = buy_in.ReleaseBuyIn(
         reservation_id=_new_reservation_id(context, rid),
         reason=reason,
     )
@@ -639,11 +703,9 @@ def step_when_release_buy_in(context, rid, reason):
 )
 def step_when_initiate_tournament_registration(context, trn):
     name = _active_player(context)
-    rid = _new_reservation_id(context, "auto")
-    cmd = player.InitiateTournamentRegistration(
-        tournament_root=_new_tournament_root(context, trn),
-        fee=poker_types.Currency(amount=100, currency_code="USD"),
-        reservation_id=rid,
+    cmd = registration.InitiateTournamentRegistration(
+        tournament_root=_new_tournament_root(context, trn) if trn else b"",
+        player_root=_player_root(context, name),
     )
     _send_player_cmd(context, name, cmd, "InitiateTournamentRegistration")
 
@@ -651,7 +713,7 @@ def step_when_initiate_tournament_registration(context, trn):
 @when(r"I handle a ConfirmRegistrationFee command for reservation \"(?P<rid>[^\"]*)\"")
 def step_when_confirm_registration_fee(context, rid):
     name = _active_player(context)
-    cmd = player.ConfirmRegistrationFee(
+    cmd = registration.ConfirmRegistrationFee(
         reservation_id=_new_reservation_id(context, rid)
     )
     _send_player_cmd(context, name, cmd, "ConfirmRegistrationFee")
@@ -663,7 +725,7 @@ def step_when_confirm_registration_fee(context, rid):
 )
 def step_when_release_registration_fee(context, rid, reason):
     name = _active_player(context)
-    cmd = player.ReleaseRegistrationFee(
+    cmd = registration.ReleaseRegistrationFee(
         reservation_id=_new_reservation_id(context, rid),
         reason=reason,
     )
@@ -676,14 +738,11 @@ def step_when_release_registration_fee(context, rid, reason):
 )
 def step_when_initiate_rebuy(context, trn, table, seat):
     name = _active_player(context)
-    rid = _new_reservation_id(context, "auto")
-    cmd = player.InitiateRebuy(
-        tournament_root=_new_tournament_root(context, trn),
-        table_root=_new_table_root(context, table),
-        seat_position=int(seat),
-        fee=poker_types.Currency(amount=200, currency_code="USD"),
-        chips=500,
-        reservation_id=rid,
+    cmd = rebuy.InitiateRebuy(
+        tournament_root=_new_tournament_root(context, trn) if trn else b"",
+        table_root=_new_table_root(context, table) if table else b"",
+        seat=int(seat),
+        player_root=_player_root(context, name),
     )
     _send_player_cmd(context, name, cmd, "InitiateRebuy")
 
@@ -691,7 +750,7 @@ def step_when_initiate_rebuy(context, trn, table, seat):
 @when(r"I handle a ConfirmRebuyFee command for reservation \"(?P<rid>[^\"]*)\"")
 def step_when_confirm_rebuy_fee(context, rid):
     name = _active_player(context)
-    cmd = player.ConfirmRebuyFee(reservation_id=_new_reservation_id(context, rid))
+    cmd = rebuy.ConfirmRebuyFee(reservation_id=_new_reservation_id(context, rid))
     _send_player_cmd(context, name, cmd, "ConfirmRebuyFee")
 
 
@@ -701,7 +760,7 @@ def step_when_confirm_rebuy_fee(context, rid):
 )
 def step_when_release_rebuy_fee(context, rid, reason):
     name = _active_player(context)
-    cmd = player.ReleaseRebuyFee(
+    cmd = rebuy.ReleaseRebuyFee(
         reservation_id=_new_reservation_id(context, rid),
         reason=reason,
     )
@@ -715,7 +774,7 @@ def step_when_join_table_rejection(context, table):
     exposes a notification ingress for these compensating flows; if not,
     this step performs a best-effort ReleaseFunds for the table_root."""
     name = _active_player(context)
-    cmd = player.ReleaseFunds(table_root=_new_table_root(context, table))
+    cmd = player.ReleaseFunds(key=_new_table_root(context, table) if table else b"")
     _send_player_cmd(context, name, cmd, "ReleaseFunds")
 
 
