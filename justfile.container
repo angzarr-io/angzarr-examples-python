@@ -25,18 +25,32 @@ install *FLAGS: proto-gen ai-proto
 test-pytest:
     uv run pytest -v
 
-# Unit-example cucumber: poker handler logic, direct invocation, no infra.
-# Feature files live in angzarr-project/features/example/unit/ (submodule).
+# Unit tier: in-process aggregate-handler invocation. Exercises poker
+# rule scenarios AND framework-concept scenarios. Cluster-only phrasings
+# (e.g. "the saga propagates within 5s") are nop'd in
+# unit_steps/_cluster_nops.py — same .feature files drive both tiers.
+#
 # behave's --stage mechanism finds unit_environment.py + unit_steps/ at this
 # repo root via walk-up from the feature files — no symlinks needed.
 test-example-unit:
-    uv run behave --stage unit angzarr-project/features/example/unit/ --tags="~@wip"
+    uv run behave --stage unit \
+        angzarr-project/features/example/poker/ \
+        angzarr-project/features/example/framework/ \
+        --tags="~@wip"
 
-# Acceptance-example cucumber: poker E2E via CommandClient (gRPC).
+# Acceptance tier: poker scenarios via gRPC CommandClient + the
+# cluster-only orchestration scenarios. The poker scenarios share
+# .feature files with the unit tier; in-process-only phrasings (e.g.
+# inspecting internal aggregate state) are nop'd in
+# acceptance_steps/_inprocess_nops.py.
+#
 # PLAYER_URL picks the coordinator; defaults to localhost:1310.
 # --stage acceptance resolves acceptance_environment.py + acceptance_steps/.
 test-example-acceptance:
-    PLAYER_URL="${PLAYER_URL:-}" uv run behave --stage acceptance angzarr-project/features/example/acceptance/ --tags="~@wip"
+    PLAYER_URL="${PLAYER_URL:-}" uv run behave --stage acceptance \
+        angzarr-project/features/example/poker/ \
+        angzarr-project/features/example/acceptance/ \
+        --tags="~@wip"
 
 # Run all tests
 test: test-pytest test-example-unit test-example-acceptance
