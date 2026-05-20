@@ -1516,14 +1516,29 @@ def step_then_blind_event_has_pot(context, pot):
     assert event.pot_total == int(pot), f"Expected {pot}, got {event.pot_total}"
 
 
-@then(r'the action event has action "?(?P<action>\w+)"?')
+@then(r'the action event has action "?(?P<action>[^"]+)"?')
 def step_then_action_event_has_action(context, action):
-    """Verify action type in event."""
-    assert context.result_event_any is not None, "No result event"
+    """Verify action type in event. Supports both result shapes used
+    across scenario batches: ``context.result_event_any`` (single-event
+    setup) and ``context.result.pages[0]`` (pages-based router setup)."""
+    evt_any = getattr(context, "result_event_any", None)
+    if evt_any is not None:
+        event = hand.ActionTaken()
+        evt_any.Unpack(event)
+        expected = getattr(poker_types, action, poker_types.FOLD)
+        assert event.action == expected, (
+            f"Expected {action}, got {event.action}"
+        )
+        return
+    assert context.result is not None and context.result.pages
+    page = context.result.pages[0]
+    assert page.event.Is(hand.ActionTaken.DESCRIPTOR)
     event = hand.ActionTaken()
-    context.result_event_any.Unpack(event)
-    expected = getattr(poker_types, action, poker_types.FOLD)
-    assert event.action == expected, f"Expected {action}, got {event.action}"
+    page.event.Unpack(event)
+    expected = getattr(poker_types, action)
+    assert event.action == expected, (
+        f"Expected action {action} ({expected}), got {event.action}"
+    )
 
 
 @then(r"the community cards event has (?P<count>\d+) cards")
@@ -2077,14 +2092,27 @@ def step_then_event_has_cards_dealt(context, count):
     ), f"Expected {count} cards, got {len(event.cards)}"
 
 
-@then(r'the event has phase "(?P<phase>\w+)"')
+@then(r'the event has phase "(?P<phase>[^"]+)"')
 def step_then_event_has_phase(context, phase):
-    """Verify community cards phase."""
-    assert context.result_event_any is not None, "No result event"
-    event = hand.CommunityCardsDealt()
-    context.result_event_any.Unpack(event)
-    expected = getattr(poker_types, phase, poker_types.FLOP)
-    assert event.phase == expected, f"Expected phase={phase}, got {event.phase}"
+    """Verify community cards phase. Supports both context shapes used
+    across scenario batches: ``context.result_event_any`` (legacy) and
+    ``context.community_cards_dealt_event`` (newer stud / community
+    scenarios that stash the event before assertions)."""
+    evt_any = getattr(context, "result_event_any", None)
+    if evt_any is not None:
+        event = hand.CommunityCardsDealt()
+        evt_any.Unpack(event)
+        expected = getattr(poker_types, phase, poker_types.FLOP)
+        assert event.phase == expected, (
+            f"Expected phase={phase}, got {event.phase}"
+        )
+        return
+    evt = getattr(context, "community_cards_dealt_event", None)
+    assert evt is not None, "No event recorded"
+    expected = getattr(poker_types, phase)
+    assert evt.phase == expected, (
+        f"Expected event phase {phase} ({expected}), got {evt.phase}"
+    )
 
 
 @then(r"the remaining deck decreases by (?P<count>\d+)")
@@ -2509,8 +2537,10 @@ def step_then_each_player_bet_this_round(context, amount):
 
 @then(r'player "(?P<player_id>[^"]+)" has stack (?P<stack>\d+)')
 def step_then_player_has_stack(context, player_id, stack):
-    """Verify a player's stack. Falls back to ``player_stack_after_kill``
-    for synthetic dealer-killed/refund flows (EU-1260)."""
+    """Verify a player's stack. Tries (in order): ``player_stack_after_kill``
+    synthetic flow (EU-1260 dealer-killed / refund), ``agg.get_player``
+    accessor, then ``agg.players.values()`` iteration. Supports both
+    aggregate APIs across scenario batches."""
     expected = int(stack)
     if hasattr(context, "player_stack_after_kill"):
         actual = context.player_stack_after_kill.get(player_id)
@@ -2521,9 +2551,20 @@ def step_then_player_has_stack(context, player_id, stack):
             return
     agg = getattr(context, "agg", None)
     assert agg is not None, "No hand aggregate"
-    player = agg.get_player(uuid_for(player_id))
-    assert player is not None, f"Player {player_id} not found"
-    assert player.stack == expected, f"Expected stack={stack}, got {player.stack}"
+    if hasattr(agg, "get_player"):
+        player = agg.get_player(uuid_for(player_id))
+        assert player is not None, f"Player {player_id} not found"
+        assert player.stack == expected, (
+            f"Expected stack={stack}, got {player.stack}"
+        )
+        return
+    for player in agg.players.values():
+        if player.player_root == uuid_for(player_id):
+            assert player.stack == expected, (
+                f"Expected {player_id} stack {expected}, got {player.stack}"
+            )
+            return
+    raise AssertionError(f"Could not verify {player_id} stack")
 
 
 @then(r'player "(?P<player_id>[^"]+)" is all-in')
@@ -3023,12 +3064,6 @@ def step_then_all_bets_refunded(context):
     )
 
 
-@then(r'the hand status is "(?P<status>[^"]+)"')
-def step_then_hand_status_is(context, status):
-    actual = getattr(context, "hand_status", None)
-    assert actual == status, (
-        f"Expected hand status {status!r}, got {actual!r}"
-    )
 
 
 # EU-1232 — Substantial Action threshold
@@ -3316,14 +3351,6 @@ def step_given_player_checked_flop(context, player_id):
     context.stud_next_burn_count = 1
 
 
-@then(r'the event has phase "(?P<phase>[^"]+)"')
-def step_then_event_has_phase(context, phase):
-    evt = getattr(context, "community_cards_dealt_event", None)
-    assert evt is not None
-    expected = getattr(poker_types, phase)
-    assert evt.phase == expected, (
-        f"Expected event phase {phase} ({expected}), got {evt.phase}"
-    )
 
 
 # EU-1280/1281/1282 — premature flop / turn / river
@@ -3843,9 +3870,6 @@ def step_then_penalty_severity_at_least(context, floor):
         "DISQUALIFICATION": 4,
     }
     floor_level = severity_order.get(floor.upper(), 0)
-    actual_level = severity_order.get(
-        _ACTION_NAMES_BY_ENUM.get(context.penalty_event.severity, ""), 0
-    ) or context.penalty_event.severity
     # PenaltySeverity values are 1..4 already (from the proto enum). The
     # severity_order dict maps the *names* but the proto value IS the
     # ordinal; just compare directly.
@@ -4056,26 +4080,6 @@ def step_then_hand_killed_emitted(context, player_id):
     )
 
 
-@then(r'player "(?P<player_id>[^"]+)" has stack (?P<stack>\d+)')
-def step_then_player_has_stack(context, player_id, stack):
-    expected = int(stack)
-    if hasattr(context, "player_stack_after_kill"):
-        actual = context.player_stack_after_kill.get(player_id)
-        if actual is not None:
-            assert actual == expected, (
-                f"Expected {player_id} stack {expected}, got {actual}"
-            )
-            return
-    # Fall back to aggregate state lookup.
-    agg = getattr(context, "agg", None)
-    if agg is not None:
-        for player in agg.players.values():
-            if player.player_root == uuid_for(player_id):
-                assert player.stack == expected, (
-                    f"Expected {player_id} stack {expected}, got {player.stack}"
-                )
-                return
-    raise AssertionError(f"Could not verify {player_id} stack")
 
 
 @given(r"the river has been dealt")
@@ -4604,17 +4608,6 @@ def step_when_player_completes(context, player_id, amount):
     _execute_handler(context, "action", cmd)
 
 
-@then(r'the action event has action "(?P<action>[^"]+)"')
-def step_then_action_event_has_action(context, action):
-    assert context.result is not None and context.result.pages
-    page = context.result.pages[0]
-    assert page.event.Is(hand.ActionTaken.DESCRIPTOR)
-    evt = hand.ActionTaken()
-    page.event.Unpack(evt)
-    expected = getattr(poker_types, action)
-    assert evt.action == expected, (
-        f"Expected action {action} ({expected}), got {evt.action}"
-    )
 
 
 @then(r"the action event does NOT count toward the per-round raise cap")
@@ -5621,7 +5614,6 @@ def _compute_showdown_order(context) -> list[bytes]:
         from hand.agg.handlers.game_rules import (
             RazzRules,
             _showing_hand_high_key,
-            _SUIT_RANK,
         )
 
         rules = getattr(context, "rules", None)
@@ -6886,14 +6878,28 @@ def step_then_result_depends_on_floor(context):
     r'a FloorDecisionRequired event is emitted with reason "(?P<reason>[^"]+)"'
 )
 def step_then_floor_decision_required(context, reason):
-    assert context.result is not None and context.result.pages
-    page = context.result.pages[0]
-    assert page.event.Is(hand.FloorDecisionRequired.DESCRIPTOR)
-    evt = hand.FloorDecisionRequired()
-    page.event.Unpack(evt)
-    assert evt.reason == reason, (
-        f"Expected FloorDecisionRequired.reason={reason!r}, got {evt.reason!r}"
-    )
+    """Verify FloorDecisionRequired with the given reason. Searches
+    ``context.result.pages`` first (single-handler setup) then falls back
+    to ``context.events`` (chained-handler setup that doesn't store
+    ``context.result``)."""
+    result = getattr(context, "result", None)
+    if result is not None and result.pages:
+        page = result.pages[0]
+        if page.event.Is(hand.FloorDecisionRequired.DESCRIPTOR):
+            evt = hand.FloorDecisionRequired()
+            page.event.Unpack(evt)
+            assert evt.reason == reason, (
+                f"Expected FloorDecisionRequired.reason={reason!r}, got "
+                f"{evt.reason!r}"
+            )
+            return
+    for page in getattr(context, "events", []):
+        if page.event.Is(hand.FloorDecisionRequired.DESCRIPTOR):
+            evt = hand.FloorDecisionRequired()
+            page.event.Unpack(evt)
+            if evt.reason == reason:
+                return
+    raise AssertionError(f"No FloorDecisionRequired with reason={reason}")
 
 
 # --- Pot-limit pre-flop calculation (EU-1286) ---
@@ -7096,8 +7102,6 @@ def step_when_correct_illegal_overbet(context):
     compute it as the running pot total at the time the illegal bet
     started, less the illegal bet and any call.
     """
-    book = _make_event_book(context.events)
-    agg = Hand(book)
     # The corrected amount is the original pot total before the
     # illegal bet — for EU-1284 explicitly 10500. We derive by walking
     # back to the BlindPosted/ActionTaken sequence: the maximum
@@ -7114,7 +7118,6 @@ def step_when_correct_illegal_overbet(context):
     )
     # Reuse _execute_handler with a custom mapping: handler for
     # CorrectIllegalBet uses handle_correct_illegal_bet via @handles.
-    from hand.agg.handlers import Hand as HandCls
 
     _HANDLER_MAP["correct_illegal_bet"] = "handle_correct_illegal_bet"
     _execute_handler(context, "correct_illegal_bet", cmd)
@@ -7631,8 +7634,6 @@ def step_then_second_motion_returned(context, amount, player_id):
 )
 def step_when_non_standard_decl(context, player_id, verbal):
     """TDA Rule 57 — non-standard declaration emits FloorDecisionRequired."""
-    book = _make_event_book(context.events)
-    agg = Hand(book)
     evt = hand.FloorDecisionRequired(
         player_root=uuid_for(player_id),
         reason="NON_STANDARD_DECLARATION",
@@ -7643,23 +7644,6 @@ def step_when_non_standard_decl(context, player_id, verbal):
     context.result = _make_event_book([context.events[-1]])
     context.error = None
     context.last_floor_event = evt
-
-
-@then(
-    r"a FloorDecisionRequired event is emitted with reason "
-    r'"(?P<reason>[^"]+)"'
-)
-def step_then_floor_decision_required(context, reason):
-    """Verify FloorDecisionRequired with the given reason."""
-    found = False
-    for page in context.events:
-        if page.event.Is(hand.FloorDecisionRequired.DESCRIPTOR):
-            evt = hand.FloorDecisionRequired()
-            page.event.Unpack(evt)
-            if evt.reason == reason:
-                found = True
-                break
-    assert found, f"No FloorDecisionRequired with reason={reason}"
 
 
 @then(r"the action is held pending floor interpretation")
@@ -7741,7 +7725,6 @@ def step_given_betting_situation(context, context_kind):
     """Set up the betting state described in the scenario outline column."""
     if "facing no bet" in context_kind:
         # Simulate a flop: blinds posted, betting round complete, FLOP dealt.
-        book = _make_event_book(context.events)
         # Post blinds at 5/10
         sb_root = uuid_for("player-1")
         bb_root = uuid_for("player-2")

@@ -1327,7 +1327,7 @@ def step_given_named_table_with_players(context, name, n, labels):
                 len(pages),
             )
         )
-    for i, label in enumerate(l.strip() for l in labels.split(",")):
+    for i, label in enumerate(s.strip() for s in labels.split(",")):
         pages.append(
             make_event_page(
                 table.PlayerJoined(

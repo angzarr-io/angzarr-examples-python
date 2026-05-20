@@ -582,7 +582,6 @@ def _pick_balancing_move(context) -> dict:
     player_to_move = next(reversed(src_stacks.keys()))
     stack = src_stacks[player_to_move]
     # First free seat at destination (0..max-players, skipping seated).
-    dest_stacks = smallest.get("player_stacks", {})
     dest_seat = smallest["seated_players"]
     return {
         "source_name": largest_name,

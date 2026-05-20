@@ -11,7 +11,6 @@ the integration with the existing event-sourcing path is exercised too.
 
 from behave import given, then, use_step_matcher, when
 from hand.agg.pot_distribution import (
-    Award,
     WinnerWithCards,
     WinnerWithSeat,
     WinnerWithSuit,
@@ -95,11 +94,9 @@ def step_when_award_pot_even_tie(context, player_a, player_b):
     the resulting PotAwarded event are observable from later Then
     steps, so any divergence between helper and handler will surface.
     """
-    from hand.agg.handlers import Hand
     from angzarr_client.proto.examples import hand_pb2 as hand_proto
 
     # Find the seats of the two named players from the latest CardsDealt event.
-    seat_by_name = {}
     for page in context.events:
         ev = hand_proto.CardsDealt()
         if page.event.Unpack(ev):

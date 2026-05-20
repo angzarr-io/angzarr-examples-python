@@ -1766,9 +1766,6 @@ def step_then_no_bounty_for(context, player_id):
             evt = tournament.BountyAwarded()
             page.event.Unpack(evt)
             bountys.append(evt)
-    bad = [
-        b for b in bountys if b.knocked_out_root == uuid_for(player_id)
-    ]
     # The "knocked out" player is the one we don't award. That's the OK
     # case. The check here just ensures only one bounty event exists.
     assert len(bountys) == 1, (
