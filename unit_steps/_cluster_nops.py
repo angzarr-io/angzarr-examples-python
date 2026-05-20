@@ -16,7 +16,9 @@ actual cluster-side check.
 from behave import then, when
 
 
-@then('the saga propagates from "{source_domain}" to "{target_domain}" within {n:d} seconds')
+@then(
+    'the saga propagates from "{source_domain}" to "{target_domain}" within {n:d} seconds'
+)
 def step_then_saga_propagates_nop(context, source_domain, target_domain, n):
     """In-process: sagas run inline during send_command. Already done."""
 
@@ -32,7 +34,9 @@ def step_when_coordinator_restarted_nop(context, coordinator):
     EventBook regardless."""
 
 
-@then('the "{coordinator}" coordinator recovers state from the event store within {n:d} seconds')
+@then(
+    'the "{coordinator}" coordinator recovers state from the event store within {n:d} seconds'
+)
 def step_then_coordinator_recovers_nop(context, coordinator, n):
     """In-process: state never left memory."""
 
