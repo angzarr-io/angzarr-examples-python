@@ -1,38 +1,331 @@
 """Step definitions for orchestration BDD tests.
 
-Tests PM orchestration logic for BuyInOrchestrator, RegistrationOrchestrator,
-and RebuyOrchestrator. Each orchestrator coordinates cross-aggregate flows
-that require decision coupling.
+Drives the production ``reservation.pmg.handlers.ReservationPM`` through
+its real handler methods. A ``FakeQueryClient`` holds in-memory event
+books seeded from the Given steps; the PM queries it synchronously for
+cross-aggregate pre-validation and emits the real ``*Failed`` /
+``*Initiated`` / ``*Completed`` events.
 
-The step definitions simulate the validation logic that the PM + aggregate
-interaction implements, storing state in behave context and asserting on
-emitted commands and process events.
+Mirrors the Rust ``orchestration.rs`` test target.
 """
+
+import importlib.util
+import sys
+from pathlib import Path
 
 from behave import given, then, use_step_matcher, when
 
+from tests.helpers import uuid_for
+from angzarr_client.proto.angzarr import types_pb2 as types
 from angzarr_client.proto.examples import buy_in_pb2 as buy_in
 from angzarr_client.proto.examples import orchestration_pb2 as orch
 from angzarr_client.proto.examples import poker_types_pb2 as poker
 from angzarr_client.proto.examples import rebuy_pb2 as rebuy
 from angzarr_client.proto.examples import registration_pb2 as registration
+from angzarr_client.proto.examples import table_pb2 as table_proto
 from angzarr_client.proto.examples import tournament_pb2 as tournament
+from google.protobuf.any_pb2 import Any as ProtoAny
 
-# Use regex matchers for flexibility
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PMG_DIR = REPO_ROOT / "reservation" / "pmg"
+
+# The reservation PM imports siblings via bare names (``from state import …``).
+# Add the dir to sys.path before loading so those imports resolve.
+if str(PMG_DIR) not in sys.path:
+    sys.path.insert(0, str(PMG_DIR))
+
+
+def _load(module_name: str, full_path: Path):
+    spec = importlib.util.spec_from_file_location(module_name, str(full_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {module_name} from {full_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# Load production PM module + state types. The dir-based import path means
+# we re-export sibling modules under their bare names too.
+_state_mod = _load("state", PMG_DIR / "state.py")
+_table_state_mod = _load("table_state", PMG_DIR / "table_state.py")
+_tournament_state_mod = _load("tournament_state", PMG_DIR / "tournament_state.py")
+_handlers_mod = _load("_reservation_pm_handlers", PMG_DIR / "handlers.py")
+
+ReservationPM = _handlers_mod.ReservationPM
+ReservationPMState = _state_mod.ReservationPMState
+KIND_BUY_IN = _state_mod.KIND_BUY_IN
+KIND_REBUY = _state_mod.KIND_REBUY
+KIND_REGISTRATION = _state_mod.KIND_REGISTRATION
+
 use_step_matcher("re")
 
 
 # =============================================================================
-# Helpers
+# Fake query client — in-memory event books for cross-aggregate reads.
+# =============================================================================
+
+
+def _pack(msg) -> ProtoAny:
+    any_msg = ProtoAny()
+    any_msg.Pack(msg, type_url_prefix="type.googleapis.com/")
+    return any_msg
+
+
+class _QueryResult:
+    def __init__(self, book: types.EventBook):
+        self._book = book
+
+    def get_event_book(self) -> types.EventBook:
+        return self._book
+
+
+class FakeQueryClient:
+    """Mimics ``angzarr_client.QueryClient`` for synchronous reads.
+
+    Stores events keyed by (domain, root). ``query(...)`` returns an object
+    whose ``.get_event_book()`` matches what the PM's helpers expect.
+    """
+
+    def __init__(self):
+        self._books: dict[tuple[str, bytes], list] = {}
+
+    def append(self, domain: str, root: bytes, event_msg) -> None:
+        key = (domain, root)
+        self._books.setdefault(key, []).append(event_msg)
+
+    def query(self, domain: str, root: bytes) -> _QueryResult:
+        events = self._books.get((domain, root), [])
+        pages = [
+            types.EventPage(
+                header=types.PageHeader(sequence=i),
+                event=_pack(ev),
+            )
+            for i, ev in enumerate(events)
+        ]
+        return _QueryResult(types.EventBook(pages=pages))
+
+
+# =============================================================================
+# Context helpers
 # =============================================================================
 
 
 def _init_orchestration_context(context):
-    """Ensure orchestration context fields are initialized."""
-    if not hasattr(context, "emitted_commands"):
-        context.emitted_commands = []
-    if not hasattr(context, "emitted_events"):
-        context.emitted_events = []
+    """Reset orchestration scratch fields on the behave context."""
+    context.emitted_commands = []
+    context.emitted_events = []
+    if not hasattr(context, "fake_query"):
+        context.fake_query = FakeQueryClient()
+    if not hasattr(context, "occupied_seats"):
+        context.occupied_seats = {}
+    context.table_min_buy_in = getattr(context, "table_min_buy_in", 0)
+    context.table_max_buy_in = getattr(context, "table_max_buy_in", 0)
+    context.table_max_players = getattr(context, "table_max_players", 0)
+    context.tournament_max_players = getattr(context, "tournament_max_players", 0)
+    context.tournament_registered_count = getattr(
+        context, "tournament_registered_count", 0
+    )
+    context.tournament_registration_open = getattr(
+        context, "tournament_registration_open", False
+    )
+    context.tournament_status = getattr(
+        context,
+        "tournament_status",
+        tournament.TournamentStatus.TOURNAMENT_STATUS_UNSPECIFIED,
+    )
+    context.rebuy_window_open = getattr(context, "rebuy_window_open", False)
+    context.player_is_seated = getattr(context, "player_is_seated", False)
+    context.player_seat_position = getattr(context, "player_seat_position", -1)
+
+
+_FAILURE_EVENT_TYPES = {
+    "buy_in.BuyInFailed": buy_in.BuyInFailed,
+    "rebuy.RebuyFailed": rebuy.RebuyFailed,
+    "registration.RegistrationFailed": registration.RegistrationFailed,
+}
+
+
+def _seed_table(context):
+    """Seed the fake query with table state derived from context vars."""
+    table_root = getattr(context, "table_root", b"")
+    if not table_root:
+        return
+    if context.table_max_players <= 0:
+        return
+    context.fake_query.append(
+        "table",
+        table_root,
+        table_proto.TableCreated(
+            table_name="Test",
+            game_variant=poker.TEXAS_HOLDEM,
+            small_blind=5,
+            big_blind=10,
+            min_buy_in=context.table_min_buy_in,
+            max_buy_in=context.table_max_buy_in,
+            max_players=context.table_max_players,
+            action_timeout_seconds=30,
+        ),
+    )
+    for seat, player_root in context.occupied_seats.items():
+        context.fake_query.append(
+            "table",
+            table_root,
+            table_proto.PlayerJoined(
+                player_root=player_root,
+                seat_position=seat,
+                buy_in_amount=500,
+                stack=500,
+            ),
+        )
+    if context.player_is_seated and context.player_seat_position >= 0:
+        context.fake_query.append(
+            "table",
+            table_root,
+            table_proto.PlayerJoined(
+                player_root=context.player_root,
+                seat_position=context.player_seat_position,
+                buy_in_amount=1000,
+                stack=1000,
+            ),
+        )
+
+
+def _seed_tournament(context):
+    """Seed the fake query with tournament state derived from context vars."""
+    tournament_root = getattr(context, "tournament_root", b"")
+    if not tournament_root:
+        return
+    rebuy_window = getattr(context, "rebuy_window_open", False)
+    rebuy_cost = 1000 if rebuy_window else 0
+    rebuy_chips = 5000 if rebuy_window else 0
+    rebuy_config = tournament.RebuyConfig(
+        enabled=rebuy_window,
+        rebuy_cost=rebuy_cost,
+        rebuy_chips=rebuy_chips,
+        max_rebuys=3,
+    )
+    context.fake_query.append(
+        "tournament",
+        tournament_root,
+        tournament.TournamentCreated(
+            name="Test Tour",
+            game_variant=poker.TEXAS_HOLDEM,
+            buy_in=1000,
+            starting_stack=5000,
+            max_players=context.tournament_max_players or 9,
+            min_players=2,
+            rebuy_config=rebuy_config,
+        ),
+    )
+    status = context.tournament_status
+    if status == tournament.TournamentStatus.TOURNAMENT_REGISTRATION_OPEN:
+        context.fake_query.append(
+            "tournament", tournament_root, tournament.RegistrationOpened()
+        )
+    elif status in (
+        tournament.TournamentStatus.TOURNAMENT_RUNNING,
+        tournament.TournamentStatus.TOURNAMENT_COMPLETED,
+    ):
+        context.fake_query.append(
+            "tournament",
+            tournament_root,
+            tournament.RegistrationClosed(total_registrations=0),
+        )
+        context.fake_query.append(
+            "tournament",
+            tournament_root,
+            tournament.TournamentStarted(
+                total_players=context.tournament_registered_count or 4,
+                tables_created=1,
+            ),
+        )
+    elif not context.tournament_registration_open:
+        context.fake_query.append(
+            "tournament",
+            tournament_root,
+            tournament.RegistrationClosed(total_registrations=0),
+        )
+
+    # Approximate 'registered_count' by enrolling synthetic players.
+    for i in range(min(context.tournament_registered_count, 1000)):
+        context.fake_query.append(
+            "tournament",
+            tournament_root,
+            tournament.TournamentPlayerEnrolled(
+                player_root=uuid_for(f"reg-{i}"),
+                fee_paid=1000,
+                starting_stack=5000,
+                registration_number=i + 1,
+            ),
+        )
+
+
+def _build_pm(context) -> ReservationPM:
+    """Seed the fake query and build the production PM."""
+    _seed_table(context)
+    _seed_tournament(context)
+    return ReservationPM(query_client=context.fake_query)
+
+
+def _state_for(context, kind: str) -> ReservationPMState:
+    return ReservationPMState(
+        reservation_id=getattr(context, "reservation_id", b""),
+        kind=kind,
+        player_root=getattr(context, "player_root", b""),
+        table_root=getattr(context, "table_root", b""),
+        tournament_root=getattr(context, "tournament_root", b""),
+        seat=getattr(context, "player_seat_position", -1),
+        amount=getattr(context, "buy_in_amount", 0),
+        fee=getattr(context, "registration_fee", 0)
+        or getattr(context, "rebuy_amount", 0),
+    )
+
+
+def _short_type_name(type_url: str) -> str:
+    """``type.googleapis.com/angzarr_client.proto.examples.SeatPlayer`` → ``SeatPlayer``."""
+    return type_url.rsplit(".", 1)[-1]
+
+
+_FAILED_PROTO_BY_NAME = {
+    "BuyInFailed": buy_in.BuyInFailed,
+    "RebuyFailed": rebuy.RebuyFailed,
+    "RegistrationFailed": registration.RegistrationFailed,
+}
+
+
+def _record_response(context, response) -> None:
+    """Translate a real ProcessManagerResponse into the legacy context shape.
+
+    Existing @then steps assert against:
+      - ``context.emitted_commands``: list of command type names (strings)
+      - ``context.emitted_events``: list of (event_name, failure_code) tuples,
+        ``failure_code`` is ``None`` for non-failure events.
+    """
+    context.emitted_commands = []
+    for cmd_book in getattr(response, "commands", []) or []:
+        for page in cmd_book.pages:
+            if not page.HasField("command"):
+                continue
+            context.emitted_commands.append(_short_type_name(page.command.type_url))
+
+    context.emitted_events = []
+    process_events = getattr(response, "process_events", None)
+    if process_events is None:
+        return
+    pages = list(process_events.pages) if hasattr(process_events, "pages") else []
+    for page in pages:
+        if not page.HasField("event"):
+            continue
+        name = _short_type_name(page.event.type_url)
+        proto_cls = _FAILED_PROTO_BY_NAME.get(name)
+        if proto_cls is not None:
+            evt = proto_cls()
+            page.event.Unpack(evt)
+            code = evt.failure.code if evt.HasField("failure") else None
+            context.emitted_events.append((name, code))
+        else:
+            context.emitted_events.append((name, None))
 
 
 # =============================================================================
@@ -49,7 +342,7 @@ def step_given_table_seat_available_with_range(context, seat, min, max):
     context.table_min_buy_in = int(min)
     context.table_max_buy_in = int(max)
     context.table_max_players = 9
-    context.occupied_seats = {}  # position -> player_root
+    context.occupied_seats = {}
     context.table_root = b"table-1"
     context.available_seat = int(seat)
 
@@ -66,6 +359,7 @@ def step_given_buy_in_requested_for_seat(context, seat, amount):
     context.buy_in_amount = int(amount)
     context.buy_in_event = buy_in.BuyInRequested(
         reservation_id=context.reservation_id,
+        player_root=context.player_root,
         table_root=getattr(context, "table_root", b"table-1"),
         seat=int(seat),
         amount=poker.Currency(amount=int(amount), currency_code="USD"),
@@ -91,7 +385,7 @@ def step_given_table_full(context, count):
     context.table_min_buy_in = 200
     context.table_max_buy_in = 2000
     context.table_max_players = num_players
-    context.occupied_seats = {i: f"player-{i}".encode() for i in range(num_players)}
+    context.occupied_seats = {i: uuid_for(f"player-{i}") for i in range(num_players)}
     context.table_root = b"table-1"
 
 
@@ -105,6 +399,7 @@ def step_given_buy_in_requested_any_seat(context, amount):
     context.buy_in_amount = int(amount)
     context.buy_in_event = buy_in.BuyInRequested(
         reservation_id=context.reservation_id,
+        player_root=context.player_root,
         table_root=getattr(context, "table_root", b"table-1"),
         seat=-1,
         amount=poker.Currency(amount=int(amount), currency_code="USD"),
@@ -148,6 +443,7 @@ def step_given_registration_requested(context, fee):
     context.registration_fee = int(fee)
     context.registration_event = registration.RegistrationRequested(
         reservation_id=context.reservation_id,
+        player_root=context.player_root,
         tournament_root=getattr(context, "tournament_root", b"tournament-1"),
         fee=poker.Currency(amount=int(fee), currency_code="USD"),
     )
@@ -158,9 +454,9 @@ def step_given_tournament_full(context):
     """Set up a tournament that has reached max capacity."""
     _init_orchestration_context(context)
     context.tournament_root = b"tournament-1"
-    context.tournament_registration_open = False
-    context.tournament_max_players = 100
-    context.tournament_registered_count = 100
+    context.tournament_registration_open = True
+    context.tournament_max_players = 4
+    context.tournament_registered_count = 4
     context.tournament_status = tournament.TournamentStatus.TOURNAMENT_REGISTRATION_OPEN
 
 
@@ -209,6 +505,9 @@ def step_given_player_seated_at_position(context, pos):
     context.player_root = b"player-1"
     context.player_seat_position = int(pos)
     context.player_is_seated = True
+    context.table_min_buy_in = 200
+    context.table_max_buy_in = 2000
+    context.table_max_players = 9
 
 
 @given(r"a player with a RebuyRequested event for amount (?P<amount>\d+)")
@@ -219,6 +518,7 @@ def step_given_rebuy_requested(context, amount):
     context.rebuy_amount = int(amount)
     context.rebuy_event = rebuy.RebuyRequested(
         reservation_id=context.reservation_id,
+        player_root=getattr(context, "player_root", b"player-1"),
         tournament_root=getattr(context, "tournament_root", b"tournament-1"),
         table_root=getattr(context, "table_root", b"table-1"),
         seat=getattr(context, "player_seat_position", 2),
@@ -231,7 +531,7 @@ def step_given_rebuy_window_closed(context):
     """Set up a tournament where the rebuy window is closed."""
     _init_orchestration_context(context)
     context.tournament_root = b"tournament-1"
-    context.tournament_status = tournament.TournamentStatus.TOURNAMENT_COMPLETED
+    context.tournament_status = tournament.TournamentStatus.TOURNAMENT_RUNNING
     context.rebuy_window_open = False
     context.player_eligible_for_rebuy = False
 
@@ -244,6 +544,9 @@ def step_given_player_not_seated(context):
     context.player_root = b"player-1"
     context.player_is_seated = False
     context.player_seat_position = -1
+    context.table_min_buy_in = 200
+    context.table_max_buy_in = 2000
+    context.table_max_players = 9
 
 
 @given(r"a player, tournament, and table in a pending rebuy state")
@@ -273,74 +576,47 @@ def step_given_rebuy_chips_added(context):
 
 
 # =============================================================================
-# BuyInOrchestrator - When steps
+# BuyInOrchestrator - When steps (dispatch through production ReservationPM)
 # =============================================================================
 
 
 @when(r"the BuyInOrchestrator handles the BuyInRequested event")
 def step_when_buy_in_orchestrator_handles_request(context):
-    """Execute BuyInOrchestrator validation and command emission logic.
-
-    Simulates the PM + aggregate validation flow:
-    - Check buy-in amount is within table range
-    - Check seat availability
-    - Check table is not full
-    On success: emit SeatPlayer command + BuyInInitiated event
-    On failure: emit BuyInFailed event with appropriate code
-    """
-    context.emitted_commands = []
-    context.emitted_events = []
-
-    amount = context.buy_in_amount
-    seat = context.buy_in_seat
-    min_buy_in = context.table_min_buy_in
-    max_buy_in = context.table_max_buy_in
-    occupied = context.occupied_seats
-
-    # Validate buy-in amount range
-    if amount < min_buy_in or amount > max_buy_in:
-        context.emitted_events.append(("BuyInFailed", "INVALID_AMOUNT"))
-        return
-
-    # For "any seat" requests, find an open seat
-    if seat == -1:
-        found = False
-        for i in range(context.table_max_players):
-            if i not in occupied:
-                found = True
-                break
-        if not found:
-            context.emitted_events.append(("BuyInFailed", "TABLE_FULL"))
-            return
-    else:
-        # Check specific seat is available
-        if seat in occupied:
-            context.emitted_events.append(("BuyInFailed", "SEAT_OCCUPIED"))
-            return
-
-    # All validation passed - emit command and process event
-    context.emitted_commands.append("SeatPlayer")
-    context.emitted_events.append(("BuyInInitiated", None))
+    """Dispatch BuyInRequested through the production PM."""
+    pm = _build_pm(context)
+    state = _state_for(context, KIND_BUY_IN)
+    response = pm.on_buy_in_requested(context.buy_in_event, state, destinations=None)
+    _record_response(context, response)
 
 
 @when(r"the BuyInOrchestrator handles a PlayerSeated event")
 def step_when_buy_in_handles_player_seated(context):
-    """Handle PlayerSeated event - confirms buy-in flow completion."""
-    context.emitted_commands = []
-    context.emitted_events = []
-
-    context.emitted_commands.append("ConfirmBuyIn")
-    context.emitted_events.append(("BuyInCompleted", None))
+    """Dispatch PlayerSeated through the production PM."""
+    pm = _build_pm(context)
+    state = _state_for(context, KIND_BUY_IN)
+    event = buy_in.PlayerSeated(
+        player_root=context.player_root,
+        reservation_id=context.reservation_id,
+        seat_position=context.buy_in_seat,
+        stack=context.buy_in_amount,
+    )
+    response = pm.on_player_seated(event, state, destinations=None)
+    _record_response(context, response)
 
 
 @when(r"the BuyInOrchestrator handles a SeatingRejected event")
 def step_when_buy_in_handles_seating_rejected(context):
-    """Handle SeatingRejected event - releases funds and records failure."""
-    context.emitted_commands = []
-    context.emitted_events = []
-
-    context.emitted_commands.append("ReleaseBuyIn")
-    context.emitted_events.append(("BuyInFailed", "SEATING_REJECTED"))
+    """Dispatch SeatingRejected through the production PM."""
+    pm = _build_pm(context)
+    state = _state_for(context, KIND_BUY_IN)
+    event = buy_in.SeatingRejected(
+        player_root=context.player_root,
+        reservation_id=context.reservation_id,
+        requested_seat=context.buy_in_seat,
+        reason="Seat taken by another player",
+    )
+    response = pm.on_seating_rejected(event, state, destinations=None)
+    _record_response(context, response)
 
 
 # =============================================================================
@@ -350,54 +626,43 @@ def step_when_buy_in_handles_seating_rejected(context):
 
 @when(r"the RegistrationOrchestrator handles the RegistrationRequested event")
 def step_when_registration_orchestrator_handles_request(context):
-    """Execute RegistrationOrchestrator validation and command emission logic.
-
-    Simulates the PM validation against tournament state:
-    - Check registration is open
-    - Check capacity is available
-    On success: emit EnrollPlayer command + RegistrationInitiated event
-    On failure: emit RegistrationFailed event with appropriate code
-    """
-    context.emitted_commands = []
-    context.emitted_events = []
-
-    reg_open = context.tournament_registration_open
-    max_players = context.tournament_max_players
-    registered = context.tournament_registered_count
-
-    # Validate registration is open
-    if not reg_open:
-        context.emitted_events.append(("RegistrationFailed", "REGISTRATION_CLOSED"))
-        return
-
-    # Validate capacity
-    if max_players > 0 and registered >= max_players:
-        context.emitted_events.append(("RegistrationFailed", "REGISTRATION_CLOSED"))
-        return
-
-    # All validation passed
-    context.emitted_commands.append("EnrollPlayer")
-    context.emitted_events.append(("RegistrationInitiated", None))
+    """Dispatch RegistrationRequested through the production PM."""
+    pm = _build_pm(context)
+    state = _state_for(context, KIND_REGISTRATION)
+    response = pm.on_registration_requested(
+        context.registration_event, state, destinations=None
+    )
+    _record_response(context, response)
 
 
 @when(r"the RegistrationOrchestrator handles a TournamentPlayerEnrolled event")
 def step_when_registration_handles_enrolled(context):
-    """Handle TournamentPlayerEnrolled - confirms registration completion."""
-    context.emitted_commands = []
-    context.emitted_events = []
-
-    context.emitted_commands.append("ConfirmRegistrationFee")
-    context.emitted_events.append(("RegistrationCompleted", None))
+    """Dispatch TournamentPlayerEnrolled through the production PM."""
+    pm = _build_pm(context)
+    state = _state_for(context, KIND_REGISTRATION)
+    event = tournament.TournamentPlayerEnrolled(
+        player_root=context.player_root,
+        reservation_id=context.reservation_id,
+        fee_paid=context.registration_fee,
+        starting_stack=5000,
+        registration_number=1,
+    )
+    response = pm.on_player_enrolled(event, state, destinations=None)
+    _record_response(context, response)
 
 
 @when(r"the RegistrationOrchestrator handles a TournamentEnrollmentRejected event")
 def step_when_registration_handles_rejected(context):
-    """Handle TournamentEnrollmentRejected - releases fee and records failure."""
-    context.emitted_commands = []
-    context.emitted_events = []
-
-    context.emitted_commands.append("ReleaseRegistrationFee")
-    context.emitted_events.append(("RegistrationFailed", "ENROLLMENT_REJECTED"))
+    """Dispatch TournamentEnrollmentRejected through the production PM."""
+    pm = _build_pm(context)
+    state = _state_for(context, KIND_REGISTRATION)
+    event = tournament.TournamentEnrollmentRejected(
+        player_root=context.player_root,
+        reservation_id=context.reservation_id,
+        reason="Tournament full",
+    )
+    response = pm.on_enrollment_rejected(event, state, destinations=None)
+    _record_response(context, response)
 
 
 # =============================================================================
@@ -407,62 +672,56 @@ def step_when_registration_handles_rejected(context):
 
 @when(r"the RebuyOrchestrator handles the RebuyRequested event")
 def step_when_rebuy_orchestrator_handles_request(context):
-    """Execute RebuyOrchestrator validation and command emission logic.
-
-    Simulates the PM validation against tournament + table state:
-    - Check tournament is running and rebuy window is open
-    - Check player is seated at table
-    On success: emit ProcessRebuy command + RebuyInitiated event
-    On failure: emit RebuyFailed event with appropriate code
-    """
-    context.emitted_commands = []
-    context.emitted_events = []
-
-    rebuy_open = getattr(context, "rebuy_window_open", False)
-    player_seated = getattr(context, "player_is_seated", False)
-
-    # Validate tournament is running with rebuy window open
-    if not rebuy_open:
-        context.emitted_events.append(("RebuyFailed", "TOURNAMENT_NOT_RUNNING"))
-        return
-
-    # Validate player is seated
-    if not player_seated:
-        context.emitted_events.append(("RebuyFailed", "NOT_SEATED"))
-        return
-
-    # All validation passed
-    context.emitted_commands.append("ProcessRebuy")
-    context.emitted_events.append(("RebuyInitiated", None))
+    """Dispatch RebuyRequested through the production PM."""
+    pm = _build_pm(context)
+    state = _state_for(context, KIND_REBUY)
+    response = pm.on_rebuy_requested(context.rebuy_event, state, destinations=None)
+    _record_response(context, response)
 
 
 @when(r"the RebuyOrchestrator handles a RebuyProcessed event")
 def step_when_rebuy_handles_processed(context):
-    """Handle RebuyProcessed - emits AddRebuyChips to table."""
-    context.emitted_commands = []
-    context.emitted_events = []
-
-    context.emitted_commands.append("AddRebuyChips")
+    """Dispatch RebuyProcessed through the production PM."""
+    pm = _build_pm(context)
+    state = _state_for(context, KIND_REBUY)
+    event = tournament.RebuyProcessed(
+        player_root=context.player_root,
+        reservation_id=context.reservation_id,
+        rebuy_cost=1000,
+        chips_added=5000,
+    )
+    response = pm.on_rebuy_processed(event, state, destinations=None)
+    _record_response(context, response)
 
 
 @when(r"the RebuyOrchestrator handles a RebuyChipsAdded event")
 def step_when_rebuy_handles_chips_added(context):
-    """Handle RebuyChipsAdded - confirms rebuy fee and records completion."""
-    context.emitted_commands = []
-    context.emitted_events = []
-
-    context.emitted_commands.append("ConfirmRebuyFee")
-    context.emitted_events.append(("RebuyCompleted", None))
+    """Dispatch RebuyChipsAdded through the production PM."""
+    pm = _build_pm(context)
+    state = _state_for(context, KIND_REBUY)
+    event = rebuy.RebuyChipsAdded(
+        player_root=context.player_root,
+        reservation_id=context.reservation_id,
+        seat=context.player_seat_position,
+        amount=5000,
+        new_stack=10000,
+    )
+    response = pm.on_rebuy_chips_added(event, state, destinations=None)
+    _record_response(context, response)
 
 
 @when(r"the RebuyOrchestrator handles a RebuyDenied event")
 def step_when_rebuy_handles_denied(context):
-    """Handle RebuyDenied - releases fee and records failure."""
-    context.emitted_commands = []
-    context.emitted_events = []
-
-    context.emitted_commands.append("ReleaseRebuyFee")
-    context.emitted_events.append(("RebuyFailed", "REBUY_DENIED"))
+    """Dispatch RebuyDenied through the production PM."""
+    pm = _build_pm(context)
+    state = _state_for(context, KIND_REBUY)
+    event = tournament.RebuyDenied(
+        player_root=context.player_root,
+        reservation_id=context.reservation_id,
+        reason="Tournament closed",
+    )
+    response = pm.on_rebuy_denied(event, state, destinations=None)
+    _record_response(context, response)
 
 
 # =============================================================================
@@ -470,92 +729,77 @@ def step_when_rebuy_handles_denied(context):
 # =============================================================================
 
 
+def _assert_emitted(context, name: str) -> None:
+    assert (
+        name in context.emitted_commands
+    ), f"Expected {name}, got {context.emitted_commands}"
+
+
+_RELEASE_COMPENSATIONS = {"ReleaseBuyIn", "ReleaseRebuyFee", "ReleaseRegistrationFee"}
+
+
 @then(r"the PM emits a SeatPlayer command to the table")
 def step_then_pm_emits_seat_player(context):
-    """Verify PM emits a SeatPlayer command."""
-    assert (
-        "SeatPlayer" in context.emitted_commands
-    ), f"Expected SeatPlayer command, got {context.emitted_commands}"
+    _assert_emitted(context, "SeatPlayer")
 
 
 @then(r"the PM emits a ConfirmBuyIn command to the player")
 def step_then_pm_emits_confirm_buy_in(context):
-    """Verify PM emits a ConfirmBuyIn command."""
-    assert (
-        "ConfirmBuyIn" in context.emitted_commands
-    ), f"Expected ConfirmBuyIn command, got {context.emitted_commands}"
+    _assert_emitted(context, "ConfirmBuyIn")
 
 
 @then(r"the PM emits a ReleaseBuyIn command to the player")
 def step_then_pm_emits_release_buy_in(context):
-    """Verify PM emits a ReleaseBuyIn command."""
-    assert (
-        "ReleaseBuyIn" in context.emitted_commands
-    ), f"Expected ReleaseBuyIn command, got {context.emitted_commands}"
+    _assert_emitted(context, "ReleaseBuyIn")
 
 
 @then(r"the PM emits an EnrollPlayer command to the tournament")
 def step_then_pm_emits_enroll_player(context):
-    """Verify PM emits an EnrollPlayer command."""
-    assert (
-        "EnrollPlayer" in context.emitted_commands
-    ), f"Expected EnrollPlayer command, got {context.emitted_commands}"
+    _assert_emitted(context, "EnrollPlayer")
 
 
 @then(r"the PM emits a ConfirmRegistrationFee command to the player")
 def step_then_pm_emits_confirm_registration(context):
-    """Verify PM emits a ConfirmRegistrationFee command."""
-    assert (
-        "ConfirmRegistrationFee" in context.emitted_commands
-    ), f"Expected ConfirmRegistrationFee command, got {context.emitted_commands}"
+    _assert_emitted(context, "ConfirmRegistrationFee")
 
 
 @then(r"the PM emits a ReleaseRegistrationFee command to the player")
 def step_then_pm_emits_release_registration(context):
-    """Verify PM emits a ReleaseRegistrationFee command."""
-    assert (
-        "ReleaseRegistrationFee" in context.emitted_commands
-    ), f"Expected ReleaseRegistrationFee command, got {context.emitted_commands}"
+    _assert_emitted(context, "ReleaseRegistrationFee")
 
 
 @then(r"the PM emits a ProcessRebuy command to the tournament")
 def step_then_pm_emits_process_rebuy(context):
-    """Verify PM emits a ProcessRebuy command."""
-    assert (
-        "ProcessRebuy" in context.emitted_commands
-    ), f"Expected ProcessRebuy command, got {context.emitted_commands}"
+    _assert_emitted(context, "ProcessRebuy")
 
 
 @then(r"the PM emits an AddRebuyChips command to the table")
 def step_then_pm_emits_add_rebuy_chips(context):
-    """Verify PM emits an AddRebuyChips command."""
-    assert (
-        "AddRebuyChips" in context.emitted_commands
-    ), f"Expected AddRebuyChips command, got {context.emitted_commands}"
+    _assert_emitted(context, "AddRebuyChips")
 
 
 @then(r"the PM emits a ConfirmRebuyFee command to the player")
 def step_then_pm_emits_confirm_rebuy(context):
-    """Verify PM emits a ConfirmRebuyFee command."""
-    assert (
-        "ConfirmRebuyFee" in context.emitted_commands
-    ), f"Expected ConfirmRebuyFee command, got {context.emitted_commands}"
+    _assert_emitted(context, "ConfirmRebuyFee")
 
 
 @then(r"the PM emits a ReleaseRebuyFee command to the player")
 def step_then_pm_emits_release_rebuy(context):
-    """Verify PM emits a ReleaseRebuyFee command."""
-    assert (
-        "ReleaseRebuyFee" in context.emitted_commands
-    ), f"Expected ReleaseRebuyFee command, got {context.emitted_commands}"
+    _assert_emitted(context, "ReleaseRebuyFee")
 
 
 @then(r"the PM emits no commands")
 def step_then_pm_emits_no_commands(context):
-    """Verify PM did not emit any commands."""
-    assert (
-        len(context.emitted_commands) == 0
-    ), f"Expected no commands, got {context.emitted_commands}"
+    """No workflow-advancing commands.
+
+    The PM still emits a Release* compensation to the reservation aggregate
+    on early validation failure (the only allowed command); state changes
+    against player/table/tournament must not occur.
+    """
+    workflow_cmds = [
+        c for c in context.emitted_commands if c not in _RELEASE_COMPENSATIONS
+    ]
+    assert not workflow_cmds, f"Expected no workflow commands, got {workflow_cmds}"
 
 
 # =============================================================================
@@ -563,94 +807,59 @@ def step_then_pm_emits_no_commands(context):
 # =============================================================================
 
 
+def _assert_event(context, name: str) -> None:
+    names = [n for n, _ in context.emitted_events]
+    assert name in names, f"Expected {name} event, got {names}"
+
+
+def _assert_failure_code(context, event_name: str, code: str) -> None:
+    matches = [(n, c) for n, c in context.emitted_events if n == event_name]
+    assert (
+        matches
+    ), f"Expected {event_name} event, got {[n for n, _ in context.emitted_events]}"
+    assert matches[0][1] == code, f"Expected code '{code}', got '{matches[0][1]}'"
+
+
 @then(r"the PM emits a BuyInInitiated process event")
 def step_then_pm_emits_buy_in_initiated(context):
-    """Verify PM emits a BuyInInitiated process event."""
-    event_names = [name for name, _ in context.emitted_events]
-    assert (
-        "BuyInInitiated" in event_names
-    ), f"Expected BuyInInitiated event, got {event_names}"
+    _assert_event(context, "BuyInInitiated")
 
 
 @then(r'the PM emits a BuyInFailed process event with code "(?P<code>[^"]+)"')
 def step_then_pm_emits_buy_in_failed(context, code):
-    """Verify PM emits a BuyInFailed process event with a specific failure code."""
-    matching = [
-        (name, c) for name, c in context.emitted_events if name == "BuyInFailed"
-    ]
-    assert (
-        len(matching) > 0
-    ), f"Expected BuyInFailed event, got {[n for n, _ in context.emitted_events]}"
-    actual_code = matching[0][1]
-    assert actual_code == code, f"Expected failure code '{code}', got '{actual_code}'"
+    _assert_failure_code(context, "BuyInFailed", code)
 
 
 @then(r"the PM emits a BuyInCompleted process event")
 def step_then_pm_emits_buy_in_completed(context):
-    """Verify PM emits a BuyInCompleted process event."""
-    event_names = [name for name, _ in context.emitted_events]
-    assert (
-        "BuyInCompleted" in event_names
-    ), f"Expected BuyInCompleted event, got {event_names}"
+    _assert_event(context, "BuyInCompleted")
 
 
 @then(r"the PM emits a RegistrationInitiated process event")
 def step_then_pm_emits_registration_initiated(context):
-    """Verify PM emits a RegistrationInitiated process event."""
-    event_names = [name for name, _ in context.emitted_events]
-    assert (
-        "RegistrationInitiated" in event_names
-    ), f"Expected RegistrationInitiated event, got {event_names}"
+    _assert_event(context, "RegistrationInitiated")
 
 
 @then(r'the PM emits a RegistrationFailed process event with code "(?P<code>[^"]+)"')
 def step_then_pm_emits_registration_failed(context, code):
-    """Verify PM emits a RegistrationFailed process event with a specific failure code."""
-    matching = [
-        (name, c) for name, c in context.emitted_events if name == "RegistrationFailed"
-    ]
-    assert (
-        len(matching) > 0
-    ), f"Expected RegistrationFailed event, got {[n for n, _ in context.emitted_events]}"
-    actual_code = matching[0][1]
-    assert actual_code == code, f"Expected failure code '{code}', got '{actual_code}'"
+    _assert_failure_code(context, "RegistrationFailed", code)
 
 
 @then(r"the PM emits a RegistrationCompleted process event")
 def step_then_pm_emits_registration_completed(context):
-    """Verify PM emits a RegistrationCompleted process event."""
-    event_names = [name for name, _ in context.emitted_events]
-    assert (
-        "RegistrationCompleted" in event_names
-    ), f"Expected RegistrationCompleted event, got {event_names}"
+    _assert_event(context, "RegistrationCompleted")
 
 
 @then(r"the PM emits a RebuyInitiated process event")
 def step_then_pm_emits_rebuy_initiated(context):
-    """Verify PM emits a RebuyInitiated process event."""
-    event_names = [name for name, _ in context.emitted_events]
-    assert (
-        "RebuyInitiated" in event_names
-    ), f"Expected RebuyInitiated event, got {event_names}"
+    _assert_event(context, "RebuyInitiated")
 
 
 @then(r'the PM emits a RebuyFailed process event with code "(?P<code>[^"]+)"')
 def step_then_pm_emits_rebuy_failed(context, code):
-    """Verify PM emits a RebuyFailed process event with a specific failure code."""
-    matching = [
-        (name, c) for name, c in context.emitted_events if name == "RebuyFailed"
-    ]
-    assert (
-        len(matching) > 0
-    ), f"Expected RebuyFailed event, got {[n for n, _ in context.emitted_events]}"
-    actual_code = matching[0][1]
-    assert actual_code == code, f"Expected failure code '{code}', got '{actual_code}'"
+    _assert_failure_code(context, "RebuyFailed", code)
 
 
 @then(r"the PM emits a RebuyCompleted process event")
 def step_then_pm_emits_rebuy_completed(context):
-    """Verify PM emits a RebuyCompleted process event."""
-    event_names = [name for name, _ in context.emitted_events]
-    assert (
-        "RebuyCompleted" in event_names
-    ), f"Expected RebuyCompleted event, got {event_names}"
+    _assert_event(context, "RebuyCompleted")

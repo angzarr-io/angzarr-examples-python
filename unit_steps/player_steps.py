@@ -25,6 +25,7 @@ from reservation.agg.state import (
     PendingRegistration,
     ReservationState,
 )
+from tests.helpers import uuid_for
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import try_unpack, type_name_from_url
@@ -137,7 +138,7 @@ def step_given_funds_reserved(context, amount, table_id):
 
     event = player.FundsReserved(
         amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
-        key=table_id.encode("utf-8"),
+        key=uuid_for(table_id),
         new_available_balance=poker_types.Currency(
             amount=new_available, currency_code="CHIPS"
         ),
@@ -205,7 +206,7 @@ def step_given_funds_released(context, table_id, amount):
 
     event = player.FundsReleased(
         amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
-        key=table_id.encode("utf-8"),
+        key=uuid_for(table_id),
         new_available_balance=poker_types.Currency(
             amount=new_available, currency_code="CHIPS"
         ),
@@ -383,8 +384,7 @@ _RESERVATION_METHOD_MAP = {
 
 def _id_bytes(label: str) -> bytes:
     """Deterministic 16-byte id derived from a label."""
-    raw = label.encode("utf-8")
-    return (raw + b"\x00" * 16)[:16]
+    return uuid_for(label)
 
 
 def _build_state_from_events(events: list) -> PlayerState:
@@ -437,9 +437,24 @@ def _execute_handler(context, method_name: str, cmd):
         # Store state for assertion steps (apply new event)
         context.state = build_state(state, [event_any])
     except CommandRejectedError as e:
+        _stamp_scenario_cover(context, e)
         context.result = None
         context.error = e
         context.error_message = str(e)
+
+
+def _stamp_scenario_cover(context, err):
+    """Mirror the router's dispatch-boundary cover stamping in unit tests.
+
+    Unit-tier steps call handlers directly so the production router never
+    runs; this stamps any cover declared by ``the command cover has ...``
+    Given steps onto the rejection so cucumber can assert on it.
+    """
+    if err is None or getattr(err, "cover", None) is not None:
+        return
+    cover = getattr(context, "command_cover", None)
+    if cover is not None:
+        err.cover = cover
 
 
 def _execute_reservation(context, method_name: str, cmd, events: list, seq: int):
@@ -491,6 +506,7 @@ def _execute_reservation(context, method_name: str, cmd, events: list, seq: int)
         # assertions below read from ``context.reservation_state``.
         context.state = _build_state_from_events(events)
     except CommandRejectedError as e:
+        _stamp_scenario_cover(context, e)
         context.result = None
         context.error = e
         context.error_message = str(e)
@@ -548,7 +564,7 @@ def step_when_reserve_funds(context, amount, table_id):
     """Handle ReserveFunds command."""
     cmd = player.ReserveFunds(
         amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
-        key=table_id.encode("utf-8") if table_id else b"",
+        key=uuid_for(table_id) if table_id else b"",
     )
     _execute_handler(context, "reserve", cmd)
 
@@ -557,7 +573,7 @@ def step_when_reserve_funds(context, amount, table_id):
 def step_when_release_funds(context, table_id):
     """Handle ReleaseFunds command."""
     cmd = player.ReleaseFunds(
-        key=table_id.encode("utf-8"),
+        key=uuid_for(table_id) if table_id else b"",
     )
     _execute_handler(context, "release", cmd)
 
@@ -577,7 +593,7 @@ def step_when_join_table_rejection(context, table_id):
 
     rejection = types.RejectionNotification()
     rejection.rejected_command.cover.domain = "table"
-    rejection.rejected_command.cover.root.value = table_id.encode("utf-8")
+    rejection.rejected_command.cover.root.value = uuid_for(table_id)
 
     payload = ProtoAny()
     payload.Pack(rejection, type_url_prefix="type.googleapis.com/")
@@ -604,9 +620,9 @@ def step_when_join_table_rejection(context, table_id):
 def step_when_transfer_funds(context, from_player, amount, hand_id, reason):
     """Handle TransferFunds command."""
     cmd = player.TransferFunds(
-        from_player_root=from_player.encode("utf-8"),
+        from_player_root=uuid_for(from_player),
         amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
-        hand_root=hand_id.encode("utf-8"),
+        hand_root=uuid_for(hand_id),
         reason=reason,
     )
     _execute_handler(context, "transfer", cmd)
@@ -756,7 +772,7 @@ def step_then_event_table_root(context, tbl):
         raise AssertionError(
             f"Unknown event type for reservation key: {event_any.type_url}"
         )
-    expected = tbl.encode("utf-8")
+    expected = uuid_for(tbl)
     assert event.key == expected, f"Expected key={expected!r}, got {event.key!r}"
 
 
@@ -1276,7 +1292,7 @@ def step_then_event_from_player_root(context, label):
     assert (
         evt is not None
     ), f"Not a FundsTransferred event: {context.result_event_any.type_url}"
-    expected = label.encode("utf-8")
+    expected = uuid_for(label)
     assert (
         evt.from_player_root == expected
     ), f"Expected from_player_root={expected!r}, got {evt.from_player_root!r}"
@@ -1289,7 +1305,7 @@ def step_then_event_hand_root(context, label):
     assert (
         evt is not None
     ), f"Not a FundsTransferred event: {context.result_event_any.type_url}"
-    expected = label.encode("utf-8")
+    expected = uuid_for(label)
     assert (
         evt.hand_root == expected
     ), f"Expected hand_root={expected!r}, got {evt.hand_root!r}"

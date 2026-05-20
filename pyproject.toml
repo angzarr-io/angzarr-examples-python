@@ -65,6 +65,9 @@ paths_to_mutate = [
     "table/agg/handlers/table.py",
     "hand/agg/handlers/hand.py",
     "hand/agg/handlers/game_rules.py",
+    "hand/agg/raise_tracking.py",
+    "hand/agg/pot_distribution.py",
+    "hand/agg/substantial_action.py",
     "tournament/agg/handlers.py",
 ]
 # Copy sibling source files that tests/unit/test_*.py import alongside
@@ -76,14 +79,10 @@ also_copy = [
     "hand/",
     "tournament/",
     "tests/",
-    "sagas/",
+    "poker/",
     "hand-flow/",
-    "hand-flow-oo/",
     "prj-output/",
     "prj_training/",
-    "buy_in/",
-    "rebuy/",
-    "registration/",
     "reservation/",
     "angzarr-project/",
     # behave --stage unit/acceptance walks up from submodule features to

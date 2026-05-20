@@ -251,6 +251,38 @@ load-images:
     kind load docker-image {{SAGA_HAND_PLAYER_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{AI_IMAGE}}:latest --name {{KIND_CLUSTER}}
 
+# Roll all poker coordinator deployments so kubelet picks up the freshly
+# loaded :latest images. Without this step a ``build-images``+``load-images``
+# cycle leaves the running pods on whatever image hash they were created
+# with — kubelet's IfNotPresent policy on :latest doesn't re-pull when
+# the tag's content has changed locally.
+rollout-coordinators:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    deployments=(
+        hand-aggregate
+        player-aggregate
+        pmg-reservation-pm
+        reservation-aggregate
+        saga-hand-player-saga
+        saga-hand-table-saga
+        saga-table-hand-saga
+        saga-table-player-saga
+        table-aggregate
+        tournament-aggregate
+    )
+    for d in "${deployments[@]}"; do
+        kubectl rollout restart deployment/$d -n {{NAMESPACE}}
+    done
+    for d in "${deployments[@]}"; do
+        kubectl rollout status deployment/$d -n {{NAMESPACE}} --timeout=120s &
+    done
+    wait
+
+# Build → load → roll: the full local-iteration cycle for picking up
+# aggregate / saga / PM source changes in the running kind cluster.
+rebuild-and-redeploy: build-images load-images rollout-coordinators
+
 # Pull and load coordinator images into kind
 load-coordinators:
     #!/usr/bin/env bash
