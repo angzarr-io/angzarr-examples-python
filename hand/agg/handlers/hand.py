@@ -483,7 +483,10 @@ class Hand:
                     # ALL_IN counts as a raise only if it actually raised
                     # the current_bet level (i.e. caller-position all-ins
                     # don't count).
-                    if player.bet_this_round > 0 and player.bet_this_round == state.current_bet:
+                    if (
+                        player.bet_this_round > 0
+                        and player.bet_this_round == state.current_bet
+                    ):
                         # The all-in IS the current_bet — count as a raise
                         # if it crossed the prior level. We approximate
                         # by counting any all-in that produced a raise
@@ -978,7 +981,9 @@ class Hand:
             # arrives as RAISE / BET (with a chip amount), reinterpret per
             # the 50% threshold.
             bet_method = cmd.bet_method
-            betting_format = self._state.betting_format or poker_types.BETTING_FORMAT_NO_LIMIT
+            betting_format = (
+                self._state.betting_format or poker_types.BETTING_FORMAT_NO_LIMIT
+            )
             is_silent_push = (
                 bet_method == poker_types.BET_METHOD_CHIP_ONLY
                 and betting_format != poker_types.BETTING_FORMAT_FIXED_LIMIT
@@ -994,7 +999,11 @@ class Hand:
                     chip_count=cmd.chip_count,
                 )
                 action = outcome.action
-                if outcome.action in (poker_types.BET, poker_types.RAISE, poker_types.ALL_IN):
+                if outcome.action in (
+                    poker_types.BET,
+                    poker_types.RAISE,
+                    poker_types.ALL_IN,
+                ):
                     amount = outcome.target_amount
                 # CALL uses self.current_bet implicitly below.
 
@@ -1003,13 +1012,9 @@ class Hand:
             # signals an explicit RAISE intent. Default UNSPECIFIED keeps
             # the legacy reject path so pre-bet-method scenarios still
             # surface as rejections.
-            is_declared_raise = (
-                action == poker_types.RAISE
-                and bet_method
-                in (
-                    poker_types.BET_METHOD_VERBAL_FIRST,
-                    poker_types.BET_METHOD_MIXED,
-                )
+            is_declared_raise = action == poker_types.RAISE and bet_method in (
+                poker_types.BET_METHOD_VERBAL_FIRST,
+                poker_types.BET_METHOD_MIXED,
             )
             if is_declared_raise and self.current_bet > 0:
                 amount = correct_declared_underraise(
@@ -1070,10 +1075,8 @@ class Hand:
                 # open pair. The error code differs by variant so the
                 # rule citation reads naturally in the rejection logs.
                 if (
-                    self._state.betting_format
-                    == poker_types.BETTING_FORMAT_FIXED_LIMIT
-                    and self._state.current_stud_street
-                    == poker_types.FOURTH_STREET
+                    self._state.betting_format == poker_types.BETTING_FORMAT_FIXED_LIMIT
+                    and self._state.current_stud_street == poker_types.FOURTH_STREET
                     and self._state.open_pair_on_current_street
                     and self._state.small_bet > 0
                     and amount > self._state.small_bet
@@ -1083,9 +1086,7 @@ class Hand:
                             max_bet=self._state.small_bet
                         )
                     if self._state.game_variant == poker_types.STUD_HI_LO_8B:
-                        raise OpenPairLocksLowerLimit(
-                            max_bet=self._state.small_bet
-                        )
+                        raise OpenPairLocksLowerLimit(max_bet=self._state.small_bet)
                     # Razz (poker_types.RAZZ) intentionally falls through —
                     # the open pair has no effect on Razz limits.
                 if amount < self.min_raise and amount < player.stack:
@@ -1263,7 +1264,9 @@ class Hand:
                 action = poker_types.BET
                 if amount == 0 or amount < self.big_blind:
                     amount = self.big_blind
-            elif action == poker_types.CHECK and self.current_bet > player.bet_this_round:
+            elif (
+                action == poker_types.CHECK and self.current_bet > player.bet_this_round
+            ):
                 # "check" facing a bet — Rule 55 says player may call or
                 # fold but cannot raise. We default to CALL (the
                 # least-aggressive option that doesn't kill the hand).
@@ -1622,12 +1625,8 @@ class Hand:
             # cards and comparing the score.
             plays_board = False
             if s.community_cards and len(s.community_cards) >= 5:
-                board_rank, board_score, _ = rules.evaluate_hand(
-                    [], s.community_cards
-                )
-                plays_board = (
-                    rank_type == board_rank and score == board_score
-                )
+                board_rank, board_score, _ = rules.evaluate_hand([], s.community_cards)
+                plays_board = rank_type == board_rank and score == board_score
             event = hand_proto.CardsRevealed(
                 player_root=cmd.player_root,
                 ranking=poker_types.HandRanking(

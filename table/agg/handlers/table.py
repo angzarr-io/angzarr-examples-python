@@ -829,6 +829,7 @@ class Table:
                     # else from player_root + table_id.
                     import hashlib
                     import random as _random
+
                     open_seats = sorted(
                         s for s in range(self.max_players) if self.get_seat(s) is None
                     )

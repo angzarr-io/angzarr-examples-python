@@ -764,9 +764,7 @@ class Tournament:
             # downstream tables can resume normal-pace hands.
             extras = []
             if self._state.hand_for_hand:
-                extras.append(
-                    tournament.HandForHandEnded(ended_at=now())
-                )
+                extras.append(tournament.HandForHandEnded(ended_at=now()))
             if not router_mode:
                 self._emit(event)
                 for extra in extras:
@@ -908,7 +906,9 @@ class Tournament:
                 if sum(payouts) != pool:
                     raise PayoutsDoNotSumToPool(got=sum(payouts), bound=pool)
                 positions = [pp.position for pp in payout_structure]
-                payout_for_position = {pp.position: p for pp, p in zip(payout_structure, payouts)}
+                payout_for_position = {
+                    pp.position: p for pp, p in zip(payout_structure, payouts)
+                }
 
                 # Default position-by-finish-order assignment.
                 position_for: dict[str, int] = {}
@@ -1299,9 +1299,7 @@ class Tournament:
             # the higher-stack player. Stored in
             # ``simultaneous_bust_orderings`` to distinguish from
             # different-table simultaneous busts (which split payouts).
-            ordered = sorted(
-                roots, key=lambda h: -event.pre_hand_stacks.get(h, 0)
-            )
+            ordered = sorted(roots, key=lambda h: -event.pre_hand_stacks.get(h, 0))
             if not hasattr(state, "simultaneous_bust_orderings"):
                 state.simultaneous_bust_orderings = []
             state.simultaneous_bust_orderings.append(ordered)

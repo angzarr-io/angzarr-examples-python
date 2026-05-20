@@ -9,7 +9,6 @@ import pytest
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 from hand.agg.substantial_action import is_substantial_action
 
-
 CHECK = poker_types.CHECK
 FOLD = poker_types.FOLD
 CALL = poker_types.CALL

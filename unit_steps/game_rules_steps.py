@@ -639,8 +639,7 @@ def step_then_total_card_count(context, n):
 @then(r'the forced_bet_type is "(?P<kind>[^"]+)"')
 def step_then_forced_bet_type(context, kind):
     assert context.rules.forced_bet_type == kind, (
-        f"Expected forced_bet_type={kind!r}, "
-        f"got {context.rules.forced_bet_type!r}"
+        f"Expected forced_bet_type={kind!r}, " f"got {context.rules.forced_bet_type!r}"
     )
 
 
@@ -685,9 +684,9 @@ def step_then_dealt_is_up(context, flag):
     expected = flag == "True"
     pt = context.next_result
     assert pt is not None, "Expected a phase transition; got None"
-    assert pt.is_up_card is expected, (
-        f"Expected is_up_card={expected}, got {pt.is_up_card}"
-    )
+    assert (
+        pt.is_up_card is expected
+    ), f"Expected is_up_card={expected}, got {pt.is_up_card}"
 
 
 # --- Bring-in determination -------------------------------------------------
@@ -756,9 +755,9 @@ def step_when_determine_first_to_act(context):
 
 @then(r'the first-to-act player is "(?P<name>[^"]+)"')
 def step_then_first_to_act(context, name):
-    assert context.first_to_act == name, (
-        f"Expected first-to-act={name!r}, got {context.first_to_act!r}"
-    )
+    assert (
+        context.first_to_act == name
+    ), f"Expected first-to-act={name!r}, got {context.first_to_act!r}"
 
 
 # --- Player-cards (no community) hand evaluation ---------------------------
@@ -795,9 +794,9 @@ def step_then_razz_rank(context, label):
 @then(r"the razz rank value is (?P<n>\d+)")
 def step_then_razz_value(context, n):
     expected = int(n)
-    assert context.score == expected, (
-        f"Expected razz value {expected}, got {context.score}"
-    )
+    assert (
+        context.score == expected
+    ), f"Expected razz value {expected}, got {context.score}"
 
 
 # --- Multi-hand stud / razz / hilo comparisons -----------------------------
@@ -829,15 +828,22 @@ def step_then_both_razz_lows(context):
     ``rank`` field is one of the razz labels). Pinning the label first
     surfaces an evaluator that paired one of the hands silently."""
     razz_labels = {
-        "WHEEL", "SIX_LOW", "SEVEN_LOW", "EIGHT_LOW", "NINE_LOW",
-        "TEN_LOW", "JACK_LOW", "QUEEN_LOW", "KING_LOW",
+        "WHEEL",
+        "SIX_LOW",
+        "SEVEN_LOW",
+        "EIGHT_LOW",
+        "NINE_LOW",
+        "TEN_LOW",
+        "JACK_LOW",
+        "QUEEN_LOW",
+        "KING_LOW",
     }
     results = getattr(context, "hand_results", None) or {}
     assert results, "No labeled hands stored — call evaluate first"
     for label, entry in results.items():
-        assert entry["rank"] in razz_labels, (
-            f"Hand {label!r} did not evaluate to a Razz low: rank={entry['rank']!r}"
-        )
+        assert (
+            entry["rank"] in razz_labels
+        ), f"Hand {label!r} did not evaluate to a Razz low: rank={entry['rank']!r}"
 
 
 @then(r"hand (?P<a>\w+) is lower than hand (?P<b>\w+)")
@@ -848,24 +854,26 @@ def step_then_hand_lower(context, a, b):
     assert a in results and b in results, f"Missing hand result(s): {a},{b}"
     a_score = results[a]["score"]
     b_score = results[b]["score"]
-    assert a_score < b_score, (
-        f"Expected hand {a} (score={a_score}) to be lower than hand {b} (score={b_score})"
-    )
+    assert (
+        a_score < b_score
+    ), f"Expected hand {a} (score={a_score}) to be lower than hand {b} (score={b_score})"
 
 
 @then(r"hand (?P<label>\w+) high rank is \"(?P<rank>[^\"]+)\"")
 def step_then_hand_high_rank(context, label, rank):
     expected = _rank_type_from_name(rank)
     actual = context.hand_results[label]["rank"]
-    assert actual == expected, (
-        f"Expected hand {label} high rank {rank}, got {_rank_name(actual)}"
-    )
+    assert (
+        actual == expected
+    ), f"Expected hand {label} high rank {rank}, got {_rank_name(actual)}"
 
 
 @then(r"hand (?P<label>\w+) has a qualifying low")
 def step_then_hand_has_qualifying_low(context, label):
     low = context.hand_results[label].get("low")
-    assert low is not None, f"Expected hand {label} to have a qualifying low; none found"
+    assert (
+        low is not None
+    ), f"Expected hand {label} to have a qualifying low; none found"
 
 
 @then(r"hand (?P<label>\w+) has no qualifying low")
@@ -888,6 +896,6 @@ def step_then_hand_low_best5(context, label, ranks):
             expected.append(1)
         else:
             expected.append(int(tok))
-    assert list(low) == expected, (
-        f"Expected hand {label} low best-5 = {expected}, got {list(low)}"
-    )
+    assert (
+        list(low) == expected
+    ), f"Expected hand {label} low best-5 = {expected}, got {list(low)}"

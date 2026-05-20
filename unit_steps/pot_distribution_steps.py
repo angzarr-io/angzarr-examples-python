@@ -82,7 +82,7 @@ def step_given_dealer_button_at_seat(context, seat):
 
 
 @when(
-    r'I handle an AwardPot command for an even tie between '
+    r"I handle an AwardPot command for an even tie between "
     r'"(?P<player_a>[^"]+)" and "(?P<player_b>[^"]+)"'
 )
 def step_when_award_pot_even_tie(context, player_a, player_b):
@@ -328,7 +328,7 @@ def step_given_stud_showdown_extra_hand(context, name, cards):
 
 
 @when(
-    r'the pot of (?P<pot>\d+) is split between '
+    r"the pot of (?P<pot>\d+) is split between "
     r'"(?P<player_a>[^"]+)" and "(?P<player_b>[^"]+)"'
 )
 def step_when_stud_pot_split_between(context, pot, player_a, player_b):
@@ -348,15 +348,11 @@ def step_when_stud_pot_split_between(context, pot, player_a, player_b):
     from angzarr_client.proto.angzarr import types_pb2 as types
     from angzarr_client.proto.examples import hand_pb2 as hand_proto
 
-    awards = split_pot_by_high_card_walk(
-        pot=int(pot), winners=context.stud_winners
-    )
+    awards = split_pot_by_high_card_walk(pot=int(pot), winners=context.stud_winners)
     context.suit_walk_awards = {a.player_root: a.amount for a in awards}
 
     awarded = hand_proto.PotAwarded(
-        awarded_at=Timestamp(
-            seconds=int(datetime.now(timezone.utc).timestamp())
-        ),
+        awarded_at=Timestamp(seconds=int(datetime.now(timezone.utc).timestamp())),
     )
     for a in awards:
         awarded.winners.append(
@@ -371,9 +367,7 @@ def step_when_stud_pot_split_between(context, pot, player_a, player_b):
     page = types.EventPage(
         header=types.PageHeader(sequence=0),
         event=event_any,
-        created_at=Timestamp(
-            seconds=int(datetime.now(timezone.utc).timestamp())
-        ),
+        created_at=Timestamp(seconds=int(datetime.now(timezone.utc).timestamp())),
     )
     context.result = _make_event_book([page])
     context.result_event_any = event_any

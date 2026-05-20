@@ -94,9 +94,7 @@ class TableTournamentH4HSaga:
                 ),
                 pages=[
                     types.CommandPage(
-                        header=Destinations.deferred_header(
-                            source_cover, source_seq
-                        ),
+                        header=Destinations.deferred_header(source_cover, source_seq),
                         command=_pack(cmd),
                     )
                 ],

@@ -21,7 +21,6 @@ from typing import NamedTuple
 
 from angzarr_client.proto.examples import poker_types_pb2 as poker_types
 
-
 # Default house raise cap per TDA Rule 48 (1 bet + 4 raises).
 DEFAULT_LIMIT_RAISE_CAP = 4
 

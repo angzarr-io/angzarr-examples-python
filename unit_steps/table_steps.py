@@ -876,7 +876,9 @@ def step_given_table_with_n_active(context, name, n):
         )
 
 
-@given(r'a TableCreated event for "(?P<name>[^"]+)" with blinds (?P<sb>\d+)/(?P<bb>\d+)')
+@given(
+    r'a TableCreated event for "(?P<name>[^"]+)" with blinds (?P<sb>\d+)/(?P<bb>\d+)'
+)
 def step_given_table_with_blinds(context, name, sb, bb):
     if not hasattr(context, "events"):
         context.events = []
@@ -890,7 +892,9 @@ def step_given_table_with_blinds(context, name, sb, bb):
     context.events.append(make_event_page(event, len(context.events)))
 
 
-@given(r'a PlayerJoined event for player "(?P<player_id>[^"]+)"\s+at seat (?P<seat>\d+) of "(?P<table_name>[^"]+)"')
+@given(
+    r'a PlayerJoined event for player "(?P<player_id>[^"]+)"\s+at seat (?P<seat>\d+) of "(?P<table_name>[^"]+)"'
+)
 def step_given_player_joined_named_table(context, player_id, seat, table_name):
     pages = _seat_dest_event(context, table_name)
     pages.append(
@@ -907,7 +911,9 @@ def step_given_player_joined_named_table(context, player_id, seat, table_name):
     )
 
 
-@given(r'a PlayerJoined event for player "(?P<player_id>[^"]+)" at seat (?P<seat>\d+) \((?P<role>button|SB|BB)\)')
+@given(
+    r'a PlayerJoined event for player "(?P<player_id>[^"]+)" at seat (?P<seat>\d+) \((?P<role>button|SB|BB)\)'
+)
 def step_given_player_joined_with_role(context, player_id, seat, role):
     """Same as plain PlayerJoined; role is documentation."""
     if not hasattr(context, "events"):
@@ -1002,9 +1008,22 @@ def step_when_balance_tables(context, src, dst):
     context.result_event_any = event_any
     context.error = None
     context.balance_moved_player_label = next(
-        (label for label in (
-            "Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack",
-        ) if uuid_for(label) == moved.player_root),
+        (
+            label
+            for label in (
+                "Alice",
+                "Bob",
+                "Carol",
+                "Dave",
+                "Eve",
+                "Frank",
+                "Grace",
+                "Henry",
+                "Ivy",
+                "Jack",
+            )
+            if uuid_for(label) == moved.player_root
+        ),
         None,
     )
 
@@ -1013,9 +1032,9 @@ def step_when_balance_tables(context, src, dst):
 def step_then_moved_player(context, label):
     event = tournament.PlayerMovedBetweenTables()
     context.result_event_any.Unpack(event)
-    assert event.player_root == uuid_for(label), (
-        f"Expected moved player {label!r}, got {context.balance_moved_player_label!r}"
-    )
+    assert event.player_root == uuid_for(
+        label
+    ), f"Expected moved player {label!r}, got {context.balance_moved_player_label!r}"
 
 
 @then(
@@ -1074,9 +1093,9 @@ def step_when_combine_final_table(context, final, sources):
 def step_then_final_table_active(context, n):
     event = table.FinalTableCombined()
     context.result_event_any.Unpack(event)
-    assert len(event.active_players) == int(n), (
-        f"active_players={len(event.active_players)}, expected {n}"
-    )
+    assert len(event.active_players) == int(
+        n
+    ), f"active_players={len(event.active_players)}, expected {n}"
 
 
 @then(r'every original player has been reseated at "(?P<final>[^"]+)"')
@@ -1104,9 +1123,7 @@ def step_then_table_status(context, name, status):
 def step_then_final_table_max_handed(context, n):
     event = table.FinalTableCombined()
     context.result_event_any.Unpack(event)
-    assert event.max_handed == int(n), (
-        f"max_handed={event.max_handed}, expected {n}"
-    )
+    assert event.max_handed == int(n), f"max_handed={event.max_handed}, expected {n}"
 
 
 # --- EU-1183 broken-table reseating ---
@@ -1119,7 +1136,9 @@ def step_given_seats_open(context, spec):
     context.dest_open_seats = open_seats
 
 
-@given(r'a hand has been dealt at "(?P<table_name>[^"]+)" with substantial action this orbit')
+@given(
+    r'a hand has been dealt at "(?P<table_name>[^"]+)" with substantial action this orbit'
+)
 def step_given_hand_with_substantial_action(context, table_name):
     """Append a HandStarted event to mark substantial action."""
     if not hasattr(context, "events"):
@@ -1185,9 +1204,7 @@ def step_then_player_dealt_in_next(context, player_id):
 # --- EU-1184 halt for balancing ---
 
 
-@when(
-    r'the next hand at "(?P<table_name>[^"]+)" would assign the BB to an empty seat'
-)
+@when(r'the next hand at "(?P<table_name>[^"]+)" would assign the BB to an empty seat')
 def step_when_next_hand_bb_empty(context, table_name):
     """Synthesize a TableHaltedForBalancing event for the named table."""
     short_pages = context.multi_tables.get(table_name, [])
@@ -1196,7 +1213,9 @@ def step_when_next_hand_bb_empty(context, table_name):
         key=lambda p: sum(1 for x in p if x.event.Is(table.PlayerJoined.DESCRIPTOR)),
         default=[],
     )
-    short_count = sum(1 for x in short_pages if x.event.Is(table.PlayerJoined.DESCRIPTOR))
+    short_count = sum(
+        1 for x in short_pages if x.event.Is(table.PlayerJoined.DESCRIPTOR)
+    )
     big_count = sum(1 for x in big_pages if x.event.Is(table.PlayerJoined.DESCRIPTOR))
     deficit = big_count - short_count
     event = table.TableHaltedForBalancing(
@@ -1218,7 +1237,7 @@ def step_when_next_hand_bb_empty(context, table_name):
 
 
 @then(
-    r'a angzarr_client\.proto\.examples\.TableHaltedForBalancing event is '
+    r"a angzarr_client\.proto\.examples\.TableHaltedForBalancing event is "
     r'emitted for "(?P<table_name>[^"]+)"'
 )
 def step_then_halted_for_balancing_emitted(context, table_name):
@@ -1270,9 +1289,9 @@ def step_then_penalty_event_player_root(context, label):
 def step_then_penalty_chips_forfeited(context, n):
     event = table.BlindDodgePenalty()
     context.result_event_any.Unpack(event)
-    assert event.chips_forfeited == int(n), (
-        f"chips_forfeited={event.chips_forfeited}, expected {n}"
-    )
+    assert event.chips_forfeited == int(
+        n
+    ), f"chips_forfeited={event.chips_forfeited}, expected {n}"
 
 
 @then(r"the penalty event has missed_round_count (?P<n>\d+)")
@@ -1413,9 +1432,9 @@ def step_then_seat_drawn_from_set(context, spec):
     candidates = [int(c.strip()) for c in spec.split(",")]
     event = buy_in.PlayerSeated()
     context.result_event_any.Unpack(event)
-    assert event.seat_position in candidates, (
-        f"Expected seat_position in {candidates}, got {event.seat_position}"
-    )
+    assert (
+        event.seat_position in candidates
+    ), f"Expected seat_position in {candidates}, got {event.seat_position}"
 
 
 @then(r"the seating event has rng_seed populated for replay determinism")

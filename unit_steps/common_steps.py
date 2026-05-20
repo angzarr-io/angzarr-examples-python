@@ -74,9 +74,7 @@ def step_then_examples_event_is_emitted(context, event_type):
     assert context.result.pages, "No event pages emitted"
     expected = f"angzarr_client.proto.examples.{event_type}"
     types = [type_name_from_url(p.event.type_url) for p in context.result.pages]
-    assert expected in types, (
-        f"Expected an emitted {expected} event; got {types}"
-    )
+    assert expected in types, f"Expected an emitted {expected} event; got {types}"
 
 
 # --- Then steps for structured-rejection assertions ---
