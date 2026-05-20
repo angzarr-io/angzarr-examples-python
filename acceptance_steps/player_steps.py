@@ -256,6 +256,7 @@ def step_then_player_has_reserved_funds(context, name, amount):
 # synchronously-applied event(s) for assertion.
 # =============================================================================
 
+
 def _active_player(context) -> str:
     """The most recently named player in the scenario, the implicit subject
     of unqualified phrasings like `Given a FundsDeposited event with amount N`.
