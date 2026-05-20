@@ -35,7 +35,9 @@ def _register_player(context, name: str, email: str):
 
     Wrapped in send_with_retry so a transient UNAVAILABLE (player
     coordinator just rolled, channel still draining) doesn't fail the
-    very-first scenario step.
+    very-first scenario step. Sync mode is SIMPLE so the registration is
+    durable before any cross-domain command (e.g. reservation aggregate
+    querying player state for InitiateBuyIn) fires.
     """
     root = _player_root(context, name)
     cmd = player.RegisterPlayer(
@@ -46,9 +48,12 @@ def _register_player(context, name: str, email: str):
     packed = pack_command(cmd, "angzarr_client.proto.examples.RegisterPlayer")
     seq = context.players[name]["sequence"]
 
-    response = send_with_retry(context, "player", root, packed, seq)
+    response = send_with_retry(
+        context, "player", root, packed, seq, sync_mode=SyncMode.SYNC_MODE_SIMPLE
+    )
     context.last_response = response
     context.last_error = None
+    context.command_succeeded = True
     context.players[name]["sequence"] = seq + 1
     return response
 
@@ -73,6 +78,7 @@ def _deposit_funds(context, name: str, amount: int, sync_mode=None):
     )
     context.last_response = response
     context.last_error = None
+    context.command_succeeded = True
     context.players[name]["sequence"] = seq + 1
     context.players[name]["bankroll"] += amount
     return response
@@ -323,21 +329,51 @@ def _send_player_cmd(context, name: str, cmd, type_name: str, sync_mode=None):
     helper does a single send so an expected ``CommandRejectedError``
     surfaces immediately for the matching ``Then the command fails`` step
     instead of being swallowed by 10 retry attempts.
+
+    Threads the sequence through context.players[name]["sequence"] so
+    setup helpers (``_register_player`` / ``_deposit_funds``) and this
+    fail-fast variant share the same per-player counter — otherwise
+    the cluster rejects mixed sequences as out-of-order.
     """
-    _send_cmd(context, "player", _player_root(context, name), cmd, type_name, sync_mode)
+    _send_domain_cmd(
+        context, name, "player", _player_root(context, name), cmd, type_name, sync_mode
+    )
 
 
-def _send_cmd(context, domain: str, root: bytes, cmd, type_name: str, sync_mode=None):
-    """Generic single-shot gRPC send + response/error stash.
+def _send_reservation_cmd(context, name: str, cmd, type_name: str, sync_mode=None):
+    """Reservation-domain variant of _send_player_cmd. Reservation
+    aggregate handles Initiate/Confirm/Release for BuyIn, Rebuy, and
+    TournamentRegistration. Routed via player_root since the reservation
+    record is keyed off the originating player."""
+    _send_domain_cmd(
+        context,
+        name,
+        "reservation",
+        _player_root(context, name),
+        cmd,
+        type_name,
+        sync_mode,
+    )
 
-    Sequence bookkeeping is per-domain — the player-domain helper threads
-    through context.players[name]["sequence"]; other domains here use
-    their own per-root sequence counter.
-    """
+
+def _send_domain_cmd(
+    context, name: str, domain: str, root: bytes, cmd, type_name: str, sync_mode=None
+):
+    """Single-shot gRPC send + response/error stash, parameterized on
+    target domain. The sequence-tracking book is per-(domain, player-name)
+    so commands flowing to different domains for the same player don't
+    confuse each other."""
     packed = pack_command(cmd, f"angzarr_client.proto.examples.{type_name}")
-    seq_book = context._cmd_seqs = getattr(context, "_cmd_seqs", {})
-    key = (domain, bytes(root))
-    seq = seq_book.get(key, 0)
+    seq_book = context.players[name].setdefault("seq_by_domain", {})
+    # Player-domain seq lives in the legacy ["sequence"] field too, which
+    # the original send_with_retry-backed helpers (_register_player,
+    # _deposit_funds) update directly. Bridge in so a "Given a
+    # PlayerRegistered event" → "When I deposit ..." chain advances the
+    # seq counter consistently.
+    if domain == "player":
+        seq = context.players[name]["sequence"]
+    else:
+        seq = seq_book.get(domain, 0)
     effective_sync = sync_mode if sync_mode is not None else SyncMode.SYNC_MODE_SIMPLE
     try:
         response = context.client.send_command(
@@ -346,10 +382,16 @@ def _send_cmd(context, domain: str, root: bytes, cmd, type_name: str, sync_mode=
         context.last_response = response
         context.last_error = None
         context.command_succeeded = True
-        if response.events is not None and response.events.next_sequence:
-            seq_book[key] = response.events.next_sequence
-        else:
-            seq_book[key] = seq + 1
+        next_seq = (
+            response.events.next_sequence
+            if response.events is not None and response.events.next_sequence
+            else seq + 1
+        )
+        seq_book[domain] = next_seq
+        # Keep the player-domain seq mirrored on the legacy field that
+        # _register_player / _deposit_funds read.
+        if domain == "player":
+            context.players[name]["sequence"] = next_seq
         # Capture PM-assigned reservation_ids when the response carries
         # BuyInRequested / RebuyRequested / RegistrationRequested events,
         # so subsequent Confirm/Release steps that reference a logical
@@ -498,7 +540,7 @@ def step_given_pending_buy_in(context, rid, table, seat, amount):
         amount=poker_types.Currency(amount=int(amount), currency_code="USD"),
         player_root=_player_root(context, name),
     )
-    _send_player_cmd(context, name, cmd, "InitiateBuyIn")
+    _send_reservation_cmd(context, name, cmd, "InitiateBuyIn")
     # Map the .feature's logical name to the PM-assigned reservation_id
     # captured in _capture_reservation_id_from_response.
     auto = context._reservation_keys.get("auto")
@@ -516,7 +558,7 @@ def step_given_pending_registration(context, rid, trn, fee):
         tournament_root=_new_tournament_root(context, trn) if trn else b"",
         player_root=_player_root(context, name),
     )
-    _send_player_cmd(context, name, cmd, "InitiateTournamentRegistration")
+    _send_reservation_cmd(context, name, cmd, "InitiateTournamentRegistration")
     auto = context._reservation_keys.get("auto")
     if auto:
         context._reservation_keys[rid] = auto
@@ -535,7 +577,7 @@ def step_given_pending_rebuy(context, rid, trn, table, seat, fee, chips):
         seat=int(seat),
         player_root=_player_root(context, name),
     )
-    _send_player_cmd(context, name, cmd, "InitiateRebuy")
+    _send_reservation_cmd(context, name, cmd, "InitiateRebuy")
     auto = context._reservation_keys.get("auto")
     if auto:
         context._reservation_keys[rid] = auto
@@ -547,7 +589,7 @@ def step_given_pending_rebuy(context, rid, trn, table, seat, fee, chips):
 def step_given_buy_in_confirmed(context, rid, table):
     name = _active_player(context)
     cmd = buy_in.ConfirmBuyIn(reservation_id=_new_reservation_id(context, rid))
-    _send_player_cmd(context, name, cmd, "ConfirmBuyIn")
+    _send_reservation_cmd(context, name, cmd, "ConfirmBuyIn")
 
 
 @given(
@@ -558,14 +600,14 @@ def step_given_registration_fee_confirmed(context, rid, trn):
     cmd = registration.ConfirmRegistrationFee(
         reservation_id=_new_reservation_id(context, rid)
     )
-    _send_player_cmd(context, name, cmd, "ConfirmRegistrationFee")
+    _send_reservation_cmd(context, name, cmd, "ConfirmRegistrationFee")
 
 
 @given(r"a RebuyFeeConfirmed event for reservation \"(?P<rid>[^\"]*)\"")
 def step_given_rebuy_fee_confirmed(context, rid):
     name = _active_player(context)
     cmd = rebuy.ConfirmRebuyFee(reservation_id=_new_reservation_id(context, rid))
-    _send_player_cmd(context, name, cmd, "ConfirmRebuyFee")
+    _send_reservation_cmd(context, name, cmd, "ConfirmRebuyFee")
 
 
 @given(
@@ -587,8 +629,17 @@ def step_given_cover_set(context, domain, cid):
     r"and email \"(?P<email>[^\"]*)\""
 )
 def step_when_handle_register_player(context, name, email):
+    # NB: don't use _register_player() — that wraps send_with_retry which
+    # retries 10x on rejection, so an expected "INVALID_ARGUMENT" surfaces
+    # as RuntimeError("Command failed after 10 attempts") instead of the
+    # original CommandRejectedError. Use the single-shot helper instead.
     _set_active_player(context, name)
-    _register_player(context, name, email)
+    cmd = player.RegisterPlayer(
+        display_name=name,
+        email=email,
+        player_type=poker_types.HUMAN,
+    )
+    _send_player_cmd(context, name, cmd, "RegisterPlayer")
 
 
 @when(
@@ -675,14 +726,14 @@ def step_when_initiate_buy_in(context, table, seat, amount):
         amount=poker_types.Currency(amount=int(amount), currency_code="USD"),
         player_root=_player_root(context, name),
     )
-    _send_player_cmd(context, name, cmd, "InitiateBuyIn")
+    _send_reservation_cmd(context, name, cmd, "InitiateBuyIn")
 
 
 @when(r"I handle a ConfirmBuyIn command for reservation \"(?P<rid>[^\"]*)\"")
 def step_when_confirm_buy_in(context, rid):
     name = _active_player(context)
     cmd = buy_in.ConfirmBuyIn(reservation_id=_new_reservation_id(context, rid))
-    _send_player_cmd(context, name, cmd, "ConfirmBuyIn")
+    _send_reservation_cmd(context, name, cmd, "ConfirmBuyIn")
 
 
 @when(
@@ -695,7 +746,7 @@ def step_when_release_buy_in(context, rid, reason):
         reservation_id=_new_reservation_id(context, rid),
         reason=reason,
     )
-    _send_player_cmd(context, name, cmd, "ReleaseBuyIn")
+    _send_reservation_cmd(context, name, cmd, "ReleaseBuyIn")
 
 
 @when(
@@ -707,7 +758,7 @@ def step_when_initiate_tournament_registration(context, trn):
         tournament_root=_new_tournament_root(context, trn) if trn else b"",
         player_root=_player_root(context, name),
     )
-    _send_player_cmd(context, name, cmd, "InitiateTournamentRegistration")
+    _send_reservation_cmd(context, name, cmd, "InitiateTournamentRegistration")
 
 
 @when(r"I handle a ConfirmRegistrationFee command for reservation \"(?P<rid>[^\"]*)\"")
@@ -716,7 +767,7 @@ def step_when_confirm_registration_fee(context, rid):
     cmd = registration.ConfirmRegistrationFee(
         reservation_id=_new_reservation_id(context, rid)
     )
-    _send_player_cmd(context, name, cmd, "ConfirmRegistrationFee")
+    _send_reservation_cmd(context, name, cmd, "ConfirmRegistrationFee")
 
 
 @when(
@@ -729,7 +780,7 @@ def step_when_release_registration_fee(context, rid, reason):
         reservation_id=_new_reservation_id(context, rid),
         reason=reason,
     )
-    _send_player_cmd(context, name, cmd, "ReleaseRegistrationFee")
+    _send_reservation_cmd(context, name, cmd, "ReleaseRegistrationFee")
 
 
 @when(
@@ -744,14 +795,14 @@ def step_when_initiate_rebuy(context, trn, table, seat):
         seat=int(seat),
         player_root=_player_root(context, name),
     )
-    _send_player_cmd(context, name, cmd, "InitiateRebuy")
+    _send_reservation_cmd(context, name, cmd, "InitiateRebuy")
 
 
 @when(r"I handle a ConfirmRebuyFee command for reservation \"(?P<rid>[^\"]*)\"")
 def step_when_confirm_rebuy_fee(context, rid):
     name = _active_player(context)
     cmd = rebuy.ConfirmRebuyFee(reservation_id=_new_reservation_id(context, rid))
-    _send_player_cmd(context, name, cmd, "ConfirmRebuyFee")
+    _send_reservation_cmd(context, name, cmd, "ConfirmRebuyFee")
 
 
 @when(
@@ -764,7 +815,7 @@ def step_when_release_rebuy_fee(context, rid, reason):
         reservation_id=_new_reservation_id(context, rid),
         reason=reason,
     )
-    _send_player_cmd(context, name, cmd, "ReleaseRebuyFee")
+    _send_reservation_cmd(context, name, cmd, "ReleaseRebuyFee")
 
 
 @when(r"I handle a JoinTable rejection notification for table \"(?P<table>[^\"]*)\"")
@@ -859,33 +910,93 @@ def step_then_orch_event_has_reservation_id(context):
 # --- Then: rejections --------------------------------------------------------
 
 
+def _grpc_status_name(err) -> str:
+    """Best-effort gRPC status-code name extraction from any error type
+    we might see at the acceptance tier.
+
+    grpc._channel._InactiveRpcError exposes ``.code()`` (a callable that
+    returns a ``grpc.StatusCode`` enum); CommandRejectedError exposes
+    ``.code`` (the angzarr error code, a string). Cover both."""
+    # gRPC's _InactiveRpcError: .code() returns grpc.StatusCode enum.
+    code_attr = getattr(err, "code", None)
+    if callable(code_attr):
+        try:
+            code = code_attr()
+            return getattr(code, "name", str(code))
+        except Exception:
+            pass
+    # angzarr CommandRejectedError or other: .status / .code property.
+    status = getattr(err, "status", None) or code_attr
+    if status is not None:
+        return getattr(status, "name", str(status))
+    return ""
+
+
+def _grpc_details(err) -> str:
+    """gRPC error message body (the server-emitted details string)."""
+    details_attr = getattr(err, "details", None)
+    if callable(details_attr):
+        try:
+            value = details_attr() or ""
+            return str(value)
+        except Exception:
+            pass
+    if details_attr:
+        return str(details_attr)
+    return str(err)
+
+
+def _grpc_trailing_metadata_str(err) -> str:
+    """Flatten gRPC trailing metadata into a single string for substring
+    matching. angzarr surfaces business error codes
+    (e.g. AMOUNT_MUST_BE_POSITIVE) as a metadata header alongside the
+    INVALID_ARGUMENT / FAILED_PRECONDITION gRPC status."""
+    tm = getattr(err, "trailing_metadata", None)
+    if not tm:
+        return ""
+    try:
+        entries = tm() if callable(tm) else tm
+    except Exception:
+        return ""
+    parts = []
+    for entry in entries or []:
+        # entries can be (key, value) tuples or grpc.aio metadata objects
+        try:
+            k, v = entry
+        except Exception:
+            continue
+        parts.append(f"{k}={v}")
+    return " ".join(parts)
+
+
 @then(r'the command fails with status "(?P<status>[^"]*)"')
 def step_then_command_fails_with_status(context, status):
     assert not context.command_succeeded, "Command unexpectedly succeeded"
-    # gRPC status code surfaces on the CommandRejectedError.
-    err = context.last_error
-    # If the error exposes .status (or .code) check it; otherwise just
-    # confirm a rejection happened.
-    code = getattr(err, "status", None) or getattr(err, "code", None)
-    if code is not None:
-        actual = code.name if hasattr(code, "name") else str(code)
-        assert status in actual, f"Expected status {status}, got {actual}"
+    actual = _grpc_status_name(context.last_error)
+    assert status in actual, f"Expected status {status}, got {actual!r}"
 
 
 @then(r'the command is rejected with code "(?P<code>[^"]*)"')
 def step_then_command_rejected_with_code(context, code):
     assert not context.command_succeeded, "Command unexpectedly succeeded"
     err = context.last_error
-    # CommandRejectedError carries the angzarr error code in `.error_code`
-    # or in the details map. Be lenient about how it surfaces.
-    msg = str(err)
-    assert code in msg, f"Expected code {code} in error message, got {msg}"
+    # angzarr-style code may appear in the gRPC details body, the
+    # trailing metadata, .error_code, or str(err). Search them all.
+    haystack = " ".join(
+        [
+            _grpc_details(err),
+            _grpc_trailing_metadata_str(err),
+            str(getattr(err, "error_code", "") or ""),
+            str(err),
+        ]
+    )
+    assert code in haystack, f"Expected code {code} in error, got {haystack!r}"
 
 
 @then(r'the error message equals "(?P<msg>[^"]*)"')
 def step_then_error_message_equals(context, msg):
     assert not context.command_succeeded, "Command unexpectedly succeeded"
-    actual = str(context.last_error)
+    actual = _grpc_details(context.last_error) or str(context.last_error)
     assert msg in actual, f"Expected message {msg!r} in {actual!r}"
 
 
