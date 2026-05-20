@@ -482,7 +482,11 @@ jobs:
           # Cluster-tier steps (kubectl logs/delete) default to the `angzarr`
           # namespace for local dev; the CI helm release lands in `angzarr-test`.
           export ANGZARR_NAMESPACE=angzarr-test
+          # Player aggregate has been backfilled with gRPC step impls — walk it.
+          # Other poker/ files run unit-tier only until their acceptance_steps/
+          # impls land in subsequent commits on this branch.
           uv run behave --stage acceptance \
+            angzarr-project/features/example/poker/player.feature \
             angzarr-project/features/example/acceptance/ \
             --tags="~@wip" --no-capture
 
