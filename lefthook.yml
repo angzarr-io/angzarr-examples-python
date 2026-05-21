@@ -8,11 +8,19 @@ post-checkout:
   commands:
     install-submodule-hooks:
       run: just install-submodule-hooks
+    # Regenerate proto bindings inside any submodule that ships its own
+    # buf.gen.yaml (e.g. angzarr-client-python's sererr/v1/*_pb2.py).
+    # Bindings are gitignored at source; this materializes them after a
+    # checkout / branch switch / submodule pointer bump.
+    bootstrap-submodule-protos:
+      run: just bootstrap-submodule-protos
 
 post-merge:
   commands:
     install-submodule-hooks:
       run: just install-submodule-hooks
+    bootstrap-submodule-protos:
+      run: just bootstrap-submodule-protos
 
 pre-commit:
   parallel: false

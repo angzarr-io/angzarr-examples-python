@@ -84,8 +84,7 @@ jobs:
               fi
               sed -i -E "s|$image:[a-f0-9]+@sha256:[a-f0-9]+|$new_pin|g" "$f"
               echo "  $f: $old_pin -> $new_pin"
-              SUMMARY+="| \`$image\` | \`${old_pin#*@sha256:}\` | \`${new_digest#sha256:}\` |
-"
+              SUMMARY+="| \`$image\` | \`${old_pin#*@sha256:}\` | \`${new_digest#sha256:}\` |"$'\n'
               CHANGES=1
             done
           done

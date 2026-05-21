@@ -1,12 +1,11 @@
 # Python examples devcontainer
 # Uses custom base image from ghcr.io/angzarr
+#
+# uv is provided by the base image (installed at /usr/local/bin before
+# its USER switch). Don't reinstall here.
 
 ARG PYTHON_IMAGE=ghcr.io/angzarr-io/angzarr-python:latest
-ARG UV_VERSION=0.10.3
 FROM ${PYTHON_IMAGE}
-
-# Install uv system-wide (accessible to non-root users)
-RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
 # Mark as devcontainer for justfile detection
 ENV DEVCONTAINER=true

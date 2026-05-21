@@ -22,16 +22,20 @@ set shell := ["bash", "-c"]
 # check-submodules-clean). Source of truth: angzarr-project/submodule.just.
 import? 'angzarr-project/submodule.just'
 
-ROOT := `git rev-parse --show-toplevel`
-ANGZARR_ROOT := `realpath "$(git rev-parse --show-toplevel)/../.."`
+TOP := `git rev-parse --show-toplevel`
 IMAGE := "angzarr-examples-python-dev"
-UID := `id -u`
-GID := `id -g`
+# Rootless docker: pass `-u 0:0`. Container root maps to host UID via the
+# rootless user namespace, so writes to bind-mounted /workspace land owned
+# by the host user. Passing `-u $(id -u):$(id -g)` would force container
+# UID 1000 → host SUBUID 100999, which can't write to host-UID-owned dirs.
+# Rootful docker: the inverse — pass `-u $(id -u):$(id -g)` so files don't
+# land owned by container root (= host root).
+CONTAINER_USER_ARG := if `docker info 2>/dev/null | grep -q rootless && echo yes || echo no` == "yes" { "-u 0:0" } else { "-u " + `id -u` + ":" + `id -g` }
 
 # Build the devcontainer image
 [private]
 _build-image:
-    docker build -t {{IMAGE}} -f "{{ROOT}}/.devcontainer/Containerfile" "{{ROOT}}/.devcontainer"
+    docker build -t {{IMAGE}} -f "{{TOP}}/.devcontainer/Containerfile" "{{TOP}}/.devcontainer"
 
 # Run just target in container (or directly if already in devcontainer)
 [private]
@@ -41,19 +45,19 @@ _container +ARGS: _build-image
         just {{ARGS}}
     else
         docker run --rm --network=host \
-            -u {{UID}}:{{GID}} \
-            -e UV_CACHE_DIR=/angzarr/examples-python/main/.uv-cache \
+            {{CONTAINER_USER_ARG}} \
+            -e UV_CACHE_DIR=/workspace/.uv-cache \
             -e PLAYER_URL="${PLAYER_URL:-}" \
             -e TABLE_URL="${TABLE_URL:-}" \
             -e HAND_URL="${HAND_URL:-}" \
             -e TOURNAMENT_URL="${TOURNAMENT_URL:-}" \
             -e RESERVATION_URL="${RESERVATION_URL:-}" \
             -e KUBECONFIG=/home/user/.kube/config \
-            -v "{{ANGZARR_ROOT}}:/angzarr" \
-            -v "{{ROOT}}/justfile.container:/angzarr/examples-python/main/justfile:ro" \
+            -v "{{TOP}}:/workspace" \
+            -v "{{TOP}}/justfile.container:/workspace/justfile:ro" \
             -v "/usr/bin/kubectl:/usr/local/bin/kubectl:ro" \
             -v "${HOME}/.kube:/home/user/.kube:ro" \
-            -w /angzarr/examples-python/main \
+            -w /workspace \
             {{IMAGE}} just {{ARGS}}
     fi
 
@@ -62,8 +66,8 @@ _container +ARGS: _build-image
 _container-root +ARGS: _build-image
     #!/usr/bin/env bash
     docker run --rm -u 0 \
-        -v "{{ANGZARR_ROOT}}:/angzarr" \
-        -w /angzarr/examples-python/main \
+        -v "{{TOP}}:/workspace" \
+        -w /workspace \
         {{IMAGE}} {{ARGS}}
 
 # Clean up files created with wrong permissions
@@ -73,8 +77,31 @@ clean-venv:
 default:
     @just --list
 
-install:
+install: bootstrap-submodule-protos
     just _container install
+
+# Regenerate proto bindings inside any submodule that ships its own buf.gen.yaml.
+# Submodule bindings are gitignored at their source repo (e.g.
+# angzarr-client-python's sererr/v1/*_pb2.py), so a fresh `git submodule
+# update` leaves consumers with missing imports. This recipe walks every
+# registered submodule, runs `buf generate` inside any with a top-level
+# buf.gen.yaml, and is wired into lefthook's post-checkout + post-merge
+# so the bindings re-materialize on branch switch / pull / submodule bump.
+#
+# Uses the bufbuild/buf image directly (not the submodule's own justfile,
+# which assumes a different container mount layout). Rootless docker:
+# `-u 0:0` so container root maps to host UID via the rootless user
+# namespace, writes land owned by the host user.
+bootstrap-submodule-protos:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    user_arg="$(if docker info 2>/dev/null | grep -q rootless; then echo '-u 0:0'; else echo "-u $(id -u):$(id -g)"; fi)"
+    git submodule foreach --recursive '
+        if [ -f buf.gen.yaml ]; then
+            echo "[bootstrap] $displaypath: buf generate"
+            docker run --rm '"$user_arg"' -e HOME=/tmp -v "$(pwd):/work" -w /work bufbuild/buf:latest generate
+        fi
+    '
 
 test-pytest:
     just _container test-pytest
@@ -131,7 +158,7 @@ SAGA_HAND_PLAYER_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-hand-player"
 TOURNAMENT_IMAGE := "ghcr.io/angzarr-io/poker-python-tournament"
 RESERVATION_IMAGE := "ghcr.io/angzarr-io/poker-python-reservation"
 PMG_RESERVATION_IMAGE := "ghcr.io/angzarr-io/poker-python-pmg-reservation"
-AI_CHART := ROOT + "/deploy/k8s/helm/ai-player"
+AI_CHART := TOP + "/deploy/k8s/helm/ai-player"
 
 # =============================================================================
 # Main deployment targets
@@ -175,7 +202,7 @@ seed-gateway-descriptor: kind-create
     echo "=== Building gateway descriptor ==="
     tmp=$(mktemp --suffix=.bin)
     trap 'rm -f "$tmp"' EXIT
-    (cd {{ROOT}}/angzarr-project/proto && buf build -o "$tmp")
+    (cd {{TOP}}/angzarr-project/proto && buf build -o "$tmp")
     kubectl delete configmap gateway-descriptor -n {{NAMESPACE}} --ignore-not-found
     kubectl create configmap gateway-descriptor \
         --from-file=types.bin="$tmp" \
@@ -192,7 +219,7 @@ seed-secrets: kind-create
     #!/usr/bin/env bash
     set -euo pipefail
     echo "=== Seeding angzarr-credentials Secret in namespace {{NAMESPACE}} ==="
-    python3 {{ROOT}}/tools/generate_secrets.py \
+    python3 {{TOP}}/tools/generate_secrets.py \
         --namespace {{NAMESPACE}} \
         --name angzarr-credentials \
         | kubectl apply -f -
@@ -219,20 +246,20 @@ build-images:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "=== Building poker aggregates ==="
-    docker build -t {{PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-player {{ROOT}}
-    docker build -t {{TABLE_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-table {{ROOT}}
-    docker build -t {{HAND_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-hand {{ROOT}}
-    docker build -t {{TOURNAMENT_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-tournament {{ROOT}}
-    docker build -t {{RESERVATION_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-reservation {{ROOT}}
+    docker build -t {{PLAYER_IMAGE}}:latest -f {{TOP}}/Containerfile --target agg-player {{TOP}}
+    docker build -t {{TABLE_IMAGE}}:latest -f {{TOP}}/Containerfile --target agg-table {{TOP}}
+    docker build -t {{HAND_IMAGE}}:latest -f {{TOP}}/Containerfile --target agg-hand {{TOP}}
+    docker build -t {{TOURNAMENT_IMAGE}}:latest -f {{TOP}}/Containerfile --target agg-tournament {{TOP}}
+    docker build -t {{RESERVATION_IMAGE}}:latest -f {{TOP}}/Containerfile --target agg-reservation {{TOP}}
     echo "=== Building reservation PM ==="
-    docker build -t {{PMG_RESERVATION_IMAGE}}:latest -f {{ROOT}}/Containerfile --target pmg-reservation {{ROOT}}
+    docker build -t {{PMG_RESERVATION_IMAGE}}:latest -f {{TOP}}/Containerfile --target pmg-reservation {{TOP}}
     echo "=== Building poker sagas ==="
-    docker build -t {{SAGA_TABLE_HAND_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-table-hand {{ROOT}}
-    docker build -t {{SAGA_TABLE_PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-table-player {{ROOT}}
-    docker build -t {{SAGA_HAND_TABLE_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-hand-table {{ROOT}}
-    docker build -t {{SAGA_HAND_PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-hand-player {{ROOT}}
+    docker build -t {{SAGA_TABLE_HAND_IMAGE}}:latest -f {{TOP}}/Containerfile --target saga-table-hand {{TOP}}
+    docker build -t {{SAGA_TABLE_PLAYER_IMAGE}}:latest -f {{TOP}}/Containerfile --target saga-table-player {{TOP}}
+    docker build -t {{SAGA_HAND_TABLE_IMAGE}}:latest -f {{TOP}}/Containerfile --target saga-hand-table {{TOP}}
+    docker build -t {{SAGA_HAND_PLAYER_IMAGE}}:latest -f {{TOP}}/Containerfile --target saga-hand-player {{TOP}}
     echo "=== Building AI player ==="
-    docker build -t {{AI_IMAGE}}:latest -f {{ROOT}}/ai_player/Containerfile --target production {{ROOT}}
+    docker build -t {{AI_IMAGE}}:latest -f {{TOP}}/ai_player/Containerfile --target production {{TOP}}
 
 # Load images into Kind
 load-images:
@@ -312,7 +339,7 @@ kind-create:
     if kind get clusters 2>/dev/null | grep -q "^{{KIND_CLUSTER}}$"; then
         echo "Cluster {{KIND_CLUSTER}} already exists"
     else
-        kind create cluster --config {{ROOT}}/kind-config.yaml
+        kind create cluster --config {{TOP}}/kind-config.yaml
     fi
     kubectl create namespace {{NAMESPACE}} --dry-run=client -o yaml | kubectl apply -f -
 
@@ -391,7 +418,7 @@ deploy-apps:
     echo "=== Deploying poker applications ==="
     helm upgrade --install poker {{CHART_REGISTRY}}/angzarr \
       --version {{ANGZARR_CHART_VERSION}} \
-      -f {{ROOT}}/values.yaml \
+      -f {{TOP}}/values.yaml \
       --set-string storage.postgres.password="$DB_PW" \
       --set-string storage.postgres.uri="postgres://angzarr:${DB_PW}@angzarr-db:5432/angzarr" \
       --set-string messaging.amqp.url="amqp://angzarr:${MQ_PW}@angzarr-mq:5672/%2F" \
@@ -421,13 +448,13 @@ undeploy-ai:
 ai-build tag="latest":
     docker build \
         -t {{AI_IMAGE}}:{{tag}} \
-        -f {{ROOT}}/ai_player/Containerfile \
+        -f {{TOP}}/ai_player/Containerfile \
         --target production \
-        {{ROOT}}
+        {{TOP}}
 
 # Generate AI Player protos from buf registry
 ai-proto:
-    cd {{ROOT}}/ai_player && buf generate
+    cd {{TOP}}/ai_player && buf generate
 
 # Integration tests against the running AiSidecar container image.
 # Prereq: `just ai-build` (or `docker pull` the published image).
@@ -435,7 +462,7 @@ ai-proto:
 # angzarr_client's older ai_sidecar proto and would collide in the protobuf
 # descriptor pool with the ai_player-local generated pb2.
 ai-test-integration:
-    cd {{ROOT}} && AI_IMAGE={{AI_IMAGE}}:latest uv run --frozen pytest \
+    cd {{TOP}} && AI_IMAGE={{AI_IMAGE}}:latest uv run --frozen pytest \
         tests/integration/ai_player/ -v --no-cov -p no:cacheprovider \
         --confcutdir=tests/integration/ai_player \
         --rootdir=tests/integration/ai_player
