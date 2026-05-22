@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 # Import proto modules (from buf registry via angzarr_client)
 try:
-    from angzarr_client.proto.examples import poker_types_pb2 as types_pb2
+    from angzarr_client.proto.examples.v1 import poker_types_pb2 as types_pb2
 except ImportError:
     from ai_player.proto.examples import poker_types_pb2 as types_pb2
 
@@ -45,10 +45,8 @@ class AiPlayerClient:
         """Import AI Player proto modules."""
         try:
             # Try importing from angzarr_client proto package
-            from angzarr_client.proto.examples import (
-                ai_sidecar_pb2,
-                ai_sidecar_pb2_grpc,
-            )
+            from angzarr_client.proto.examples.v1 import ai_sidecar_pb2
+            from angzarr_client.proto.examples.v1 import ai_sidecar_pb2_grpc
 
             self._ai_player_pb2 = ai_sidecar_pb2
             self._stub = ai_sidecar_pb2_grpc.AiSidecarStub(self._channel)

@@ -7,7 +7,7 @@ from google.protobuf.any_pb2 import Any as ProtoAny
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from angzarr_client.helpers import type_name_from_url
-from angzarr_client.proto.angzarr import types_pb2 as types
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
 
 # Use regex matchers for flexibility
 use_step_matcher("re")
@@ -42,13 +42,13 @@ def make_event_page(event_msg, num: int = 0, time_str: str = None) -> types.Even
 # These handle the `examples.EventType` format used in feature files
 
 
-@then(r"the result is an? angzarr_client\.proto\.examples\.(?P<event_type>\w+) event")
+@then(r"the result is an? angzarr_client\.proto\.examples\.v1\.(?P<event_type>\w+) event")
 def step_then_result_is_examples_event(context, event_type):
     """Verify the result event type.
 
     Matches feature-file assertions like:
-    - Then the result is a angzarr_client.proto.examples.CardsDealt event
-    - Then the result is an angzarr_client.proto.examples.ActionTaken event
+    - Then the result is a angzarr_client.proto.examples.v1.CardsDealt event
+    - Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     """
     assert (
         context.result is not None
@@ -56,11 +56,11 @@ def step_then_result_is_examples_event(context, event_type):
     assert context.result.pages, "No event pages in result"
     event_any = context.result.pages[0].event
     actual_type = type_name_from_url(event_any.type_url)
-    expected = f"angzarr_client.proto.examples.{event_type}"
+    expected = f"angzarr_client.proto.examples.v1.{event_type}"
     assert actual_type == expected, f"Expected {expected} but got {actual_type}"
 
 
-@then(r"a angzarr_client\.proto\.examples\.(?P<event_type>\w+) event is emitted")
+@then(r"a angzarr_client\.proto\.examples\.v1\.(?P<event_type>\w+) event is emitted")
 def step_then_examples_event_is_emitted(context, event_type):
     """Verify that an event of the given type is among emitted pages.
 
@@ -72,7 +72,7 @@ def step_then_examples_event_is_emitted(context, event_type):
         context.result is not None
     ), f"Expected {event_type} event but got error: {getattr(context, 'error_message', context.error)}"
     assert context.result.pages, "No event pages emitted"
-    expected = f"angzarr_client.proto.examples.{event_type}"
+    expected = f"angzarr_client.proto.examples.v1.{event_type}"
     types = [type_name_from_url(p.event.type_url) for p in context.result.pages]
     assert expected in types, (
         f"Expected an emitted {expected} event; got {types}"

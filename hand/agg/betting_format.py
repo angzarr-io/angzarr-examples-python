@@ -19,7 +19,7 @@ lockstep is enforced by the cross-language behave scenarios.
 from dataclasses import dataclass
 from typing import NamedTuple
 
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 
 # Default house raise cap per TDA Rule 48 (1 bet + 4 raises).

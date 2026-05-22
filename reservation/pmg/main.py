@@ -15,7 +15,7 @@ import os
 import structlog
 
 from angzarr_client import ProcessManagerGrpc, QueryClient, Router, run_server
-from angzarr_client.proto.angzarr import process_manager_pb2_grpc
+from angzarr_client.proto.angzarr.v1 import process_manager_pb2_grpc
 from handlers import ReservationPM
 
 structlog.configure(

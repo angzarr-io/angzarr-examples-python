@@ -9,7 +9,7 @@ from typing import Any, Callable, TypeVar
 from google.protobuf.message import Message
 
 from angzarr_client.errors import CommandRejectedError
-from angzarr_client.proto.angzarr import types_pb2 as types
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
 
 S = TypeVar("S")  # State type
 E = TypeVar("E", bound=Message)  # Event type

@@ -180,6 +180,43 @@ class SeatPositionMismatch(IdentityMismatch):
     TEMPLATE = "Seat position mismatch: expected {expected}, got {got}"
 
 
+@dataclass
+class TableAlreadyHalted(StateAlreadyEntered):
+    CODE = "TABLE_ALREADY_HALTED"
+    TEMPLATE = "Table is already halted for balancing"
+
+
+@dataclass
+class HaltDeficitBelowMin(ValueOutOfRange):
+    CODE = "HALT_DEFICIT_BELOW_MIN"
+    TEMPLATE = (
+        "deficit must be >= {min_deficit} to halt for balancing "
+        "(TDA Rule 11D: 3+ players short); got {got}"
+    )
+    # ``got`` is inherited from ValueOutOfRange. ``min_deficit`` lets the
+    # error carry the rule's threshold for diagnostic rendering without
+    # the renderer having to import the handler-module constant.
+    min_deficit: int = 0
+
+
+@dataclass
+class TableNotHalted(StateMismatch):
+    CODE = "TABLE_NOT_HALTED"
+    TEMPLATE = "Table is not halted; cannot resume"
+
+
+@dataclass
+class TableHaltedAwaitingRebalance(StateMismatch):
+    CODE = "TABLE_HALTED_AWAITING_REBALANCE"
+    TEMPLATE = (
+        "Table is halted for balancing (deficit={deficit}); resume play via "
+        "ResumePlayAtTable before starting a new hand (TDA Rule 11D)"
+    )
+    # Carries the halt's recorded deficit so the StartHand-while-halted
+    # rejection can name what the operator is waiting on.
+    deficit: int = 0
+
+
 __all__ = [
     "TableAlreadyExists",
     "TableNameRequired",
@@ -204,4 +241,8 @@ __all__ = [
     "HandRootMismatch",
     "AmountMustBePositive",
     "SeatPositionMismatch",
+    "TableAlreadyHalted",
+    "TableNotHalted",
+    "TableHaltedAwaitingRebalance",
+    "HaltDeficitBelowMin",
 ]

@@ -7,7 +7,7 @@ pure-function form for reuse (e.g. projections or docs examples).
 
 from dataclasses import dataclass, field
 
-from angzarr_client.proto.examples import tournament_pb2 as tournament
+from angzarr_client.proto.examples.v1 import tournament_pb2 as tournament
 
 
 @dataclass
@@ -229,55 +229,55 @@ def build_state(state: TournamentState, events: list) -> TournamentState:
     from google.protobuf.any_pb2 import Any as AnyProto
 
     _appliers = {
-        "angzarr_client.proto.examples.TournamentCreated": (
+        "angzarr_client.proto.examples.v1.TournamentCreated": (
             tournament.TournamentCreated,
             apply_created,
         ),
-        "angzarr_client.proto.examples.RegistrationOpened": (
+        "angzarr_client.proto.examples.v1.RegistrationOpened": (
             tournament.RegistrationOpened,
             apply_registration_opened,
         ),
-        "angzarr_client.proto.examples.RegistrationClosed": (
+        "angzarr_client.proto.examples.v1.RegistrationClosed": (
             tournament.RegistrationClosed,
             apply_registration_closed,
         ),
-        "angzarr_client.proto.examples.TournamentPlayerEnrolled": (
+        "angzarr_client.proto.examples.v1.TournamentPlayerEnrolled": (
             tournament.TournamentPlayerEnrolled,
             apply_player_enrolled,
         ),
-        "angzarr_client.proto.examples.TournamentEnrollmentRejected": (
+        "angzarr_client.proto.examples.v1.TournamentEnrollmentRejected": (
             tournament.TournamentEnrollmentRejected,
             apply_enrollment_rejected,
         ),
-        "angzarr_client.proto.examples.RebuyProcessed": (
+        "angzarr_client.proto.examples.v1.RebuyProcessed": (
             tournament.RebuyProcessed,
             apply_rebuy_processed,
         ),
-        "angzarr_client.proto.examples.RebuyDenied": (
+        "angzarr_client.proto.examples.v1.RebuyDenied": (
             tournament.RebuyDenied,
             apply_rebuy_denied,
         ),
-        "angzarr_client.proto.examples.BlindLevelAdvanced": (
+        "angzarr_client.proto.examples.v1.BlindLevelAdvanced": (
             tournament.BlindLevelAdvanced,
             apply_blind_advanced,
         ),
-        "angzarr_client.proto.examples.PlayerEliminated": (
+        "angzarr_client.proto.examples.v1.PlayerEliminated": (
             tournament.PlayerEliminated,
             apply_player_eliminated,
         ),
-        "angzarr_client.proto.examples.TournamentPaused": (
+        "angzarr_client.proto.examples.v1.TournamentPaused": (
             tournament.TournamentPaused,
             apply_paused,
         ),
-        "angzarr_client.proto.examples.TournamentResumed": (
+        "angzarr_client.proto.examples.v1.TournamentResumed": (
             tournament.TournamentResumed,
             apply_resumed,
         ),
-        "angzarr_client.proto.examples.TournamentStarted": (
+        "angzarr_client.proto.examples.v1.TournamentStarted": (
             tournament.TournamentStarted,
             apply_started,
         ),
-        "angzarr_client.proto.examples.TournamentCompleted": (
+        "angzarr_client.proto.examples.v1.TournamentCompleted": (
             tournament.TournamentCompleted,
             apply_completed,
         ),

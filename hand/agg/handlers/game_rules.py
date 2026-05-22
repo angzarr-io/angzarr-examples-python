@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 # SplitMix64 — portable PRNG used so seeded shuffles produce byte-identical
 # decks across language implementations. Specified by the cucumber spec

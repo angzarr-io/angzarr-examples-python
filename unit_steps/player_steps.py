@@ -29,12 +29,12 @@ from tests.helpers import uuid_for
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import try_unpack, type_name_from_url
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import rebuy_pb2 as rebuy
-from angzarr_client.proto.examples import registration_pb2 as registration
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples.v1 import registration_pb2 as registration
 
 # Use regex matchers for flexibility
 use_step_matcher("re")
@@ -314,39 +314,39 @@ def _apply_rebuy_closed(state: ReservationState, event) -> None:
 
 
 _RESERVATION_APPLIERS: dict[str, tuple[type, callable]] = {
-    "angzarr_client.proto.examples.BuyInRequested": (
+    "angzarr_client.proto.examples.v1.BuyInRequested": (
         buy_in.BuyInRequested,
         _apply_buy_in_requested,
     ),
-    "angzarr_client.proto.examples.BuyInConfirmed": (
+    "angzarr_client.proto.examples.v1.BuyInConfirmed": (
         buy_in.BuyInConfirmed,
         _apply_buy_in_closed,
     ),
-    "angzarr_client.proto.examples.BuyInReservationReleased": (
+    "angzarr_client.proto.examples.v1.BuyInReservationReleased": (
         buy_in.BuyInReservationReleased,
         _apply_buy_in_closed,
     ),
-    "angzarr_client.proto.examples.RegistrationRequested": (
+    "angzarr_client.proto.examples.v1.RegistrationRequested": (
         registration.RegistrationRequested,
         _apply_registration_requested,
     ),
-    "angzarr_client.proto.examples.RegistrationFeeConfirmed": (
+    "angzarr_client.proto.examples.v1.RegistrationFeeConfirmed": (
         registration.RegistrationFeeConfirmed,
         _apply_registration_closed,
     ),
-    "angzarr_client.proto.examples.RegistrationFeeReleased": (
+    "angzarr_client.proto.examples.v1.RegistrationFeeReleased": (
         registration.RegistrationFeeReleased,
         _apply_registration_closed,
     ),
-    "angzarr_client.proto.examples.RebuyRequested": (
+    "angzarr_client.proto.examples.v1.RebuyRequested": (
         rebuy.RebuyRequested,
         _apply_rebuy_requested,
     ),
-    "angzarr_client.proto.examples.RebuyFeeConfirmed": (
+    "angzarr_client.proto.examples.v1.RebuyFeeConfirmed": (
         rebuy.RebuyFeeConfirmed,
         _apply_rebuy_closed,
     ),
-    "angzarr_client.proto.examples.RebuyFeeReleased": (
+    "angzarr_client.proto.examples.v1.RebuyFeeReleased": (
         rebuy.RebuyFeeReleased,
         _apply_rebuy_closed,
     ),

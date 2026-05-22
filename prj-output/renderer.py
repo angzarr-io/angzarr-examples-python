@@ -6,7 +6,7 @@ in the gRPC service wiring.
 
 from __future__ import annotations
 
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 _RANK_CHAR = {
     2: "2",

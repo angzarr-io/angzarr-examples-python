@@ -23,12 +23,12 @@ from tests.helpers import uuid_for
 
 from angzarr_client import Router, handles, saga
 from angzarr_client.helpers import TYPE_URL_PREFIX, type_matches
-from angzarr_client.proto.angzarr import SagaHandleRequest
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
+from angzarr_client.proto.angzarr.v1.saga_pb2 import SagaHandleRequest
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import hand_pb2 as hand
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import table_pb2 as table
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -764,7 +764,7 @@ def step_when_dispatch_saga_request(context, dest_seqs):
 
 
 @then(
-    "the result is a (?:angzarr_client\\.proto\\.)?examples\\.(?P<event_name>\\w+) "
+    "the result is a (?:angzarr_client\\.proto\\.)?examples\\.v1\\.(?P<event_name>\\w+) "
     "command to (?P<domain>\\w+) domain"
 )
 def step_then_result_is_command(context, event_name, domain):
@@ -774,7 +774,7 @@ def step_then_result_is_command(context, event_name, domain):
     assert (
         cmd_book.cover.domain == domain
     ), f"Expected domain {domain}, got {cmd_book.cover.domain}"
-    suffix = f"angzarr_client.proto.examples.{event_name}"
+    suffix = f"angzarr_client.proto.examples.v1.{event_name}"
     assert cmd_book.pages[0].command.type_url.endswith(suffix), (
         f"Expected command type ending with {suffix}, got "
         f"{cmd_book.pages[0].command.type_url}"
@@ -861,7 +861,7 @@ def step_then_commands_to_player(context, count):
     ), f"Expected {expected} commands to player, got {len(player_cmds)}"
 
 
-@then("each command is a (?:angzarr_client\\.proto\\.)?examples\\.ReleaseFunds")
+@then("each command is a (?:angzarr_client\\.proto\\.)?examples\.v1\.ReleaseFunds")
 def step_then_each_release_funds(context):
     """Verify every emitted command is a ReleaseFunds."""
     for c in context.commands:
@@ -870,7 +870,7 @@ def step_then_each_release_funds(context):
         ), f"Expected ReleaseFunds, got {c.pages[0].command.type_url}"
 
 
-@then("each command is a (?:angzarr_client\\.proto\\.)?examples\\.DepositFunds")
+@then("each command is a (?:angzarr_client\\.proto\\.)?examples\.v1\.DepositFunds")
 def step_then_each_deposit_funds(context):
     """Verify every emitted command is a DepositFunds."""
     for c in context.commands:

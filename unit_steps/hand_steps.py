@@ -10,9 +10,9 @@ from tests.helpers import uuid_for
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import try_unpack
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import hand_pb2 as hand
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 # Use regex matchers for flexibility
 use_step_matcher("re")
@@ -754,7 +754,7 @@ def step_given_blind_level_advanced_mid_hand(context, lvl, sb, bb):
     """Append a tournament BlindLevelAdvanced event to the stream. The
     Hand aggregate ignores tournament events on rebuild, so the in-hand
     big_blind / min_raise should remain at the prior level."""
-    from angzarr_client.proto.examples import tournament_pb2 as t
+    from angzarr_client.proto.examples.v1 import tournament_pb2 as t
     event = t.BlindLevelAdvanced(
         level=int(lvl),
         small_blind=int(sb),
@@ -774,7 +774,7 @@ def step_given_blind_level_advanced_mid_hand(context, lvl, sb, bb):
 )
 def step_given_prior_hand_at_level(context, table_name, lvl):
     """Build a Table with prior hand history."""
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     context.table_events = [
         make_event_page(
             table_proto.TableCreated(
@@ -838,7 +838,7 @@ def step_given_blind_level_advanced_applied(context, lvl):
 @when(r'I handle a StartHand command at table "(?P<table_name>[^"]+)"')
 def step_when_start_hand_at_named_table(context, table_name):
     from table.agg.handlers import Table
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     book = _make_event_book(context.table_events)
     agg = Table(book)
     cmd = table_proto.StartHand(blind_level=context.next_blind_level)
@@ -854,7 +854,7 @@ def step_when_start_hand_at_named_table(context, table_name):
 
 @then(r"the table event has blind_level (?P<lvl>\d+)")
 def step_then_table_event_blind_level(context, lvl):
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     evt = table_proto.HandStarted()
     context.result_event_any.Unpack(evt)
     assert evt.blind_level == int(lvl), (
@@ -1051,7 +1051,7 @@ def step_when_seating_handles_tie(context):
     """Emit a SeatTiebreakResolved event with a deterministic seed
     derived from (hand_no, both player_roots)."""
     import hashlib
-    from angzarr_client.proto.examples import tournament_pb2 as t
+    from angzarr_client.proto.examples.v1 import tournament_pb2 as t
     a_root = uuid_for(context.tied_players[0])
     b_root = uuid_for(context.tied_players[1])
     seed_input = (
@@ -2647,7 +2647,7 @@ def _emit_synthetic(context, event):
     from google.protobuf.any_pb2 import Any as ProtoAny
     from google.protobuf.timestamp_pb2 import Timestamp
 
-    from angzarr_client.proto.angzarr import types_pb2 as types
+    from angzarr_client.proto.angzarr.v1 import types_pb2 as types
 
     if not hasattr(context, "events"):
         context.events = []
@@ -5621,7 +5621,6 @@ def _compute_showdown_order(context) -> list[bytes]:
         from hand.agg.handlers.game_rules import (
             RazzRules,
             _showing_hand_high_key,
-            _SUIT_RANK,
         )
 
         rules = getattr(context, "rules", None)
@@ -7114,7 +7113,6 @@ def step_when_correct_illegal_overbet(context):
     )
     # Reuse _execute_handler with a custom mapping: handler for
     # CorrectIllegalBet uses handle_correct_illegal_bet via @handles.
-    from hand.agg.handlers import Hand as HandCls
 
     _HANDLER_MAP["correct_illegal_bet"] = "handle_correct_illegal_bet"
     _execute_handler(context, "correct_illegal_bet", cmd)

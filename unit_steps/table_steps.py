@@ -10,12 +10,12 @@ from tests.helpers import uuid_for
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import type_name_from_url
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import rebuy_pb2 as rebuy
-from angzarr_client.proto.examples import table_pb2 as table
-from angzarr_client.proto.examples import tournament_pb2 as tournament
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples.v1 import table_pb2 as table
+from angzarr_client.proto.examples.v1 import tournament_pb2 as tournament
 
 # Use regex matchers for flexibility
 use_step_matcher("re")
@@ -274,9 +274,17 @@ def _id_bytes(label: str) -> bytes:
     return uuid_for(label)
 
 
-def _execute_handler(context, method_name: str, cmd):
-    """Execute a command handler method on the Table aggregate."""
-    event_book = _make_event_book(context.events if hasattr(context, "events") else [])
+def _execute_handler(context, method_name: str, cmd, events=None):
+    """Execute a command handler method on the Table aggregate.
+
+    By default the aggregate is rebuilt from ``context.events`` (the
+    single-table path). For multi-table scenarios (EU-1184 et al.) the
+    caller passes ``events`` to rebuild from a per-table page list — see
+    ``_execute_handler_for_table``."""
+    page_source = events if events is not None else (
+        context.events if hasattr(context, "events") else []
+    )
+    event_book = _make_event_book(page_source)
     agg = Table(event_book)
 
     try:
@@ -299,7 +307,7 @@ def _execute_handler(context, method_name: str, cmd):
                 [
                     make_event_page(
                         result_event,
-                        seq=len(context.events) if hasattr(context, "events") else 0,
+                        seq=len(page_source),
                     )
                 ]
             )
@@ -312,6 +320,25 @@ def _execute_handler(context, method_name: str, cmd):
         context.result = None
         context.error = e
         context.error_message = str(e)
+
+
+def _execute_handler_for_table(context, table_name: str, method_name: str, cmd):
+    """Execute a handler against the named table's per-table event log.
+
+    Multi-table scenarios (Rule 11A balancing, Rule 11D halt, Rule 68
+    final-table combine, etc.) stage events on ``context.multi_tables``
+    keyed by table name. This helper rebuilds the named table's
+    aggregate from its own page list rather than the single global
+    ``context.events``."""
+    events = context.multi_tables.get(table_name, []) if hasattr(
+        context, "multi_tables"
+    ) else []
+    _execute_handler(context, method_name, cmd, events=events)
+    # Map the named table back so later Then-steps can reach the same
+    # aggregate via ``context.table_aggs[name]`` rather than the singleton.
+    if not hasattr(context, "table_aggs"):
+        context.table_aggs = {}
+    context.table_aggs[table_name] = context.agg
 
 
 def _stamp_scenario_cover(context, err):
@@ -1088,14 +1115,20 @@ def step_then_every_player_reseated(context, final):
 
 @then(r'"(?P<name>[^"]+)" status is "(?P<status>[^"]+)"')
 def step_then_table_status(context, name, status):
-    if hasattr(context, "combined_table_status"):
+    if status == "halted_for_balancing":
+        agg = getattr(context, "table_aggs", {}).get(name)
+        assert agg is not None, (
+            f"No aggregate recorded for {name!r} — did the When-step "
+            f"dispatch a HaltForBalancing command via "
+            f"_execute_handler_for_table?"
+        )
+        assert agg._state.halted_for_balancing, (
+            f"Expected halted_for_balancing=True on {name}, "
+            f"got {agg._state.halted_for_balancing}"
+        )
+    elif hasattr(context, "combined_table_status"):
         assert context.combined_table_status.get(name) == status, (
             f"{name} status={context.combined_table_status.get(name)}, "
-            f"expected {status}"
-        )
-    elif hasattr(context, "halted_table_status"):
-        assert context.halted_table_status.get(name) == status, (
-            f"{name} status={context.halted_table_status.get(name)}, "
             f"expected {status}"
         )
 
@@ -1189,7 +1222,14 @@ def step_then_player_dealt_in_next(context, player_id):
     r'the next hand at "(?P<table_name>[^"]+)" would assign the BB to an empty seat'
 )
 def step_when_next_hand_bb_empty(context, table_name):
-    """Synthesize a TableHaltedForBalancing event for the named table."""
+    """Drive ``HaltForBalancing`` against the named table.
+
+    Computes the deficit from the multi-table event fixture — the same
+    cross-table count the tournament detection saga will use once that
+    work lands — and dispatches a real ``HaltForBalancing`` command. The
+    table aggregate emits ``TableHaltedForBalancing`` and flips its
+    ``halted_for_balancing`` state, which the StartHand guard then
+    enforces (TDA Rule 11D)."""
     short_pages = context.multi_tables.get(table_name, [])
     big_pages = max(
         (pages for name, pages in context.multi_tables.items() if name != table_name),
@@ -1199,26 +1239,16 @@ def step_when_next_hand_bb_empty(context, table_name):
     short_count = sum(1 for x in short_pages if x.event.Is(table.PlayerJoined.DESCRIPTOR))
     big_count = sum(1 for x in big_pages if x.event.Is(table.PlayerJoined.DESCRIPTOR))
     deficit = big_count - short_count
-    event = table.TableHaltedForBalancing(
-        table_root=uuid_for(table_name),
-        deficit=deficit,
-        halted_at=make_timestamp(),
+    _execute_handler_for_table(
+        context,
+        table_name,
+        "handle_halt_for_balancing",
+        table.HaltForBalancing(deficit=deficit),
     )
-    event_any = ProtoAny()
-    event_any.Pack(event, type_url_prefix="type.googleapis.com/")
-    page = types.EventPage(
-        header=types.PageHeader(sequence=0),
-        event=event_any,
-        created_at=make_timestamp(),
-    )
-    context.result = _make_event_book([page])
-    context.result_event_any = event_any
-    context.error = None
-    context.halted_table_status = {table_name: "halted_for_balancing"}
 
 
 @then(
-    r'a angzarr_client\.proto\.examples\.TableHaltedForBalancing event is '
+    r'a angzarr_client\.proto\.examples\.v1\.TableHaltedForBalancing event is '
     r'emitted for "(?P<table_name>[^"]+)"'
 )
 def step_then_halted_for_balancing_emitted(context, table_name):

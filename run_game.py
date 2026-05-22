@@ -26,8 +26,10 @@ sys.path.insert(0, str(root / "agg-player"))  # Contains proto/poker stubs
 
 import grpc
 
-from angzarr_client.proto.examples import hand_pb2, player_pb2, table_pb2
-from angzarr_client.proto.examples import poker_types_pb2 as types_pb2
+from angzarr_client.proto.examples.v1 import hand_pb2
+from angzarr_client.proto.examples.v1 import player_pb2
+from angzarr_client.proto.examples.v1 import table_pb2
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as types_pb2
 from client import GatewayClient, derive_root, SYNC_MODE_SIMPLE, SYNC_MODE_CASCADE
 
 # Optional AI Player integration

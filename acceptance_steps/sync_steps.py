@@ -8,9 +8,7 @@ import time
 
 from behave import given, then, use_step_matcher, when
 
-from angzarr_client.proto.angzarr import (
-    SyncMode,
-)
+from angzarr_client.proto.angzarr.v1.types_pb2 import SyncMode
 
 use_step_matcher("re")
 
@@ -28,7 +26,7 @@ SYNC_MODE_MAP = {
 # Cascade error modes - import at function level if available
 CASCADE_ERROR_MODE_MAP = {}
 try:
-    from angzarr_client.proto.angzarr import CascadeErrorMode
+    from angzarr_client.proto.angzarr.v1.types_pb2 import CascadeErrorMode
 
     CASCADE_ERROR_MODE_MAP = {
         "FAIL_FAST": CascadeErrorMode.CASCADE_ERROR_FAIL_FAST,

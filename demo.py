@@ -15,7 +15,7 @@ from handlers.ai import PokerAI
 from handlers.betting import BettingRound, DrawRound, PlayerState
 from handlers.game_rules import get_game_rules
 
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 # Card symbols
 SUIT_SYMBOLS = {

@@ -1,16 +1,17 @@
 """Table aggregate - rich domain model."""
 
 import hashlib
+import uuid as _uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client import applies, command_handler, handles, now
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in_proto
-from angzarr_client.proto.examples import rebuy_pb2 as rebuy_proto
-from angzarr_client.proto.examples import table_pb2 as table_proto
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in_proto
+from angzarr_client.proto.examples.v1 import rebuy_pb2 as rebuy_proto
+from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
 
 from table.agg.errors import (
     AmountMustBePositive,
@@ -18,6 +19,7 @@ from table.agg.errors import (
     BuyInAboveMax,
     BuyInBelowMin,
     CannotLeaveDuringHand,
+    HaltDeficitBelowMin,
     HandAlreadyInProgress,
     HandRootMismatch,
     MaxBuyInMustExceedMinBuyIn,
@@ -32,11 +34,22 @@ from table.agg.errors import (
     SeatPositionMismatch,
     SmallBlindMustBePositive,
     TableAlreadyExists,
+    TableAlreadyHalted,
+    TableHaltedAwaitingRebalance,
     TableHandForHandRoundComplete,
     TableIsFull,
     TableNameRequired,
     TableNotFound,
+    TableNotHalted,
 )
+
+
+# TDA Rule 11D — "Play will halt on tables 3+ players short (by
+# elimination) than the table with the most players once the blinds
+# are impacted." The threshold is part of the rule, not a runtime
+# parameter; encoded here so the table aggregate can reject
+# below-threshold halt commands without re-deriving the count.
+MIN_HALT_FOR_BALANCING_DEFICIT = 3
 
 
 @dataclass
@@ -85,6 +98,17 @@ class _TableState:
     # right tournament aggregate by saga-tournament-table-h4h. Empty
     # bytes outside H4H or for non-tournament tables.
     hand_for_hand_tournament_root: bytes = b""
+    # uuid5(NAMESPACE_OID, table_name).bytes — matches the test-helper
+    # convention and the cross-language byte-parity invariant. Populated
+    # in apply_table_created so emitted events can stamp the root
+    # without re-deriving from the name at every call site.
+    table_root: bytes = b""
+    # TDA Rule 11D — set by apply_table_halted_for_balancing; cleared by
+    # apply_table_resumed_for_balancing. Gates StartHand.
+    halted_for_balancing: bool = False
+    # Players-short relative to the largest table at halt time.  Carried
+    # for diagnostic surfacing in the StartHand-while-halted rejection.
+    halted_deficit: int = 0
 
 
 # Module-level registry of (event_type, applier_method_name) for replay.
@@ -153,6 +177,7 @@ class Table:
     ) -> None:
         state.table_id = f"table_{event.table_name}"
         state.table_name = event.table_name
+        state.table_root = _uuid.uuid5(_uuid.NAMESPACE_OID, event.table_name).bytes
         state.game_variant = event.game_variant
         state.small_blind = event.small_blind
         state.big_blind = event.big_blind
@@ -295,6 +320,20 @@ class Table:
             if seat.player_root == event.player_root:
                 seat.stack = event.new_stack
                 break
+
+    @applies(table_proto.TableHaltedForBalancing)
+    def apply_table_halted_for_balancing(
+        self, state: _TableState, event: table_proto.TableHaltedForBalancing
+    ) -> None:
+        state.halted_for_balancing = True
+        state.halted_deficit = event.deficit
+
+    @applies(table_proto.TableResumedForBalancing)
+    def apply_table_resumed_for_balancing(
+        self, state: _TableState, _event: table_proto.TableResumedForBalancing
+    ) -> None:
+        state.halted_for_balancing = False
+        state.halted_deficit = 0
 
     # --- State accessors (operate on self._state; used by tests) ---
 
@@ -658,6 +697,13 @@ class Table:
                 raise TableNotFound()
             if self.status == "in_hand":
                 raise HandAlreadyInProgress()
+            # TDA Rule 11D — a table halted for balancing refuses to
+            # start the next hand until the coordinator issues
+            # ResumePlayAtTable.
+            if self._state.halted_for_balancing:
+                raise TableHaltedAwaitingRebalance(
+                    deficit=self._state.halted_deficit
+                )
             # TDA Rule 12 — once a table has finished its synchronised
             # H4H hand it must wait for the round-complete signal before
             # the next hand can begin. The operator/saga issues
@@ -1002,6 +1048,70 @@ class Table:
             if not self.exists:
                 raise TableNotFound()
             event = table_proto.TableHandForHandEnded(ended_at=now())
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(table_proto.HaltForBalancing)
+    def handle_halt_for_balancing(
+        self,
+        cmd: table_proto.HaltForBalancing,
+        state: _TableState | None = None,
+        seq: int | None = None,
+    ) -> table_proto.TableHaltedForBalancing:
+        """TDA Rule 11D — halt play at a table short ``deficit`` players
+        relative to the largest table. The coordinator (tournament
+        detection saga) is responsible for the cross-table comparison;
+        this handler owns the per-table halt fact and the ``StartHand``
+        gate that follows, plus the rule's deficit threshold."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TableNotFound()
+            if cmd.deficit < MIN_HALT_FOR_BALANCING_DEFICIT:
+                raise HaltDeficitBelowMin(
+                    min_deficit=MIN_HALT_FOR_BALANCING_DEFICIT,
+                    got=cmd.deficit,
+                )
+            if self._state.halted_for_balancing:
+                raise TableAlreadyHalted()
+            event = table_proto.TableHaltedForBalancing(
+                table_root=self._state.table_root,
+                deficit=cmd.deficit,
+                halted_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(table_proto.ResumePlayAtTable)
+    def handle_resume_play_at_table(
+        self,
+        _cmd: table_proto.ResumePlayAtTable,
+        state: _TableState | None = None,
+        seq: int | None = None,
+    ) -> table_proto.TableResumedForBalancing:
+        """TDA Rule 11D — resume play at a halted table once rebalancing
+        has closed the deficit. The coordinator decides; the table
+        clears the halt flag and is open to ``StartHand`` again."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TableNotFound()
+            if not self._state.halted_for_balancing:
+                raise TableNotHalted()
+            event = table_proto.TableResumedForBalancing(
+                table_root=self._state.table_root,
+                resumed_at=now(),
+            )
             if not router_mode:
                 self._emit(event)
             return event

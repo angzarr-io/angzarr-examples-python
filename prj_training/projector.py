@@ -14,9 +14,9 @@ import structlog
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import hand_pb2 as hand
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 from .schema import Base, ProjectorCheckpoint, TrainingState
 

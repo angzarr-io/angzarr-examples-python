@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from prj_training.projector import TrainingProjector
 
 from angzarr_client import run_server
-from angzarr_client.proto.angzarr import projector_pb2_grpc
-from angzarr_client.proto.angzarr import types_pb2 as types
+from angzarr_client.proto.angzarr.v1 import projector_pb2_grpc
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
 
 structlog.configure(
     processors=[

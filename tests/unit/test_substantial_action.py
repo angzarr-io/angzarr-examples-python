@@ -6,7 +6,7 @@ Mirrors the Rust unit tests in
 
 import pytest
 
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 from hand.agg.substantial_action import is_substantial_action
 
 

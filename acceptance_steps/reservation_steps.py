@@ -19,12 +19,12 @@ Two layers exercised here:
 
 from behave import then, use_step_matcher, when
 
-from angzarr_client.proto.angzarr import SyncMode
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import rebuy_pb2 as rebuy
-from angzarr_client.proto.examples import registration_pb2 as registration
+from angzarr_client.proto.angzarr.v1.types_pb2 import SyncMode
+from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples.v1 import registration_pb2 as registration
 
 from common_steps import new_uuid_bytes, pack_command
 
@@ -108,7 +108,7 @@ def step_when_initiate_tournament_registration(context, player, tournament):
         player,
         "registration",
         cmd,
-        "angzarr_client.proto.examples.InitiateTournamentRegistration",
+        "angzarr_client.proto.examples.v1.InitiateTournamentRegistration",
     )
 
 
@@ -138,7 +138,7 @@ def step_when_initiate_buy_in(context, player, table, seat, amount):
         player,
         "buy_in",
         cmd,
-        "angzarr_client.proto.examples.InitiateBuyIn",
+        "angzarr_client.proto.examples.v1.InitiateBuyIn",
     )
 
 
@@ -170,7 +170,7 @@ def step_when_initiate_rebuy(context, player, tournament, table, seat):
         player,
         "rebuy",
         cmd,
-        "angzarr_client.proto.examples.InitiateRebuy",
+        "angzarr_client.proto.examples.v1.InitiateRebuy",
     )
 
 
@@ -236,7 +236,7 @@ def step_when_reserve_funds(context, name, amount, key):
         key=key.encode(),
     )
     _send_player_command(
-        context, name, cmd, "angzarr_client.proto.examples.ReserveFunds"
+        context, name, cmd, "angzarr_client.proto.examples.v1.ReserveFunds"
     )
     if context.command_succeeded:
         context.players[name]["reserved_funds"] += int(amount)
@@ -247,7 +247,7 @@ def step_when_release_funds(context, name, key):
     """Direct ReleaseFunds — returns the reserved bucket to available."""
     cmd = player.ReleaseFunds(key=key.encode())
     _send_player_command(
-        context, name, cmd, "angzarr_client.proto.examples.ReleaseFunds"
+        context, name, cmd, "angzarr_client.proto.examples.v1.ReleaseFunds"
     )
     if context.command_succeeded:
         # Tracked release returns whatever was bucketed; in tests we set
@@ -267,7 +267,7 @@ def step_when_deduct_reserved_funds(context, name, amount, key):
         reservation_id=new_uuid_bytes(),
     )
     _send_player_command(
-        context, name, cmd, "angzarr_client.proto.examples.DeductReservedFunds"
+        context, name, cmd, "angzarr_client.proto.examples.v1.DeductReservedFunds"
     )
     if context.command_succeeded:
         context.players[name]["bankroll"] -= int(amount)
@@ -281,7 +281,7 @@ def step_when_withdraw_funds(context, name, amount):
         amount=poker_types.Currency(amount=int(amount), currency_code="USD"),
     )
     _send_player_command(
-        context, name, cmd, "angzarr_client.proto.examples.WithdrawFunds"
+        context, name, cmd, "angzarr_client.proto.examples.v1.WithdrawFunds"
     )
     if context.command_succeeded:
         context.players[name]["bankroll"] -= int(amount)
@@ -302,5 +302,5 @@ def step_when_transfer_funds(context, amount, src, dst, hand):
         reason="test_transfer",
     )
     _send_player_command(
-        context, dst, cmd, "angzarr_client.proto.examples.TransferFunds"
+        context, dst, cmd, "angzarr_client.proto.examples.v1.TransferFunds"
     )

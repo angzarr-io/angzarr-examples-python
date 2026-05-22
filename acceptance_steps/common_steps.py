@@ -56,7 +56,7 @@ def pack_command(msg, type_name: str) -> ProtoAny:
 
 def proto_uuid(raw_bytes: bytes):
     """Convert raw bytes to a proto UUID message."""
-    from angzarr_client.proto.angzarr import UUID
+    from angzarr_client.proto.angzarr.v1.types_pb2 import UUID
 
     return UUID(value=raw_bytes)
 

@@ -13,7 +13,7 @@ from google.protobuf import any_pb2
 from google.protobuf.message import Message
 
 from angzarr_client import CommandResponse, DomainClient
-from angzarr_client.proto.angzarr.types_pb2 import (
+from angzarr_client.proto.angzarr.v1.types_pb2 import (
     CommandBook,
     CommandPage,
     Cover,

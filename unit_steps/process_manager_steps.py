@@ -9,10 +9,10 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 from tests.helpers import uuid_for
 
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import hand_pb2 as hand
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import table_pb2 as table
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "hand-flow"))
 
@@ -1010,12 +1010,12 @@ def step_then_action_on_position(context, pos):
 
 from angzarr_client import Destinations  # noqa: E402
 from angzarr_client.helpers import type_name_from_url  # noqa: E402
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in  # noqa: E402
-from angzarr_client.proto.examples import orchestration_pb2 as orch  # noqa: E402
-from angzarr_client.proto.examples import poker_types_pb2 as poker  # noqa: E402
-from angzarr_client.proto.examples import registration_pb2 as registration  # noqa: E402
-from angzarr_client.proto.examples import rebuy_pb2 as rebuy  # noqa: E402
-from angzarr_client.proto.examples import tournament_pb2 as tournament  # noqa: E402
+from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in
+from angzarr_client.proto.examples.v1 import orchestration_pb2 as orch
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker
+from angzarr_client.proto.examples.v1 import registration_pb2 as registration
+from angzarr_client.proto.examples.v1 import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples.v1 import tournament_pb2 as tournament
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -1477,15 +1477,15 @@ def step_then_cmd_has_int_field(context, cmd_name, field, value):
 
 
 _PROCESS_EVENT_TYPES = {
-    "angzarr_client.proto.examples.BuyInInitiated": buy_in.BuyInInitiated,
-    "angzarr_client.proto.examples.BuyInCompleted": buy_in.BuyInCompleted,
-    "angzarr_client.proto.examples.BuyInFailed": buy_in.BuyInFailed,
-    "angzarr_client.proto.examples.RebuyInitiated": rebuy.RebuyInitiated,
-    "angzarr_client.proto.examples.RebuyCompleted": rebuy.RebuyCompleted,
-    "angzarr_client.proto.examples.RebuyFailed": rebuy.RebuyFailed,
-    "angzarr_client.proto.examples.RegistrationInitiated": registration.RegistrationInitiated,
-    "angzarr_client.proto.examples.RegistrationCompleted": registration.RegistrationCompleted,
-    "angzarr_client.proto.examples.RegistrationFailed": registration.RegistrationFailed,
+    "angzarr_client.proto.examples.v1.BuyInInitiated": buy_in.BuyInInitiated,
+    "angzarr_client.proto.examples.v1.BuyInCompleted": buy_in.BuyInCompleted,
+    "angzarr_client.proto.examples.v1.BuyInFailed": buy_in.BuyInFailed,
+    "angzarr_client.proto.examples.v1.RebuyInitiated": rebuy.RebuyInitiated,
+    "angzarr_client.proto.examples.v1.RebuyCompleted": rebuy.RebuyCompleted,
+    "angzarr_client.proto.examples.v1.RebuyFailed": rebuy.RebuyFailed,
+    "angzarr_client.proto.examples.v1.RegistrationInitiated": registration.RegistrationInitiated,
+    "angzarr_client.proto.examples.v1.RegistrationCompleted": registration.RegistrationCompleted,
+    "angzarr_client.proto.examples.v1.RegistrationFailed": registration.RegistrationFailed,
 }
 
 

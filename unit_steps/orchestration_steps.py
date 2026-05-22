@@ -16,14 +16,14 @@ from pathlib import Path
 from behave import given, then, use_step_matcher, when
 
 from tests.helpers import uuid_for
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in
-from angzarr_client.proto.examples import orchestration_pb2 as orch
-from angzarr_client.proto.examples import poker_types_pb2 as poker
-from angzarr_client.proto.examples import rebuy_pb2 as rebuy
-from angzarr_client.proto.examples import registration_pb2 as registration
-from angzarr_client.proto.examples import table_pb2 as table_proto
-from angzarr_client.proto.examples import tournament_pb2 as tournament
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in
+from angzarr_client.proto.examples.v1 import orchestration_pb2 as orch
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker
+from angzarr_client.proto.examples.v1 import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples.v1 import registration_pb2 as registration
+from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+from angzarr_client.proto.examples.v1 import tournament_pb2 as tournament
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -283,7 +283,7 @@ def _state_for(context, kind: str) -> ReservationPMState:
 
 
 def _short_type_name(type_url: str) -> str:
-    """``type.googleapis.com/angzarr_client.proto.examples.SeatPlayer`` → ``SeatPlayer``."""
+    """``type.googleapis.com/angzarr_client.proto.examples.v1.SeatPlayer`` → ``SeatPlayer``."""
     return type_url.rsplit(".", 1)[-1]
 
 

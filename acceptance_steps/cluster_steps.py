@@ -15,9 +15,9 @@ import time
 
 from behave import given, then, use_step_matcher, when
 
-from angzarr_client.proto.angzarr import SyncMode
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.angzarr.v1.types_pb2 import SyncMode
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 from common_steps import pack_command
 from player_steps import _deposit_funds, _player_root, _register_player
@@ -118,7 +118,7 @@ def _ping_player(context, name: str) -> bool:
     cmd = player.DepositFunds(
         amount=poker_types.Currency(amount=0, currency_code="USD"),
     )
-    packed = pack_command(cmd, "angzarr_client.proto.examples.DepositFunds")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.v1.DepositFunds")
     seq = context.players[name]["sequence"]
     try:
         context.client.send_command(

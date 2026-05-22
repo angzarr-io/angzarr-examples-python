@@ -29,12 +29,12 @@ from angzarr_client import (
     run_server,
 )
 from angzarr_client.helpers import type_name_from_url
-from angzarr_client.proto.angzarr import projector_pb2_grpc
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
+from angzarr_client.proto.angzarr.v1 import projector_pb2_grpc
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import hand_pb2 as hand
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import table_pb2 as table
 
 _ACTION_NAME = {
     poker_types.FOLD: "folds",

@@ -59,14 +59,14 @@ from angzarr_client import (
     now,
     process_manager,
 )
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in
-from angzarr_client.proto.examples import orchestration_pb2 as orch
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker
-from angzarr_client.proto.examples import rebuy_pb2 as rebuy
-from angzarr_client.proto.examples import registration_pb2 as registration
-from angzarr_client.proto.examples import tournament_pb2 as tournament
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in
+from angzarr_client.proto.examples.v1 import orchestration_pb2 as orch
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker
+from angzarr_client.proto.examples.v1 import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples.v1 import registration_pb2 as registration
+from angzarr_client.proto.examples.v1 import tournament_pb2 as tournament
 
 from state import (
     KIND_BUY_IN,

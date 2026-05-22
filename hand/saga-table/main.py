@@ -16,10 +16,10 @@ from angzarr_client import (
     run_server,
     saga,
 )
-from angzarr_client.proto.angzarr import saga_pb2_grpc
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import table_pb2 as table
+from angzarr_client.proto.angzarr.v1 import saga_pb2_grpc
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import hand_pb2 as hand
+from angzarr_client.proto.examples.v1 import table_pb2 as table
 
 structlog.configure(
     processors=[

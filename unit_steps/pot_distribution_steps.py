@@ -11,7 +11,6 @@ the integration with the existing event-sourcing path is exercised too.
 
 from behave import given, then, use_step_matcher, when
 from hand.agg.pot_distribution import (
-    Award,
     WinnerWithCards,
     WinnerWithSeat,
     WinnerWithSuit,
@@ -66,7 +65,7 @@ def step_given_dealer_button_at_seat(context, seat):
     """
     from google.protobuf.any_pb2 import Any as ProtoAny
 
-    from angzarr_client.proto.examples import hand_pb2 as hand_proto
+    from angzarr_client.proto.examples.v1 import hand_pb2 as hand_proto
 
     seat_int = int(seat)
     # Locate the most recent CardsDealt page in context.events.
@@ -95,8 +94,7 @@ def step_when_award_pot_even_tie(context, player_a, player_b):
     the resulting PotAwarded event are observable from later Then
     steps, so any divergence between helper and handler will surface.
     """
-    from hand.agg.handlers import Hand
-    from angzarr_client.proto.examples import hand_pb2 as hand_proto
+    from angzarr_client.proto.examples.v1 import hand_pb2 as hand_proto
 
     # Find the seats of the two named players from the latest CardsDealt event.
     seat_by_name = {}
@@ -150,7 +148,7 @@ def step_when_award_pot_even_tie(context, player_a, player_b):
         from datetime import datetime, timezone
         from google.protobuf.any_pb2 import Any as ProtoAny
         from google.protobuf.timestamp_pb2 import Timestamp
-        from angzarr_client.proto.angzarr import types_pb2 as types
+        from angzarr_client.proto.angzarr.v1 import types_pb2 as types
 
         sb = pot // 2
         bb = pot - sb
@@ -348,8 +346,8 @@ def step_when_stud_pot_split_between(context, pot, player_a, player_b):
     from tests.helpers import uuid_for
     from unit_steps.hand_steps import _make_event_book
 
-    from angzarr_client.proto.angzarr import types_pb2 as types
-    from angzarr_client.proto.examples import hand_pb2 as hand_proto
+    from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+    from angzarr_client.proto.examples.v1 import hand_pb2 as hand_proto
 
     awards = split_pot_by_high_card_walk(
         pot=int(pot), winners=context.stud_winners

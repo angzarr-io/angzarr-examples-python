@@ -16,9 +16,9 @@ from tests.helpers import uuid_for
 
 from angzarr_client.errors import CommandRejectedError
 from angzarr_client.helpers import try_unpack, type_name_from_url
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import tournament_pb2 as tournament
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import tournament_pb2 as tournament
 
 # Use regex matchers for flexibility
 use_step_matcher("re")
@@ -880,12 +880,12 @@ _EVENT_TYPES = {
 }
 
 
-@then(r"the result is an? (?:angzarr_client\.proto\.)?examples\." r"(?P<evt>\w+) event")
+@then(r"the result is an? (?:angzarr_client\.proto\.)?examples\.v1\." r"(?P<evt>\w+) event")
 def step_then_result_is_event(context, evt):
     assert (
         context.result_event_any is not None
     ), "No result event — command may have failed"
-    expected = f"angzarr_client.proto.examples.{evt}"
+    expected = f"angzarr_client.proto.examples.v1.{evt}"
     actual = type_name_from_url(context.result_event_any.type_url)
     assert actual == expected, f"Expected {expected}, got {actual}"
 
@@ -1828,7 +1828,7 @@ def step_when_no_show_deadline_expires(context, name):
 
 
 @then(
-    r'a angzarr_client\.proto\.examples\.NoShowDetected event is emitted '
+    r'a angzarr_client\.proto\.examples\.v1\.NoShowDetected event is emitted '
     r'for player "(?P<player_id>[^"]+)"'
 )
 def step_then_no_show_emitted(context, player_id):
@@ -1988,7 +1988,7 @@ def step_when_advance_with_chip_race(context, retire, new):
     # underlying BlindLevelAdvanced doesn't fail. We synthesize a level
     # entry by mutating the aggregate state directly (test fixture).
     if not agg._state.blind_structure:
-        from angzarr_client.proto.examples.tournament_pb2 import BlindLevel
+        from angzarr_client.proto.examples.v1.tournament_pb2 import BlindLevel
         agg._state.blind_structure = [
             BlindLevel(level=2, small_blind=25, big_blind=50, ante=0),
         ]
@@ -2214,7 +2214,7 @@ def step_given_dealer_about_to_advance(context, table_name, seat):
     """Build a Spring-1 table with all seats EXCEPT the named one
     occupied, and a prior HandStarted event whose dealer is one less
     than the vacated seat (so next-dealer rotation lands on it)."""
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     seat_int = int(seat)
     pages = []
     pages.append(
@@ -2282,7 +2282,7 @@ def step_given_dealer_about_to_advance(context, table_name, seat):
 def step_when_late_reg_seated(context, player_id, table_name, seat):
     """Enroll the player at the tournament aggregate, then synthesize
     a PlayerJoined event onto the table to fill the vacated seat."""
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     cmd = tournament.EnrollPlayer(
         player_root=uuid_for(player_id),
         reservation_id=f"res-{player_id}".encode(),
@@ -2307,7 +2307,7 @@ def step_when_late_reg_seated(context, player_id, table_name, seat):
 @when(r'I handle a StartHand command at "(?P<table_name>[^"]+)"')
 def step_when_start_hand_at_named_table_double_quoted(context, table_name):
     from table.agg.handlers import Table
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     book = _make_event_book(context.late_reg_table_pages)
     agg = Table(book)
     cmd = table_proto.StartHand()
@@ -2324,7 +2324,7 @@ def step_when_start_hand_at_named_table_double_quoted(context, table_name):
 
 @then(r"the dealer_position is seat (?P<seat>\d+)")
 def step_then_dealer_position_is_seat(context, seat):
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     evt = table_proto.HandStarted()
     context.result_event_any.Unpack(evt)
     assert evt.dealer_position == int(seat), (
@@ -2334,7 +2334,7 @@ def step_then_dealer_position_is_seat(context, seat):
 
 @then(r'player "(?P<player_id>[^"]+)" is dealt in for that hand')
 def step_then_player_dealt_in_for_hand(context, player_id):
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     evt = table_proto.HandStarted()
     context.result_event_any.Unpack(evt)
     target = uuid_for(player_id)
@@ -2371,7 +2371,7 @@ def step_given_next_hand_sb_at_player_seat(context, player_id):
     seat 0 (where, per HU rule, dealer == SB). Build the table via
     direct events on the Table aggregate; we keep tournament events
     untouched."""
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     other_label = "Bob" if player_id != "Bob" else "Alice"
     table_events = [
         make_event_page(
@@ -2413,7 +2413,7 @@ def step_when_start_hand_at_player_table(context, player_id):
     player included in players_on_penalty. Captures the resulting events
     on context.table_events for downstream Then steps."""
     from table.agg.handlers import Table
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     book = _make_event_book(context.table_events)
     agg = Table(book)
     cmd = table_proto.StartHand(
@@ -2436,7 +2436,7 @@ def step_when_start_hand_at_player_table(context, player_id):
 
 @then(r'player "(?P<player_id>[^"]+)" had her? SB posted from her? stack')
 def step_then_sb_posted_from_stack(context, player_id):
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     found = False
     for page in context.table_events:
         if page.event.Is(table_proto.PlayerHandKilledByPenalty.DESCRIPTOR):
@@ -2450,7 +2450,7 @@ def step_then_sb_posted_from_stack(context, player_id):
 
 @then(r'player "(?P<player_id>[^"]+)" hand is killed after the initial deal')
 def step_then_hand_killed(context, player_id):
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
     found = False
     for page in context.table_events:
         if page.event.Is(table_proto.PlayerHandKilledByPenalty.DESCRIPTOR):

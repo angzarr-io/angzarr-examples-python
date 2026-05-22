@@ -19,7 +19,7 @@ reached. Mirrors ``examples-rust/main/hand/agg/src/substantial_action.rs``.
 
 from typing import Sequence
 
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 # ActionType enum values that put chips in the pot. Posted blinds are
 # explicitly excluded by Rule 36 — those are emitted as BlindPosted

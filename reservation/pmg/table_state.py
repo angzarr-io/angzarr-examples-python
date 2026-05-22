@@ -7,8 +7,8 @@ rebuy flows against live table state queried synchronously via
 
 from dataclasses import dataclass, field
 
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in
-from angzarr_client.proto.examples import table_pb2 as table
+from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in
+from angzarr_client.proto.examples.v1 import table_pb2 as table
 
 
 @dataclass
@@ -64,10 +64,10 @@ def table_state_rebuild(prior_state: TableStateHelper, event) -> TableStateHelpe
 def table_state_from_event_book(event_book) -> TableStateHelper:
     state = TableStateHelper()
     _type_map = {
-        "angzarr_client.proto.examples.TableCreated": table.TableCreated,
-        "angzarr_client.proto.examples.PlayerJoined": table.PlayerJoined,
-        "angzarr_client.proto.examples.PlayerSeated": buy_in.PlayerSeated,
-        "angzarr_client.proto.examples.PlayerLeft": table.PlayerLeft,
+        "angzarr_client.proto.examples.v1.TableCreated": table.TableCreated,
+        "angzarr_client.proto.examples.v1.PlayerJoined": table.PlayerJoined,
+        "angzarr_client.proto.examples.v1.PlayerSeated": buy_in.PlayerSeated,
+        "angzarr_client.proto.examples.v1.PlayerLeft": table.PlayerLeft,
     }
     for page in event_book.pages:
         if not page.HasField("event"):

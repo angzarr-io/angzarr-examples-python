@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 from google.protobuf.any_pb2 import Any
 
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import hand_pb2 as hand
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import table_pb2 as table
 
 if TYPE_CHECKING:
     pass  # HandProcess is defined below in this file

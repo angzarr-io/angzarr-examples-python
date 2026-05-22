@@ -31,8 +31,8 @@ from .errors import (
     TournamentNotRunning,
     TournamentNotRunningOrPaused,
 )
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import tournament_pb2 as tournament
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import tournament_pb2 as tournament
 
 
 @dataclass

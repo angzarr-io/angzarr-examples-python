@@ -16,10 +16,10 @@ about betting correctness (that's covered by hand.feature unit tests).
 
 from behave import given, then, use_step_matcher, when
 
-from angzarr_client.proto.angzarr import SyncMode
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import tournament_pb2 as tournament
+from angzarr_client.proto.angzarr.v1.types_pb2 import SyncMode
+from angzarr_client.proto.examples.v1 import hand_pb2 as hand
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import tournament_pb2 as tournament
 
 from common_steps import new_uuid_bytes, pack_command
 
@@ -88,7 +88,7 @@ def step_given_tournament(context, name, buy_in, stack, max_p, min_p):
         min_players=int(min_p),
     )
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.CreateTournament"
+        context, name, cmd, "angzarr_client.proto.examples.v1.CreateTournament"
     )
     context.tournaments[name]["buy_in"] = int(buy_in)
     context.tournaments[name]["starting_stack"] = int(stack)
@@ -124,7 +124,7 @@ def step_given_tournament_with_rebuys(
         ],
     )
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.CreateTournament"
+        context, name, cmd, "angzarr_client.proto.examples.v1.CreateTournament"
     )
     context.tournaments[name]["buy_in"] = int(buy_in)
     context.tournaments[name]["starting_stack"] = int(stack)
@@ -137,7 +137,7 @@ def step_given_tournament_with_rebuys(
 def step_when_open_registration(context, name):
     cmd = tournament.OpenRegistration()
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.OpenRegistration"
+        context, name, cmd, "angzarr_client.proto.examples.v1.OpenRegistration"
     )
     context.tournaments[name]["status"] = "RegistrationOpen"
 
@@ -146,7 +146,7 @@ def step_when_open_registration(context, name):
 def step_when_close_registration(context, name):
     cmd = tournament.CloseRegistration()
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.CloseRegistration"
+        context, name, cmd, "angzarr_client.proto.examples.v1.CloseRegistration"
     )
 
 
@@ -154,7 +154,7 @@ def step_when_close_registration(context, name):
 def step_when_pause_tournament(context, name):
     cmd = tournament.PauseTournament(reason="test pause")
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.PauseTournament"
+        context, name, cmd, "angzarr_client.proto.examples.v1.PauseTournament"
     )
     if context.command_succeeded:
         context.tournaments[name]["status"] = "Paused"
@@ -164,7 +164,7 @@ def step_when_pause_tournament(context, name):
 def step_when_resume_tournament(context, name):
     cmd = tournament.ResumeTournament()
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.ResumeTournament"
+        context, name, cmd, "angzarr_client.proto.examples.v1.ResumeTournament"
     )
     if context.command_succeeded:
         context.tournaments[name]["status"] = "Running"
@@ -192,7 +192,7 @@ def step_when_player_registers(context, player, name):
         reservation_id=reservation_id,
     )
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.EnrollPlayer"
+        context, name, cmd, "angzarr_client.proto.examples.v1.EnrollPlayer"
     )
     if context.command_succeeded:
         context.tournaments[name]["registered"].add(player)
@@ -215,7 +215,7 @@ def step_when_every_player_registers(context, name):
             reservation_id=new_uuid_bytes(),
         )
         _send_tournament_command(
-            context, name, cmd, "angzarr_client.proto.examples.EnrollPlayer"
+            context, name, cmd, "angzarr_client.proto.examples.v1.EnrollPlayer"
         )
         if context.command_succeeded:
             context.tournaments[name]["registered"].add(player)
@@ -227,7 +227,7 @@ def step_when_every_player_registers(context, name):
 def step_when_start_tournament(context, name):
     cmd = tournament.StartTournament()
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.StartTournament"
+        context, name, cmd, "angzarr_client.proto.examples.v1.StartTournament"
     )
     context.tournaments[name]["status"] = "Running"
 
@@ -236,7 +236,7 @@ def step_when_start_tournament(context, name):
 def step_when_advance_blind_level(context, name):
     cmd = tournament.AdvanceBlindLevel()
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.AdvanceBlindLevel"
+        context, name, cmd, "angzarr_client.proto.examples.v1.AdvanceBlindLevel"
     )
     if context.command_succeeded:
         context.tournaments[name]["current_level"] += 1
@@ -255,7 +255,7 @@ def step_when_process_rebuy(context, player, name):
         reservation_id=new_uuid_bytes(),
     )
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.ProcessRebuy"
+        context, name, cmd, "angzarr_client.proto.examples.v1.ProcessRebuy"
     )
     if context.command_succeeded:
         # tournament adds rebuy_cost to the prize pool via apply_rebuy_processed
@@ -279,7 +279,7 @@ def step_when_eliminate_player(context, player, name):
     # handler emits when the tournament was in H4H mode — TDA Rule 12,
     # bubble break ends hand-for-hand).
     _send_tournament_command_simple(
-        context, name, cmd, "angzarr_client.proto.examples.EliminatePlayer"
+        context, name, cmd, "angzarr_client.proto.examples.v1.EliminatePlayer"
     )
     if context.command_succeeded:
         context.tournaments[name]["registered"].discard(player)
@@ -293,7 +293,7 @@ def step_when_complete_tournament(context, name, player):
     winner_root = _player_root(context, player)
     cmd = tournament.CompleteTournament(winner_root=winner_root)
     _send_tournament_command(
-        context, name, cmd, "angzarr_client.proto.examples.CompleteTournament"
+        context, name, cmd, "angzarr_client.proto.examples.v1.CompleteTournament"
     )
     context.tournaments[name]["status"] = "Completed"
     context.tournaments[name]["winner"] = player
@@ -327,7 +327,7 @@ def step_when_fast_forward_hand(context, table, winner):
         pot_type="main",
     )
     cmd = hand.AwardPot(awards=[award])
-    packed = pack_command(cmd, "angzarr_client.proto.examples.AwardPot")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.v1.AwardPot")
     try:
         response = context.client.send_command("hand", hand_root, packed)
         context.last_response = response
@@ -407,7 +407,7 @@ def step_then_tournament_winner(context, name, player):
 # exercise the tournament-aggregate side end-to-end; saga-mediated
 # table-side assertions remain pending.
 
-_EXAMPLES_NS = "type.googleapis.com/angzarr_client.proto.examples."
+_EXAMPLES_NS = "type.googleapis.com/angzarr_client.proto.examples.v1."
 
 
 def _last_event_type_urls(context) -> list[str]:
@@ -474,7 +474,7 @@ def step_when_advance_blind_with_color_up(context, name):
         new_denomination=int(row["new_denomination"]),
     )
     _send_tournament_command_simple(
-        context, name, cmd, "angzarr_client.proto.examples.AdvanceBlindLevel"
+        context, name, cmd, "angzarr_client.proto.examples.v1.AdvanceBlindLevel"
     )
     if context.command_succeeded:
         context.tournaments[name]["current_level"] += 1
@@ -616,7 +616,7 @@ def step_when_trigger_balancing(context, name):
         stack=move["stack"],
     )
     root = _tournament_root(context, name)
-    packed = pack_command(cmd, "angzarr_client.proto.examples.RebalanceTables")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.v1.RebalanceTables")
     seq = context.tournaments[name]["sequence"]
     try:
         response = context.client.send_command(
@@ -791,7 +791,7 @@ def step_when_enter_bubble(context):
     orchestrate the per-table fan-out directly to avoid AMQP-saga
     race conditions with the test's per-aggregate sequence tracking.
     """
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
 
     assert context.tournaments, "No tournament tracked"
     name = next(reversed(context.tournaments))
@@ -800,7 +800,7 @@ def step_when_enter_bubble(context):
 
     cmd = tournament.EnterHandForHand(active_table_roots=active_table_roots)
     _send_tournament_command_simple(
-        context, name, cmd, "angzarr_client.proto.examples.EnterHandForHand"
+        context, name, cmd, "angzarr_client.proto.examples.v1.EnterHandForHand"
     )
     assert context.command_succeeded, (
         f"EnterHandForHand failed: {context.last_error}"
@@ -818,7 +818,7 @@ def step_when_enter_bubble(context):
             context,
             table_name,
             enter_cmd,
-            "angzarr_client.proto.examples.EnterTableHandForHand",
+            "angzarr_client.proto.examples.v1.EnterTableHandForHand",
             sync_mode=SyncMode.SYNC_MODE_SIMPLE,
         )
         assert context.command_succeeded, (
@@ -890,7 +890,7 @@ def step_when_hand_completes(context, table):
     ``MarkTableHandForHandHandComplete`` is the test's fast-forward
     that bypasses scripting every betting action.
     """
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
 
     cmd = table_proto.MarkTableHandForHandHandComplete(
         hand_root=new_uuid_bytes(),
@@ -899,7 +899,7 @@ def step_when_hand_completes(context, table):
         context,
         table,
         cmd,
-        "angzarr_client.proto.examples.MarkTableHandForHandHandComplete",
+        "angzarr_client.proto.examples.v1.MarkTableHandForHandHandComplete",
         sync_mode=SyncMode.SYNC_MODE_SIMPLE,
     )
     assert context.command_succeeded, (
@@ -907,7 +907,7 @@ def step_when_hand_completes(context, table):
         f"{context.last_error}"
     )
     urls = _last_event_type_urls(context)
-    expected = "type.googleapis.com/angzarr_client.proto.examples.TableHandForHandRoundComplete"
+    expected = "type.googleapis.com/angzarr_client.proto.examples.v1.TableHandForHandRoundComplete"
     assert expected in urls, (
         f"MarkTableHandForHandHandComplete did not emit "
         f"TableHandForHandRoundComplete; got {urls!r}"
@@ -920,14 +920,14 @@ def step_then_table_cannot_start(context, table):
     """Verify the table-aggregate StartHand guard rejects when the
     table is parked at H4H COMPLETE per TDA Rule 12.
     """
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
 
     cmd = table_proto.StartHand()
     _send_table_command(
         context,
         table,
         cmd,
-        "angzarr_client.proto.examples.StartHand",
+        "angzarr_client.proto.examples.v1.StartHand",
         sync_mode=SyncMode.SYNC_MODE_SIMPLE,
     )
     assert not context.command_succeeded, (
@@ -965,7 +965,7 @@ def step_then_h4h_round_complete_emitted(context, name):
         context,
         name,
         cmd,
-        "angzarr_client.proto.examples.RecordHandForHandRoundComplete",
+        "angzarr_client.proto.examples.v1.RecordHandForHandRoundComplete",
     )
     assert context.command_succeeded, (
         f"RecordHandForHandRoundComplete failed: {context.last_error}"
@@ -985,7 +985,7 @@ def step_then_both_can_start(context):
     ``EnterTableHandForHand`` (sets "" → WAITING). Verifies the
     StartHand guard no longer blocks.
     """
-    from angzarr_client.proto.examples import table_pb2 as table_proto
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
 
     for table_name in list(context.tables.keys()):
         end_cmd = table_proto.EndTableHandForHand()
@@ -993,7 +993,7 @@ def step_then_both_can_start(context):
             context,
             table_name,
             end_cmd,
-            "angzarr_client.proto.examples.EndTableHandForHand",
+            "angzarr_client.proto.examples.v1.EndTableHandForHand",
             sync_mode=SyncMode.SYNC_MODE_SIMPLE,
         )
         assert context.command_succeeded, (
@@ -1007,7 +1007,7 @@ def step_then_both_can_start(context):
             context,
             table_name,
             enter_cmd,
-            "angzarr_client.proto.examples.EnterTableHandForHand",
+            "angzarr_client.proto.examples.v1.EnterTableHandForHand",
             sync_mode=SyncMode.SYNC_MODE_SIMPLE,
         )
         context.tables[table_name]["h4h_status"] = "WAITING"

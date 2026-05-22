@@ -19,10 +19,10 @@ from angzarr_client import (
     rejected,
     run_server,
 )
-from angzarr_client.proto.angzarr import command_handler_pb2_grpc
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.angzarr.v1 import command_handler_pb2_grpc
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 from .handlers import (
     handle_deduct_reserved_funds,
