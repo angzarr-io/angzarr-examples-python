@@ -787,7 +787,7 @@ class RazzRules(StudRulesBase):
                 [1 if rank == 14 else rank for _, rank in cards], reverse=True
             )
             top_card_suit = _SUIT_RANK[
-                min(cards, key=lambda c: (1 if c[1] == 14 else c[1]))[0]
+                min(cards, key=lambda c: 1 if c[1] == 14 else c[1])[0]
             ]
             return (tuple(low_ranks), -top_card_suit)
 

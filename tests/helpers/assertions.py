@@ -32,9 +32,9 @@ def assert_event_type(result: types.EventBook, expected_type: str) -> None:
     assert first_page.HasField("event"), "First page has no event"
 
     actual_type = event_type_name(first_page.event)
-    assert (
-        expected_type in actual_type
-    ), f"Expected event type '{expected_type}' but got '{actual_type}'"
+    assert expected_type in actual_type, (
+        f"Expected event type '{expected_type}' but got '{actual_type}'"
+    )
 
 
 def assert_event_field(
@@ -81,9 +81,9 @@ def assert_event_count(result: types.EventBook, expected_count: int) -> None:
         AssertionError: If count doesn't match.
     """
     actual_count = len(result.pages)
-    assert (
-        actual_count == expected_count
-    ), f"Expected {expected_count} events but got {actual_count}"
+    assert actual_count == expected_count, (
+        f"Expected {expected_count} events but got {actual_count}"
+    )
 
 
 def assert_command_rejected(
@@ -99,9 +99,9 @@ def assert_command_rejected(
     Raises:
         AssertionError: If not CommandRejectedError or message doesn't match.
     """
-    assert (
-        exc_info.type is CommandRejectedError
-    ), f"Expected CommandRejectedError but got {exc_info.type}"
+    assert exc_info.type is CommandRejectedError, (
+        f"Expected CommandRejectedError but got {exc_info.type}"
+    )
 
     if expected_message:
         actual_message = str(exc_info.value)

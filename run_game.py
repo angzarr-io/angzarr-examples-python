@@ -825,7 +825,7 @@ class PokerGame:
                                 amount=final_amount,
                             )
                             self.log(
-                                f"│  [Retry {attempt+1}] Raise exceeds stack, falling back to {types_pb2.ActionType.Name(action)}"
+                                f"│  [Retry {attempt + 1}] Raise exceeds stack, falling back to {types_pb2.ActionType.Name(action)}"
                             )
                             continue
                     # Player is all-in - they can't act, skip
@@ -844,7 +844,7 @@ class PokerGame:
                                 amount=final_amount,
                             )
                             self.log(
-                                f"│  [Retry {attempt+1}] Bet exceeds stack, all-in call {chips(final_amount)}"
+                                f"│  [Retry {attempt + 1}] Bet exceeds stack, all-in call {chips(final_amount)}"
                             )
                             continue
                     # Nothing to call - should check instead
@@ -858,7 +858,7 @@ class PokerGame:
                                 amount=0,
                             )
                             self.log(
-                                f"│  [Retry {attempt+1}] Nothing to call, checking"
+                                f"│  [Retry {attempt + 1}] Nothing to call, checking"
                             )
                             continue
                     # Last resort: if we've exhausted retries and still failing on raise/bet,

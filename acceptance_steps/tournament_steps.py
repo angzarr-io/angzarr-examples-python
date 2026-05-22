@@ -348,9 +348,9 @@ def step_then_tournament_status(context, name, status):
     command succeeding at each step, which this mirrors."""
     assert name in context.tournaments, f"Tournament {name!r} not tracked"
     actual = context.tournaments[name]["status"]
-    assert (
-        actual == status
-    ), f"Tournament {name!r} status: expected {status!r}, got {actual!r}"
+    assert actual == status, (
+        f"Tournament {name!r} status: expected {status!r}, got {actual!r}"
+    )
     assert status in _STATUS_NAME_TO_ENUM, f"Unknown status {status!r}"
 
 
@@ -384,9 +384,9 @@ def step_then_tournament_prize_pool(context, name, p):
 
 @then(r'tournament "(?P<name>[^"]+)" winner is "(?P<player>[^"]+)"')
 def step_then_tournament_winner(context, name, player):
-    assert (
-        context.tournaments[name].get("winner") == player
-    ), f"Expected winner {player!r}, got {context.tournaments[name].get('winner')!r}"
+    assert context.tournaments[name].get("winner") == player, (
+        f"Expected winner {player!r}, got {context.tournaments[name].get('winner')!r}"
+    )
 
 
 # ===========================================================================
@@ -484,9 +484,9 @@ def step_when_advance_blind_with_color_up(context, name):
 def step_then_color_up_emitted(context, name):
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "ColorUpCompleted"
-    assert (
-        expected in urls
-    ), f"Expected ColorUpCompleted in tournament event book, got {urls!r}"
+    assert expected in urls, (
+        f"Expected ColorUpCompleted in tournament event book, got {urls!r}"
+    )
 
 
 def _unpack_color_up_completed(context) -> tournament.ColorUpCompleted:
@@ -566,9 +566,9 @@ def _pick_balancing_move(context) -> dict:
     )
     smallest_name, smallest = tables[0]
     largest_name, largest = tables[-1]
-    assert (
-        largest_name != smallest_name
-    ), "Cannot rebalance a single-table tournament — need at least 2"
+    assert largest_name != smallest_name, (
+        "Cannot rebalance a single-table tournament — need at least 2"
+    )
     # Last seated player (insertion order): take the last entry of player_stacks.
     src_stacks = largest["player_stacks"]
     player_to_move = next(reversed(src_stacks.keys()))
@@ -645,7 +645,7 @@ def step_then_player_moved_emitted(context, name):
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "PlayerMovedBetweenTables"
     assert expected in urls, (
-        f"Expected PlayerMovedBetweenTables in tournament event book, " f"got {urls!r}"
+        f"Expected PlayerMovedBetweenTables in tournament event book, got {urls!r}"
     )
 
 
@@ -663,9 +663,9 @@ def step_then_table_active_count(context, table, n):
     expected = int(n)
     assert table in context.tables, f"Table {table!r} not tracked"
     actual = context.tables[table]["seated_players"]
-    assert (
-        actual == expected
-    ), f"Table {table!r}: expected {expected} active players, got {actual}"
+    assert actual == expected, (
+        f"Table {table!r}: expected {expected} active players, got {actual}"
+    )
 
 
 @then(
@@ -679,9 +679,9 @@ def step_then_moved_stack_preserved(context, dest, src):
     upstream ``PlayerMovedBetweenTables``, so the destination table
     seats them with the same chip count they had at the source.
     """
-    assert (
-        context.command_succeeded
-    ), "RebalanceTables did not succeed; cannot verify stack preservation"
+    assert context.command_succeeded, (
+        "RebalanceTables did not succeed; cannot verify stack preservation"
+    )
     # Find the most-recently-tracked move (the test runs scenario-scoped).
     last_move = None
     for tname in context.tournaments:
@@ -804,7 +804,7 @@ def step_when_enter_bubble(context):
             sync_mode=SyncMode.SYNC_MODE_SIMPLE,
         )
         assert context.command_succeeded, (
-            f"EnterTableHandForHand on {table_name!r} failed: " f"{context.last_error}"
+            f"EnterTableHandForHand on {table_name!r} failed: {context.last_error}"
         )
         context.tables[table_name]["h4h_status"] = "WAITING"
 
@@ -825,9 +825,9 @@ def step_then_h4h_started_emitted(context, name):
     # that path — verified by the fact that the very next assertions in
     # the scenario depend on the table-side WAITING state which only
     # gets set when the tournament's H4H mode is on).
-    assert context.tournaments[name].get(
-        "hand_for_hand"
-    ), f"Tournament {name!r} did not enter H4H mode"
+    assert context.tournaments[name].get("hand_for_hand"), (
+        f"Tournament {name!r} did not enter H4H mode"
+    )
 
 
 @then(r'table "(?P<table>[^"]+)" status is "(?P<status>[^"]+)"')
@@ -848,9 +848,9 @@ def step_then_table_h4h_status(context, table, status):
     }.get(status)
     assert expected is not None, f"Unknown H4H status {status!r}"
     actual = context.tables[table].get("h4h_status", "")
-    assert (
-        actual == expected
-    ), f"Table {table!r}: expected H4H status {expected!r}, got {actual!r}"
+    assert actual == expected, (
+        f"Table {table!r}: expected H4H status {expected!r}, got {actual!r}"
+    )
 
 
 @when(r'a hand completes at table "(?P<table>[^"]+)"')
@@ -882,8 +882,7 @@ def step_when_hand_completes(context, table):
         sync_mode=SyncMode.SYNC_MODE_SIMPLE,
     )
     assert context.command_succeeded, (
-        f"MarkTableHandForHandHandComplete on {table!r} failed: "
-        f"{context.last_error}"
+        f"MarkTableHandForHandHandComplete on {table!r} failed: {context.last_error}"
     )
     urls = _last_event_type_urls(context)
     expected = "type.googleapis.com/angzarr_client.proto.examples.v1.TableHandForHandRoundComplete"
@@ -945,13 +944,13 @@ def step_then_h4h_round_complete_emitted(context, name):
         cmd,
         "angzarr_client.proto.examples.v1.RecordHandForHandRoundComplete",
     )
-    assert (
-        context.command_succeeded
-    ), f"RecordHandForHandRoundComplete failed: {context.last_error}"
+    assert context.command_succeeded, (
+        f"RecordHandForHandRoundComplete failed: {context.last_error}"
+    )
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "HandForHandRoundComplete"
     assert expected in urls, (
-        f"Expected HandForHandRoundComplete on tournament {name!r}, " f"got {urls!r}"
+        f"Expected HandForHandRoundComplete on tournament {name!r}, got {urls!r}"
     )
 
 
@@ -973,9 +972,9 @@ def step_then_both_can_start(context):
             "angzarr_client.proto.examples.v1.EndTableHandForHand",
             sync_mode=SyncMode.SYNC_MODE_SIMPLE,
         )
-        assert (
-            context.command_succeeded
-        ), f"EndTableHandForHand on {table_name!r} failed: {context.last_error}"
+        assert context.command_succeeded, (
+            f"EndTableHandForHand on {table_name!r} failed: {context.last_error}"
+        )
         context.tables[table_name]["h4h_status"] = ""
 
         # Re-arm for the next round.
@@ -1001,6 +1000,6 @@ def step_then_h4h_ended_emitted(context, name):
     """
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "HandForHandEnded"
-    assert (
-        expected in urls
-    ), f"Expected HandForHandEnded in tournament event book, got {urls!r}"
+    assert expected in urls, (
+        f"Expected HandForHandEnded in tournament event book, got {urls!r}"
+    )

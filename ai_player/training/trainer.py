@@ -175,9 +175,7 @@ class Trainer:
             terminals.append(1.0 if ex.get("terminal") else 0.0)
 
         # Convert to tensors
-        states_t = torch.tensor(
-            np.array(states), dtype=torch.float32, device=self._device
-        )
+        states_t = torch.tensor(np.array(states), dtype=torch.float32, device=self._device)
         actions_t = torch.tensor(actions, dtype=torch.long, device=self._device)
         rewards_t = torch.tensor(rewards, dtype=torch.float32, device=self._device)
         terminals_t = torch.tensor(terminals, dtype=torch.float32, device=self._device)
@@ -362,9 +360,7 @@ class Trainer:
         logger.info(
             "training_complete",
             total_epochs=self._epoch,
-            final_loss=(
-                self._total_loss_history[-1] if self._total_loss_history else 0.0
-            ),
+            final_loss=(self._total_loss_history[-1] if self._total_loss_history else 0.0),
         )
 
     def save_checkpoint(self, version: str) -> Path:

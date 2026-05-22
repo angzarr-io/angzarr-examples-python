@@ -219,16 +219,16 @@ def step_when_split_pot_high_low(context, pot):
 
 @then(r"the high side receives (?P<expected>\d+)")
 def step_then_high_side_receives(context, expected):
-    assert context.high_share == int(
-        expected
-    ), f"Expected high_share={expected}, got {context.high_share}"
+    assert context.high_share == int(expected), (
+        f"Expected high_share={expected}, got {context.high_share}"
+    )
 
 
 @then(r"the low side receives (?P<expected>\d+)")
 def step_then_low_side_receives(context, expected):
-    assert context.low_share == int(
-        expected
-    ), f"Expected low_share={expected}, got {context.low_share}"
+    assert context.low_share == int(expected), (
+        f"Expected low_share={expected}, got {context.low_share}"
+    )
 
 
 # === EU-1172 — Robert's §35-9: multi-way odd chip = high card by suit ===
@@ -262,9 +262,9 @@ def step_when_high_half_split(context, pot):
 @then(r'player "(?P<name>[^"]+)" receives (?P<expected>\d+)')
 def step_then_player_receives(context, name, expected):
     actual = context.suit_split_awards.get(name)
-    assert actual == int(
-        expected
-    ), f"Expected {name} to receive {expected}, got {actual}"
+    assert actual == int(expected), (
+        f"Expected {name} to receive {expected}, got {actual}"
+    )
 
 
 # === EU-1322 — TDA Rule 20B: stud high-card-by-suit walk =====================

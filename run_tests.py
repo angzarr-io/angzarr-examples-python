@@ -37,9 +37,9 @@ def run_tests(verbose: bool = False) -> int:
             print(f"⚠️  Skipping {description}: directory not found")
             continue
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Running {description} tests...")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         cmd = ["uv", "run", "pytest"] + test_files
         if verbose:
@@ -77,9 +77,9 @@ def run_tests(verbose: bool = False) -> int:
                 print(result.stderr)
 
     # Summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("SUMMARY")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     if failed_suites:
         print(f"❌ Failed suites: {', '.join(failed_suites)}")
         return 1

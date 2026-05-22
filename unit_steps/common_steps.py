@@ -52,9 +52,9 @@ def step_then_result_is_examples_event(context, event_type):
     - Then the result is a angzarr_client.proto.examples.v1.CardsDealt event
     - Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     """
-    assert (
-        context.result is not None
-    ), f"Expected {event_type} event but got error: {getattr(context, 'error_message', context.error)}"
+    assert context.result is not None, (
+        f"Expected {event_type} event but got error: {getattr(context, 'error_message', context.error)}"
+    )
     assert context.result.pages, "No event pages in result"
     event_any = context.result.pages[0].event
     actual_type = type_name_from_url(event_any.type_url)
@@ -70,9 +70,9 @@ def step_then_examples_event_is_emitted(context, event_type):
     the ``is emitted`` phrasing — looks across all newly emitted pages
     rather than only the first.
     """
-    assert (
-        context.result is not None
-    ), f"Expected {event_type} event but got error: {getattr(context, 'error_message', context.error)}"
+    assert context.result is not None, (
+        f"Expected {event_type} event but got error: {getattr(context, 'error_message', context.error)}"
+    )
     assert context.result.pages, "No event pages emitted"
     expected = f"angzarr_client.proto.examples.v1.{event_type}"
     types = [type_name_from_url(p.event.type_url) for p in context.result.pages]
@@ -111,9 +111,9 @@ def step_then_rejection_has_shape(context, shape):
 def step_then_rejection_field_equals(context, field, value):
     assert context.error is not None, "Expected command to be rejected but it succeeded"
     details = getattr(context.error, "details", {}) or {}
-    assert (
-        field in details
-    ), f"Rejection has no field {field!r}; available fields: {sorted(details)}"
+    assert field in details, (
+        f"Rejection has no field {field!r}; available fields: {sorted(details)}"
+    )
     actual = details[field]
     if actual == value:
         return
@@ -153,9 +153,9 @@ def step_then_rejection_cover_has(context, spec):
     cover = _rejection_cover_or_fail(context)
     for field, value in _parse_cover_spec(spec):
         actual = _read_cover_field(cover, field)
-        assert (
-            actual == value
-        ), f"Rejection cover {field}: expected {value!r}, got {actual!r}"
+        assert actual == value, (
+            f"Rejection cover {field}: expected {value!r}, got {actual!r}"
+        )
 
 
 def _rejection_cover_or_fail(context):

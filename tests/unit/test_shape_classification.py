@@ -155,9 +155,9 @@ def test_leaf_shape_table_has_91_entries():
 @pytest.mark.parametrize(("leaf_cls", "expected_shape"), _LEAF_SHAPE_TABLE)
 def test_leaf_inherits_from_assigned_shape(leaf_cls, expected_shape):
     """Every leaf class must subclass its assigned shape."""
-    assert issubclass(
-        leaf_cls, expected_shape
-    ), f"{leaf_cls.__name__} is not a subclass of {expected_shape.__name__}"
+    assert issubclass(leaf_cls, expected_shape), (
+        f"{leaf_cls.__name__} is not a subclass of {expected_shape.__name__}"
+    )
 
 
 @pytest.mark.parametrize(("leaf_cls", "_expected_shape"), _LEAF_SHAPE_TABLE)
@@ -173,9 +173,9 @@ def test_validation_shapes_have_invalid_argument_status():
             continue
         assert issubclass(leaf_cls, ValidationError), leaf_cls.__name__
         # Sanity: the leaf's STATUS ClassVar matches.
-        assert (
-            leaf_cls.STATUS == "INVALID_ARGUMENT"
-        ), f"{leaf_cls.__name__} is a ValidationError but STATUS={leaf_cls.STATUS}"
+        assert leaf_cls.STATUS == "INVALID_ARGUMENT", (
+            f"{leaf_cls.__name__} is a ValidationError but STATUS={leaf_cls.STATUS}"
+        )
 
 
 def test_precondition_shapes_have_failed_precondition_status():
@@ -184,9 +184,9 @@ def test_precondition_shapes_have_failed_precondition_status():
         if not issubclass(expected_shape, PreconditionError):
             continue
         assert issubclass(leaf_cls, PreconditionError), leaf_cls.__name__
-        assert (
-            leaf_cls.STATUS == "FAILED_PRECONDITION"
-        ), f"{leaf_cls.__name__} is a PreconditionError but STATUS={leaf_cls.STATUS}"
+        assert leaf_cls.STATUS == "FAILED_PRECONDITION", (
+            f"{leaf_cls.__name__} is a PreconditionError but STATUS={leaf_cls.STATUS}"
+        )
 
 
 def test_no_leaf_is_misclassified_into_a_sibling_shape():
@@ -241,9 +241,9 @@ def test_one_off_leaves_inherit_directly_from_precondition_error():
     )
     for leaf in one_offs:
         for shape in all_shapes:
-            assert not issubclass(
-                leaf, shape
-            ), f"{leaf.__name__} is a one-off but unexpectedly inherits {shape.__name__}"
+            assert not issubclass(leaf, shape), (
+                f"{leaf.__name__} is a one-off but unexpectedly inherits {shape.__name__}"
+            )
 
 
 def test_shape_name_returns_concrete_shape_class_name():

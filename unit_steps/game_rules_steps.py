@@ -276,9 +276,9 @@ def step_when_get_game_rules_unknown(context):
 @then(r"the rank is (?P<rank>\w+)")
 def step_then_rank(context, rank):
     expected = _rank_type_from_name(rank)
-    assert (
-        context.rank == expected
-    ), f"Expected rank {rank}, got {_rank_name(context.rank)}"
+    assert context.rank == expected, (
+        f"Expected rank {rank}, got {_rank_name(context.rank)}"
+    )
 
 
 @then(r"the score is (?P<score>\d+)")
@@ -288,9 +288,9 @@ def step_then_score(context, score):
 
 @then(r"the kicker count is (?P<n>\d+)")
 def step_then_kicker_count(context, n):
-    assert len(context.kickers) == int(
-        n
-    ), f"Expected {n} kickers, got {len(context.kickers)}: {context.kickers}"
+    assert len(context.kickers) == int(n), (
+        f"Expected {n} kickers, got {len(context.kickers)}: {context.kickers}"
+    )
 
 
 @then(r"the kickers are (?P<kicker_list>[\d, ]+)")
@@ -298,9 +298,9 @@ def step_then_kickers(context, kicker_list):
     """Pin the exact kicker rank ordering so kicker-filter mutations get caught
     (e.g. ``rank_counts[r] == 1`` → ``!= 1`` would silently change the kickers)."""
     expected = [int(k.strip()) for k in kicker_list.split(",")]
-    assert (
-        list(context.kickers) == expected
-    ), f"Expected kickers {expected}, got {list(context.kickers)}"
+    assert list(context.kickers) == expected, (
+        f"Expected kickers {expected}, got {list(context.kickers)}"
+    )
 
 
 # --- Then: variant property assertions ---
@@ -311,24 +311,24 @@ def step_then_variant(context, variant_name):
     # Works for both a plain `context.rules` and the factory result.
     rules = getattr(context, "factory_rules", None) or context.rules
     expected = getattr(poker_types, variant_name)
-    assert (
-        rules.variant == expected
-    ), f"Expected variant {variant_name} ({expected}), got {rules.variant}"
+    assert rules.variant == expected, (
+        f"Expected variant {variant_name} ({expected}), got {rules.variant}"
+    )
 
 
 @then(r"the hole card count is (?P<n>\d+)")
 def step_then_hole_card_count(context, n):
-    assert context.rules.hole_card_count == int(
-        n
-    ), f"Expected hole_card_count={n}, got {context.rules.hole_card_count}"
+    assert context.rules.hole_card_count == int(n), (
+        f"Expected hole_card_count={n}, got {context.rules.hole_card_count}"
+    )
 
 
 @then(r'the phases are "(?P<phases>[^"]+)"')
 def step_then_phases(context, phases):
     expected = [_phase_from_name(p) for p in phases.split(",")]
-    assert (
-        context.rules.phases == expected
-    ), f"Expected phases {phases}, got {context.rules.phases}"
+    assert context.rules.phases == expected, (
+        f"Expected phases {phases}, got {context.rules.phases}"
+    )
 
 
 # --- Then: phase transition assertions ---
@@ -338,16 +338,15 @@ def step_then_phases(context, phases):
 def step_then_next_phase(context, phase):
     assert context.next_result is not None, "Expected a phase, got None"
     expected = _phase_from_name(phase)
-    assert (
-        context.next_result.next_phase == expected
-    ), f"Expected next_phase {phase}, got {context.next_result.next_phase}"
+    assert context.next_result.next_phase == expected, (
+        f"Expected next_phase {phase}, got {context.next_result.next_phase}"
+    )
 
 
 @then(r"the community cards to deal is (?P<n>\d+)")
 def step_then_deal_count(context, n):
     assert context.next_result.community_cards_to_deal == int(n), (
-        f"Expected {n} cards to deal, got "
-        f"{context.next_result.community_cards_to_deal}"
+        f"Expected {n} cards to deal, got {context.next_result.community_cards_to_deal}"
     )
 
 
@@ -355,15 +354,15 @@ def step_then_deal_count(context, n):
 def step_then_is_showdown(context, flag):
     expected = flag == "True"
     assert context.next_result.is_showdown is expected, (
-        f"Expected is_showdown={expected}, " f"got {context.next_result.is_showdown}"
+        f"Expected is_showdown={expected}, got {context.next_result.is_showdown}"
     )
 
 
 @then(r"there is no next phase")
 def step_then_no_next_phase(context):
-    assert (
-        context.next_result is None
-    ), f"Expected None for terminal phase, got {context.next_result}"
+    assert context.next_result is None, (
+        f"Expected None for terminal phase, got {context.next_result}"
+    )
 
 
 # --- Then: draw assertions ---
@@ -396,25 +395,25 @@ def step_then_remaining_deck(context, n):
 @then(r'the new hand retains "(?P<card>[^"]+)"')
 def step_then_new_hand_retains(context, card):
     parsed = _parse_card(card)
-    assert (
-        parsed in context.draw_result.new_hole_cards
-    ), f"Expected card {card} in new hand, not found"
+    assert parsed in context.draw_result.new_hole_cards, (
+        f"Expected card {card} in new hand, not found"
+    )
 
 
 @then(r'the new hand does not contain "(?P<card>[^"]+)"')
 def step_then_new_hand_excludes(context, card):
     parsed = _parse_card(card)
-    assert (
-        parsed not in context.draw_result.new_hole_cards
-    ), f"Expected card {card} to be absent, but it is present"
+    assert parsed not in context.draw_result.new_hole_cards, (
+        f"Expected card {card} to be absent, but it is present"
+    )
 
 
 @then(r'the new hand equals "(?P<cards>[^"]*)"')
 def step_then_new_hand_equals(context, cards):
     expected = _parse_cards(cards)
-    assert (
-        context.draw_result.new_hole_cards == expected
-    ), f"Expected new hand {expected}, got {context.draw_result.new_hole_cards}"
+    assert context.draw_result.new_hole_cards == expected, (
+        f"Expected new hand {expected}, got {context.draw_result.new_hole_cards}"
+    )
 
 
 # --- Then: deck / deal assertions ---
@@ -422,25 +421,25 @@ def step_then_new_hand_equals(context, cards):
 
 @then(r"the deck has (?P<n>\d+) cards")
 def step_then_deck_size(context, n):
-    assert len(context.deck) == int(
-        n
-    ), f"Expected {n} cards in deck, got {len(context.deck)}"
+    assert len(context.deck) == int(n), (
+        f"Expected {n} cards in deck, got {len(context.deck)}"
+    )
 
 
 @then(r"the two decks are identical")
 def step_then_decks_identical(context):
-    assert (
-        context.deck_a == context.deck_b
-    ), "Seeded decks differ — shuffle is not deterministic"
+    assert context.deck_a == context.deck_b, (
+        "Seeded decks differ — shuffle is not deterministic"
+    )
 
 
 @then(r"each player has (?P<n>\d+) hole cards?")
 def step_then_each_player_hole_cards(context, n):
     for player_root in context.players:
         cards = context.deal_result.player_cards[player_root]
-        assert len(cards) == int(
-            n
-        ), f"Player {player_root!r} got {len(cards)} cards, expected {n}"
+        assert len(cards) == int(n), (
+            f"Player {player_root!r} got {len(cards)} cards, expected {n}"
+        )
 
 
 # --- Then: factory assertions ---
@@ -456,9 +455,9 @@ _CLASS_MAP = {
 @then(r"the rules class is (?P<cls>\w+)")
 def step_then_rules_class(context, cls):
     expected = _CLASS_MAP[cls]
-    assert isinstance(
-        context.factory_rules, expected
-    ), f"Expected {cls}, got {type(context.factory_rules).__name__}"
+    assert isinstance(context.factory_rules, expected), (
+        f"Expected {cls}, got {type(context.factory_rules).__name__}"
+    )
 
 
 # --- Multi-hand intra-class comparison (EU-0729 .. EU-0732) ---------------
@@ -496,9 +495,9 @@ def step_then_both_hands_rank(context, rank):
     one of the hands (e.g. flushes one but not the other) before the
     score-comparison step runs, giving a clearer failure message.
     """
-    assert getattr(
-        context, "hand_results", None
-    ), "No labeled hand results stored — call `I evaluate hand <label> ...` first"
+    assert getattr(context, "hand_results", None), (
+        "No labeled hand results stored — call `I evaluate hand <label> ...` first"
+    )
     expected = _rank_type_from_name(rank)
     mismatches = {
         label: _rank_name(result["rank"])
@@ -574,9 +573,9 @@ def step_when_attempt_raise_to(context, amt):
 
 @then(r"the maximum raise-to is (?P<expected>\d+)")
 def step_then_max_raise_to(context, expected):
-    assert context.max_raise_to == int(
-        expected
-    ), f"Expected max raise-to {expected}, got {context.max_raise_to}"
+    assert context.max_raise_to == int(expected), (
+        f"Expected max raise-to {expected}, got {context.max_raise_to}"
+    )
 
 
 @then(r'the raise is rejected with code "(?P<code>[^"]+)"')
@@ -631,15 +630,14 @@ def step_then_initial_deal_count(context, n):
 def step_then_total_card_count(context, n):
     expected = int(n)
     assert context.rules.total_card_count == expected, (
-        f"Expected total_card_count={expected}, "
-        f"got {context.rules.total_card_count}"
+        f"Expected total_card_count={expected}, got {context.rules.total_card_count}"
     )
 
 
 @then(r'the forced_bet_type is "(?P<kind>[^"]+)"')
 def step_then_forced_bet_type(context, kind):
     assert context.rules.forced_bet_type == kind, (
-        f"Expected forced_bet_type={kind!r}, " f"got {context.rules.forced_bet_type!r}"
+        f"Expected forced_bet_type={kind!r}, got {context.rules.forced_bet_type!r}"
     )
 
 
@@ -684,9 +682,9 @@ def step_then_dealt_is_up(context, flag):
     expected = flag == "True"
     pt = context.next_result
     assert pt is not None, "Expected a phase transition; got None"
-    assert (
-        pt.is_up_card is expected
-    ), f"Expected is_up_card={expected}, got {pt.is_up_card}"
+    assert pt.is_up_card is expected, (
+        f"Expected is_up_card={expected}, got {pt.is_up_card}"
+    )
 
 
 # --- Bring-in determination -------------------------------------------------
@@ -755,9 +753,9 @@ def step_when_determine_first_to_act(context):
 
 @then(r'the first-to-act player is "(?P<name>[^"]+)"')
 def step_then_first_to_act(context, name):
-    assert (
-        context.first_to_act == name
-    ), f"Expected first-to-act={name!r}, got {context.first_to_act!r}"
+    assert context.first_to_act == name, (
+        f"Expected first-to-act={name!r}, got {context.first_to_act!r}"
+    )
 
 
 # --- Player-cards (no community) hand evaluation ---------------------------
@@ -794,9 +792,9 @@ def step_then_razz_rank(context, label):
 @then(r"the razz rank value is (?P<n>\d+)")
 def step_then_razz_value(context, n):
     expected = int(n)
-    assert (
-        context.score == expected
-    ), f"Expected razz value {expected}, got {context.score}"
+    assert context.score == expected, (
+        f"Expected razz value {expected}, got {context.score}"
+    )
 
 
 # --- Multi-hand stud / razz / hilo comparisons -----------------------------
@@ -841,9 +839,9 @@ def step_then_both_razz_lows(context):
     results = getattr(context, "hand_results", None) or {}
     assert results, "No labeled hands stored — call evaluate first"
     for label, entry in results.items():
-        assert (
-            entry["rank"] in razz_labels
-        ), f"Hand {label!r} did not evaluate to a Razz low: rank={entry['rank']!r}"
+        assert entry["rank"] in razz_labels, (
+            f"Hand {label!r} did not evaluate to a Razz low: rank={entry['rank']!r}"
+        )
 
 
 @then(r"hand (?P<a>\w+) is lower than hand (?P<b>\w+)")
@@ -854,26 +852,26 @@ def step_then_hand_lower(context, a, b):
     assert a in results and b in results, f"Missing hand result(s): {a},{b}"
     a_score = results[a]["score"]
     b_score = results[b]["score"]
-    assert (
-        a_score < b_score
-    ), f"Expected hand {a} (score={a_score}) to be lower than hand {b} (score={b_score})"
+    assert a_score < b_score, (
+        f"Expected hand {a} (score={a_score}) to be lower than hand {b} (score={b_score})"
+    )
 
 
 @then(r"hand (?P<label>\w+) high rank is \"(?P<rank>[^\"]+)\"")
 def step_then_hand_high_rank(context, label, rank):
     expected = _rank_type_from_name(rank)
     actual = context.hand_results[label]["rank"]
-    assert (
-        actual == expected
-    ), f"Expected hand {label} high rank {rank}, got {_rank_name(actual)}"
+    assert actual == expected, (
+        f"Expected hand {label} high rank {rank}, got {_rank_name(actual)}"
+    )
 
 
 @then(r"hand (?P<label>\w+) has a qualifying low")
 def step_then_hand_has_qualifying_low(context, label):
     low = context.hand_results[label].get("low")
-    assert (
-        low is not None
-    ), f"Expected hand {label} to have a qualifying low; none found"
+    assert low is not None, (
+        f"Expected hand {label} to have a qualifying low; none found"
+    )
 
 
 @then(r"hand (?P<label>\w+) has no qualifying low")
@@ -896,6 +894,6 @@ def step_then_hand_low_best5(context, label, ranks):
             expected.append(1)
         else:
             expected.append(int(tok))
-    assert (
-        list(low) == expected
-    ), f"Expected hand {label} low best-5 = {expected}, got {list(low)}"
+    assert list(low) == expected, (
+        f"Expected hand {label} low best-5 = {expected}, got {list(low)}"
+    )

@@ -488,9 +488,9 @@ def step_when_rebuild_state(context):
 @then(r"the result is a (?P<event_type>\w+) event")
 def step_then_result_is_event(context, event_type):
     """Verify the result event type."""
-    assert (
-        context.result is not None
-    ), f"Expected {event_type} event but got error: {context.error}"
+    assert context.result is not None, (
+        f"Expected {event_type} event but got error: {context.error}"
+    )
     assert context.result.pages, "No event pages in result"
     event_any = context.result.pages[0].event
     actual_type = type_name_from_url(event_any.type_url)
@@ -502,9 +502,9 @@ def step_then_event_has_table_name(context, name):
     """Verify the event table_name field."""
     event = table.TableCreated()
     context.result_event_any.Unpack(event)
-    assert (
-        event.table_name == name
-    ), f"Expected table_name={name}, got {event.table_name}"
+    assert event.table_name == name, (
+        f"Expected table_name={name}, got {event.table_name}"
+    )
 
 
 @then(r'the table event has game_variant "(?P<variant>[^"]+)"')
@@ -513,9 +513,9 @@ def step_then_event_has_game_variant(context, variant):
     event = table.TableCreated()
     context.result_event_any.Unpack(event)
     expected = getattr(poker_types, variant)
-    assert (
-        event.game_variant == expected
-    ), f"Expected game_variant={variant}, got {event.game_variant}"
+    assert event.game_variant == expected, (
+        f"Expected game_variant={variant}, got {event.game_variant}"
+    )
 
 
 @then(r"the table event has small_blind (?P<amount>\d+)")
@@ -523,9 +523,9 @@ def step_then_event_has_small_blind(context, amount):
     """Verify the event small_blind field."""
     event = table.TableCreated()
     context.result_event_any.Unpack(event)
-    assert event.small_blind == int(
-        amount
-    ), f"Expected small_blind={amount}, got {event.small_blind}"
+    assert event.small_blind == int(amount), (
+        f"Expected small_blind={amount}, got {event.small_blind}"
+    )
 
 
 @then(r"the table event has big_blind (?P<amount>\d+)")
@@ -533,9 +533,9 @@ def step_then_event_has_big_blind(context, amount):
     """Verify the event big_blind field."""
     event = table.TableCreated()
     context.result_event_any.Unpack(event)
-    assert event.big_blind == int(
-        amount
-    ), f"Expected big_blind={amount}, got {event.big_blind}"
+    assert event.big_blind == int(amount), (
+        f"Expected big_blind={amount}, got {event.big_blind}"
+    )
 
 
 @then(r"the table event has seat_position (?P<pos>\d+)")
@@ -543,9 +543,9 @@ def step_then_event_has_seat_position(context, pos):
     """Verify the event seat_position field."""
     event = table.PlayerJoined()
     context.result_event_any.Unpack(event)
-    assert event.seat_position == int(
-        pos
-    ), f"Expected seat_position={pos}, got {event.seat_position}"
+    assert event.seat_position == int(pos), (
+        f"Expected seat_position={pos}, got {event.seat_position}"
+    )
 
 
 @then(r"the table event has buy_in_amount (?P<amount>\d+)")
@@ -553,9 +553,9 @@ def step_then_event_has_buy_in_amount(context, amount):
     """Verify the event buy_in_amount field."""
     event = table.PlayerJoined()
     context.result_event_any.Unpack(event)
-    assert event.buy_in_amount == int(
-        amount
-    ), f"Expected buy_in_amount={amount}, got {event.buy_in_amount}"
+    assert event.buy_in_amount == int(amount), (
+        f"Expected buy_in_amount={amount}, got {event.buy_in_amount}"
+    )
 
 
 @then(r"the table event has chips_cashed_out (?P<amount>\d+)")
@@ -563,9 +563,9 @@ def step_then_event_has_chips_cashed_out(context, amount):
     """Verify the event chips_cashed_out field."""
     event = table.PlayerLeft()
     context.result_event_any.Unpack(event)
-    assert event.chips_cashed_out == int(
-        amount
-    ), f"Expected chips_cashed_out={amount}, got {event.chips_cashed_out}"
+    assert event.chips_cashed_out == int(amount), (
+        f"Expected chips_cashed_out={amount}, got {event.chips_cashed_out}"
+    )
 
 
 @then(r"the table event has hand_number (?P<num>\d+)")
@@ -573,9 +573,9 @@ def step_then_event_has_hand_number(context, num):
     """Verify the event hand_number field."""
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert event.hand_number == int(
-        num
-    ), f"Expected hand_number={num}, got {event.hand_number}"
+    assert event.hand_number == int(num), (
+        f"Expected hand_number={num}, got {event.hand_number}"
+    )
 
 
 @then(r"the table event has (?P<count>\d+) active_players")
@@ -583,9 +583,9 @@ def step_then_event_has_active_players(context, count):
     """Verify the event active_players count."""
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert len(event.active_players) == int(
-        count
-    ), f"Expected {count} active_players, got {len(event.active_players)}"
+    assert len(event.active_players) == int(count), (
+        f"Expected {count} active_players, got {len(event.active_players)}"
+    )
 
 
 @then(r"the table event has dealer_position (?P<pos>\d+)")
@@ -593,9 +593,9 @@ def step_then_event_has_dealer_position(context, pos):
     """Verify the event dealer_position field."""
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert event.dealer_position == int(
-        pos
-    ), f"Expected dealer_position={pos}, got {event.dealer_position}"
+    assert event.dealer_position == int(pos), (
+        f"Expected dealer_position={pos}, got {event.dealer_position}"
+    )
 
 
 @then(r'player "(?P<player_id>[^"]+)" stack change is (?P<amount>-?\d+)')
@@ -605,39 +605,39 @@ def step_then_player_stack_change(context, player_id, amount):
     context.result_event_any.Unpack(event)
     player_hex = uuid_for(player_id).hex()
     assert player_hex in event.stack_changes, f"No stack change for {player_id}"
-    assert event.stack_changes[player_hex] == int(
-        amount
-    ), f"Expected stack change {amount}, got {event.stack_changes[player_hex]}"
+    assert event.stack_changes[player_hex] == int(amount), (
+        f"Expected stack change {amount}, got {event.stack_changes[player_hex]}"
+    )
 
 
 @then(r'the command fails with status "(?P<status>[^"]+)"')
 def step_then_command_fails(context, status):
     """Verify the command failed with expected status."""
     assert context.error is not None, "Expected command to fail but it succeeded"
-    assert hasattr(
-        context.error, "status_code"
-    ), f"Error {type(context.error).__name__} has no status_code attribute"
-    assert (
-        context.error.status_code == status
-    ), f"Expected status {status}, got {context.error.status_code}"
+    assert hasattr(context.error, "status_code"), (
+        f"Error {type(context.error).__name__} has no status_code attribute"
+    )
+    assert context.error.status_code == status, (
+        f"Expected status {status}, got {context.error.status_code}"
+    )
 
 
 @then(r'the error message contains "(?P<text>[^"]+)"')
 def step_then_error_contains(context, text):
     """Verify the error message contains expected text."""
     assert context.error is not None, "Expected an error but got success"
-    assert (
-        text.lower() in context.error_message.lower()
-    ), f"Expected error to contain '{text}', got '{context.error_message}'"
+    assert text.lower() in context.error_message.lower(), (
+        f"Expected error to contain '{text}', got '{context.error_message}'"
+    )
 
 
 @then(r"the table state has (?P<count>\d+) players")
 def step_then_state_has_players(context, count):
     """Verify the table state player count."""
     assert context.agg is not None, "No table aggregate"
-    assert context.agg.player_count == int(
-        count
-    ), f"Expected {count} players, got {context.agg.player_count}"
+    assert context.agg.player_count == int(count), (
+        f"Expected {count} players, got {context.agg.player_count}"
+    )
 
 
 @then(r'the table state has seat (?P<seat>\d+) occupied by "(?P<player_id>[^"]+)"')
@@ -647,27 +647,27 @@ def step_then_state_seat_occupied(context, seat, player_id):
     seat_state = context.agg.get_seat(int(seat))
     assert seat_state is not None, f"Seat {seat} not occupied"
     expected_player = uuid_for(player_id)
-    assert (
-        seat_state.player_root == expected_player
-    ), f"Expected {player_id} at seat {seat}, got {seat_state.player_root}"
+    assert seat_state.player_root == expected_player, (
+        f"Expected {player_id} at seat {seat}, got {seat_state.player_root}"
+    )
 
 
 @then(r'the table state has status "(?P<status>[^"]+)"')
 def step_then_state_has_status(context, status):
     """Verify the table state status."""
     assert context.agg is not None, "No table aggregate"
-    assert (
-        context.agg.status == status
-    ), f"Expected status={status}, got {context.agg.status}"
+    assert context.agg.status == status, (
+        f"Expected status={status}, got {context.agg.status}"
+    )
 
 
 @then(r"the table state has hand_count (?P<count>\d+)")
 def step_then_state_has_hand_count(context, count):
     """Verify the table state hand_count."""
     assert context.agg is not None, "No table aggregate"
-    assert context.agg.hand_count == int(
-        count
-    ), f"Expected hand_count={count}, got {context.agg.hand_count}"
+    assert context.agg.hand_count == int(count), (
+        f"Expected hand_count={count}, got {context.agg.hand_count}"
+    )
 
 
 # =============================================================================
@@ -807,17 +807,17 @@ def step_then_sb_differs_from_dealer(context):
     """3+ players: SB is left of dealer, so must differ."""
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert (
-        event.small_blind_position != event.dealer_position
-    ), f"Expected SB!=dealer, both are {event.small_blind_position}"
+    assert event.small_blind_position != event.dealer_position, (
+        f"Expected SB!=dealer, both are {event.small_blind_position}"
+    )
 
 
 @then(r'the table state has table_id "(?P<table_id>[^"]+)"')
 def step_then_state_table_id(context, table_id):
     assert context.agg is not None, "No table aggregate"
-    assert (
-        context.agg.table_id == table_id
-    ), f"Expected table_id={table_id!r}, got {context.agg.table_id!r}"
+    assert context.agg.table_id == table_id, (
+        f"Expected table_id={table_id!r}, got {context.agg.table_id!r}"
+    )
 
 
 @then(r"the table state is full")
@@ -829,17 +829,17 @@ def step_then_state_is_full(context):
 @then(r"the table state has (?P<count>\d+) active_players")
 def step_then_state_active_players(context, count):
     assert context.agg is not None, "No table aggregate"
-    assert context.agg.active_player_count == int(
-        count
-    ), f"Expected {count} active_players, got {context.agg.active_player_count}"
+    assert context.agg.active_player_count == int(count), (
+        f"Expected {count} active_players, got {context.agg.active_player_count}"
+    )
 
 
 @then(r"the table state has current_hand_root empty")
 def step_then_state_current_hand_root_empty(context):
     assert context.agg is not None, "No table aggregate"
-    assert (
-        context.agg.current_hand_root == b""
-    ), f"Expected empty current_hand_root, got {context.agg.current_hand_root!r}"
+    assert context.agg.current_hand_root == b"", (
+        f"Expected empty current_hand_root, got {context.agg.current_hand_root!r}"
+    )
 
 
 @then(r"the table state seat (?P<seat>\d+) has stack (?P<stack>\d+)")
@@ -857,9 +857,9 @@ def step_then_state_seat_stack(context, seat, stack):
 def step_then_seating_seat_position(context, pos):
     event = buy_in.PlayerSeated()
     context.result_event_any.Unpack(event)
-    assert event.seat_position == int(
-        pos
-    ), f"Expected seat_position={pos}, got {event.seat_position}"
+    assert event.seat_position == int(pos), (
+        f"Expected seat_position={pos}, got {event.seat_position}"
+    )
 
 
 @then(r"the seating event has stack (?P<stack>\d+)")
@@ -1076,9 +1076,9 @@ def step_when_balance_tables(context, src, dst):
 def step_then_moved_player(context, label):
     event = tournament.PlayerMovedBetweenTables()
     context.result_event_any.Unpack(event)
-    assert event.player_root == uuid_for(
-        label
-    ), f"Expected moved player {label!r}, got {context.balance_moved_player_label!r}"
+    assert event.player_root == uuid_for(label), (
+        f"Expected moved player {label!r}, got {context.balance_moved_player_label!r}"
+    )
 
 
 @then(
@@ -1137,9 +1137,9 @@ def step_when_combine_final_table(context, final, sources):
 def step_then_final_table_active(context, n):
     event = table.FinalTableCombined()
     context.result_event_any.Unpack(event)
-    assert len(event.active_players) == int(
-        n
-    ), f"active_players={len(event.active_players)}, expected {n}"
+    assert len(event.active_players) == int(n), (
+        f"active_players={len(event.active_players)}, expected {n}"
+    )
 
 
 @then(r'every original player has been reseated at "(?P<final>[^"]+)"')
@@ -1322,7 +1322,7 @@ def step_then_resumed_for_balancing_emitted(context, table_name):
     event = table.TableResumedForBalancing()
     context.result_event_any.Unpack(event)
     assert event.table_root == uuid_for(table_name), (
-        f"Expected table_root for {table_name!r}, " f"got {event.table_root!r}"
+        f"Expected table_root for {table_name!r}, got {event.table_root!r}"
     )
 
 
@@ -1338,8 +1338,7 @@ def step_then_no_longer_halted(context, table_name):
         f"got {agg._state.halted_for_balancing}"
     )
     assert agg._state.halted_deficit == 0, (
-        f"Expected halted_deficit=0 on {table_name}, "
-        f"got {agg._state.halted_deficit}"
+        f"Expected halted_deficit=0 on {table_name}, got {agg._state.halted_deficit}"
     )
 
 
@@ -1386,9 +1385,9 @@ def step_then_penalty_event_player_root(context, label):
 def step_then_penalty_chips_forfeited(context, n):
     event = table.BlindDodgePenalty()
     context.result_event_any.Unpack(event)
-    assert event.chips_forfeited == int(
-        n
-    ), f"chips_forfeited={event.chips_forfeited}, expected {n}"
+    assert event.chips_forfeited == int(n), (
+        f"chips_forfeited={event.chips_forfeited}, expected {n}"
+    )
 
 
 @then(r"the penalty event has missed_round_count (?P<n>\d+)")
@@ -1529,9 +1528,9 @@ def step_then_seat_drawn_from_set(context, spec):
     candidates = [int(c.strip()) for c in spec.split(",")]
     event = buy_in.PlayerSeated()
     context.result_event_any.Unpack(event)
-    assert (
-        event.seat_position in candidates
-    ), f"Expected seat_position in {candidates}, got {event.seat_position}"
+    assert event.seat_position in candidates, (
+        f"Expected seat_position in {candidates}, got {event.seat_position}"
+    )
 
 
 @then(r"the seating event has rng_seed populated for replay determinism")
@@ -1545,9 +1544,9 @@ def step_then_seating_has_rng_seed(context):
 def step_then_seating_rejection_reason(context, text):
     event = buy_in.SeatingRejected()
     context.result_event_any.Unpack(event)
-    assert (
-        text.lower() in event.reason.lower()
-    ), f"Expected reason to contain {text!r}, got {event.reason!r}"
+    assert text.lower() in event.reason.lower(), (
+        f"Expected reason to contain {text!r}, got {event.reason!r}"
+    )
 
 
 # --- Rebuy event assertions ---
@@ -1564,9 +1563,9 @@ def step_then_rebuy_amount(context, amount):
 def step_then_rebuy_new_stack(context, stack):
     event = rebuy.RebuyChipsAdded()
     context.result_event_any.Unpack(event)
-    assert event.new_stack == int(
-        stack
-    ), f"Expected new_stack={stack}, got {event.new_stack}"
+    assert event.new_stack == int(stack), (
+        f"Expected new_stack={stack}, got {event.new_stack}"
+    )
 
 
 @then(r"the rebuy event has seat (?P<seat>\d+)")
@@ -1686,27 +1685,27 @@ def step_given_prev_bb_was(context, hand_num, player_id):
 def step_then_sb_position(context, seat):
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert event.small_blind_position == int(
-        seat
-    ), f"Expected SB at seat {seat}, got {event.small_blind_position}"
+    assert event.small_blind_position == int(seat), (
+        f"Expected SB at seat {seat}, got {event.small_blind_position}"
+    )
 
 
 @then(r"the big_blind_position is seat (?P<seat>\d+)")
 def step_then_bb_position(context, seat):
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert event.big_blind_position == int(
-        seat
-    ), f"Expected BB at seat {seat}, got {event.big_blind_position}"
+    assert event.big_blind_position == int(seat), (
+        f"Expected BB at seat {seat}, got {event.big_blind_position}"
+    )
 
 
 @then(r"the dealer_position is seat (?P<seat>\d+)")
 def step_then_dealer_seat(context, seat):
     event = table.HandStarted()
     context.result_event_any.Unpack(event)
-    assert event.dealer_position == int(
-        seat
-    ), f"Expected dealer at seat {seat}, got {event.dealer_position}"
+    assert event.dealer_position == int(seat), (
+        f"Expected dealer at seat {seat}, got {event.dealer_position}"
+    )
 
 
 @then(r'the player at the big_blind_position is not "(?P<player_id>[^"]+)"')

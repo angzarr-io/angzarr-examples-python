@@ -730,9 +730,9 @@ def step_when_rebuy_handles_denied(context):
 
 
 def _assert_emitted(context, name: str) -> None:
-    assert (
-        name in context.emitted_commands
-    ), f"Expected {name}, got {context.emitted_commands}"
+    assert name in context.emitted_commands, (
+        f"Expected {name}, got {context.emitted_commands}"
+    )
 
 
 _RELEASE_COMPENSATIONS = {"ReleaseBuyIn", "ReleaseRebuyFee", "ReleaseRegistrationFee"}
@@ -814,9 +814,9 @@ def _assert_event(context, name: str) -> None:
 
 def _assert_failure_code(context, event_name: str, code: str) -> None:
     matches = [(n, c) for n, c in context.emitted_events if n == event_name]
-    assert (
-        matches
-    ), f"Expected {event_name} event, got {[n for n, _ in context.emitted_events]}"
+    assert matches, (
+        f"Expected {event_name} event, got {[n for n, _ in context.emitted_events]}"
+    )
     assert matches[0][1] == code, f"Expected code '{code}', got '{matches[0][1]}'"
 
 

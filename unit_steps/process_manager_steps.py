@@ -611,36 +611,36 @@ def step_then_process_created_with_phase(context, phase):
     """Verify process created with specified phase."""
     expected = getattr(HandPhase, phase)
     assert context.process is not None, "No process created"
-    assert (
-        context.process.phase == expected
-    ), f"Expected phase {phase}, got {context.process.phase}"
+    assert context.process.phase == expected, (
+        f"Expected phase {phase}, got {context.process.phase}"
+    )
 
 
 @then("the process has (?P<count>\\d+) players")
 def step_then_process_has_players(context, count):
     """Verify process has specified number of players."""
     expected = int(count)
-    assert (
-        len(context.process.players) == expected
-    ), f"Expected {expected} players, got {len(context.process.players)}"
+    assert len(context.process.players) == expected, (
+        f"Expected {expected} players, got {len(context.process.players)}"
+    )
 
 
 @then("the process has dealer_position (?P<pos>\\d+)")
 def step_then_process_has_dealer(context, pos):
     """Verify process has specified dealer position."""
     expected = int(pos)
-    assert (
-        context.process.dealer_position == expected
-    ), f"Expected dealer {expected}, got {context.process.dealer_position}"
+    assert context.process.dealer_position == expected, (
+        f"Expected dealer {expected}, got {context.process.dealer_position}"
+    )
 
 
 @then("the process transitions to phase (?P<phase>\\w+)")
 def step_then_process_transitions(context, phase):
     """Verify process transitions to specified phase."""
     expected = getattr(HandPhase, phase)
-    assert (
-        context.process.phase == expected
-    ), f"Expected phase {phase}, got {context.process.phase}"
+    assert context.process.phase == expected, (
+        f"Expected phase {phase}, got {context.process.phase}"
+    )
 
 
 @then("a PostBlind command is sent for (?P<blind_type>\\w+) blind")
@@ -673,9 +673,9 @@ def step_then_players_reset(context, positions):
     for pos_str in positions.replace("and", ",").split(","):
         pos = int(pos_str.strip())
         if pos in context.process.players:
-            assert not context.process.players[
-                pos
-            ].has_acted, f"Player at {pos} should have has_acted=False"
+            assert not context.process.players[pos].has_acted, (
+                f"Player at {pos} should have has_acted=False"
+            )
 
 
 @then("the betting round ends")
@@ -698,9 +698,9 @@ def step_then_process_advances(context):
 def step_then_deal_community_sent(context, count):
     """Verify DealCommunityCards command sent."""
     commands = context.command_sender.get_all_commands_of_type("DealCommunityCards")
-    assert (
-        len(commands) >= 1
-    ), f"Expected DealCommunityCards command, got {len(commands)}"
+    assert len(commands) >= 1, (
+        f"Expected DealCommunityCards command, got {len(commands)}"
+    )
 
     cmd_any = commands[0].pages[0].command
     cmd = hand.DealCommunityCards()
@@ -753,9 +753,9 @@ def step_then_pm_sends_action(context, action):
 def step_then_bets_reset(context):
     """Verify all players have bet_this_round reset."""
     for player in context.process.players.values():
-        assert (
-            player.bet_this_round == 0
-        ), f"Player at {player.position} should have bet_this_round=0"
+        assert player.bet_this_round == 0, (
+            f"Player at {player.position} should have bet_this_round=0"
+        )
 
 
 @then("all players have has_acted reset to false")
@@ -763,17 +763,17 @@ def step_then_all_reset(context):
     """Verify all players have has_acted reset."""
     for player in context.process.players.values():
         if not player.has_folded and not player.is_all_in:
-            assert (
-                not player.has_acted
-            ), f"Player at {player.position} should have has_acted=False"
+            assert not player.has_acted, (
+                f"Player at {player.position} should have has_acted=False"
+            )
 
 
 @then("current_bet is reset to 0")
 def step_then_current_bet_reset(context):
     """Verify current bet is reset."""
-    assert (
-        context.process.current_bet == 0
-    ), f"Expected current_bet=0, got {context.process.current_bet}"
+    assert context.process.current_bet == 0, (
+        f"Expected current_bet=0, got {context.process.current_bet}"
+    )
 
 
 @then("action_on is set to first player after dealer")
@@ -786,9 +786,9 @@ def step_then_action_after_dealer(context):
 def step_then_pot_total(context, amount):
     """Verify pot total."""
     expected = int(amount)
-    assert (
-        context.process.pot_total == expected
-    ), f"Expected pot {expected}, got {context.process.pot_total}"
+    assert context.process.pot_total == expected, (
+        f"Expected pot {expected}, got {context.process.pot_total}"
+    )
 
 
 @then('"(?P<player>[^"]+)" stack is (?P<stack>\\d+)')
@@ -805,18 +805,18 @@ def step_then_player_stack(context, player, stack):
 @then("any pending timeout is cancelled")
 def step_then_timeout_cancelled(context):
     """Verify timeout is cancelled."""
-    assert (
-        context.hand_id not in context.pm._timeout_tasks
-    ), "Timeout should be cancelled"
+    assert context.hand_id not in context.pm._timeout_tasks, (
+        "Timeout should be cancelled"
+    )
 
 
 @then("betting_phase is set to (?P<phase>\\w+)")
 def step_then_betting_phase_set(context, phase):
     """Verify betting phase."""
     expected = getattr(poker_types, phase)
-    assert (
-        context.process.betting_phase == expected
-    ), f"Expected {phase}, got {context.process.betting_phase}"
+    assert context.process.betting_phase == expected, (
+        f"Expected {phase}, got {context.process.betting_phase}"
+    )
 
 
 # ============================================================================
@@ -841,13 +841,13 @@ def step_given_dealer_and_seated(context, dealer, count, positions):
     players; this step replaces them with PlayerStates at the listed
     positions (default stack 1000) and pins the dealer.
     """
-    assert (
-        hasattr(context, "process") and context.process is not None
-    ), "No active hand process — run an `active hand process` Given first"
+    assert hasattr(context, "process") and context.process is not None, (
+        "No active hand process — run an `active hand process` Given first"
+    )
     seats = [int(s.strip()) for s in positions.split(",") if s.strip()]
-    assert len(seats) == int(
-        count
-    ), f"Expected {count} positions, got {len(seats)}: {seats}"
+    assert len(seats) == int(count), (
+        f"Expected {count} positions, got {len(seats)}: {seats}"
+    )
 
     context.process.dealer_position = int(dealer)
     context.process.players = {}
@@ -994,9 +994,9 @@ def step_then_betting_not_complete(context):
 def step_then_action_on_position(context, pos):
     """Assert the current action_on seat matches the expected position."""
     assert hasattr(context, "process") and context.process is not None, "No process"
-    assert context.process.action_on == int(
-        pos
-    ), f"Expected action_on={pos}, got {context.process.action_on}"
+    assert context.process.action_on == int(pos), (
+        f"Expected action_on={pos}, got {context.process.action_on}"
+    )
 
 
 # ============================================================================
@@ -1435,9 +1435,9 @@ _COMMAND_TYPES = {
 def step_then_cmd_sent_to_domain(context, cmd_name, domain):
     proto_cls = _COMMAND_TYPES[cmd_name]
     cmd_book = _find_command(context.pm_response, proto_cls)
-    assert (
-        cmd_book.cover.domain == domain
-    ), f"Expected {cmd_name} on domain {domain!r}, got {cmd_book.cover.domain!r}"
+    assert cmd_book.cover.domain == domain, (
+        f"Expected {cmd_name} on domain {domain!r}, got {cmd_book.cover.domain!r}"
+    )
     context.pm_command = _unpack_command(cmd_book, proto_cls)
     context.pm_command_name = cmd_name
 
@@ -1450,18 +1450,18 @@ _CMD_NAMES_ALT = "|".join(sorted(_COMMAND_TYPES.keys(), key=len, reverse=True))
     r'(?P<field>\w+) "(?P<value>[^"]*)"'
 )
 def step_then_cmd_has_str_field(context, cmd_name, field, value):
-    assert (
-        context.pm_command_name == cmd_name
-    ), f"Expected asserting {cmd_name} but last command was {context.pm_command_name}"
+    assert context.pm_command_name == cmd_name, (
+        f"Expected asserting {cmd_name} but last command was {context.pm_command_name}"
+    )
     actual = getattr(context.pm_command, field)
     if isinstance(actual, bytes):
-        assert actual == _bytes(
-            value
-        ), f"{cmd_name}.{field}: expected {value!r}, got {actual!r}"
+        assert actual == _bytes(value), (
+            f"{cmd_name}.{field}: expected {value!r}, got {actual!r}"
+        )
     else:
-        assert (
-            actual == value
-        ), f"{cmd_name}.{field}: expected {value!r}, got {actual!r}"
+        assert actual == value, (
+            f"{cmd_name}.{field}: expected {value!r}, got {actual!r}"
+        )
 
 
 @then(
@@ -1469,9 +1469,9 @@ def step_then_cmd_has_str_field(context, cmd_name, field, value):
     r"(?P<field>\w+) (?P<value>-?\d+)"
 )
 def step_then_cmd_has_int_field(context, cmd_name, field, value):
-    assert (
-        context.pm_command_name == cmd_name
-    ), f"Expected asserting {cmd_name} but last command was {context.pm_command_name}"
+    assert context.pm_command_name == cmd_name, (
+        f"Expected asserting {cmd_name} but last command was {context.pm_command_name}"
+    )
     actual = getattr(context.pm_command, field)
     assert actual == int(value), f"{cmd_name}.{field}: expected {value}, got {actual}"
 
@@ -1495,16 +1495,16 @@ _PROCESS_EVENT_TYPES = {
 @then(r"the process event is an? (?P<qualified>[\w.]+) event")
 def step_then_process_event_type(context, qualified):
     assert context.pm_response is not None, "No PM response recorded"
-    assert (
-        context.pm_response.process_events is not None
-    ), "No process events in PM response"
+    assert context.pm_response.process_events is not None, (
+        "No process events in PM response"
+    )
     assert context.pm_response.process_events.pages, "No pages in process events book"
     actual_type = type_name_from_url(
         context.pm_response.process_events.pages[0].event.type_url
     )
-    assert (
-        actual_type == qualified
-    ), f"Expected process event {qualified}, got {actual_type}"
+    assert actual_type == qualified, (
+        f"Expected process event {qualified}, got {actual_type}"
+    )
     proto_cls = _PROCESS_EVENT_TYPES[qualified]
     context.pm_process_event = _unpack_process_event(context.pm_response, proto_cls)
     # Short name used by subsequent field assertions
@@ -1525,18 +1525,18 @@ _PROCESS_EVENT_NAMES_ALT = "|".join(
     r'(?P<field>\w+) "(?P<value>[^"]*)"'
 )
 def step_then_process_event_has_str_field(context, evt_name, field, value):
-    assert (
-        context.pm_process_event_name == evt_name
-    ), f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    assert context.pm_process_event_name == evt_name, (
+        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    )
     actual = getattr(context.pm_process_event, field)
     if isinstance(actual, bytes):
-        assert actual == _bytes(
-            value
-        ), f"{evt_name}.{field}: expected {value!r}, got {actual!r}"
+        assert actual == _bytes(value), (
+            f"{evt_name}.{field}: expected {value!r}, got {actual!r}"
+        )
     else:
-        assert (
-            actual == value
-        ), f"{evt_name}.{field}: expected {value!r}, got {actual!r}"
+        assert actual == value, (
+            f"{evt_name}.{field}: expected {value!r}, got {actual!r}"
+        )
 
 
 @then(
@@ -1544,9 +1544,9 @@ def step_then_process_event_has_str_field(context, evt_name, field, value):
     r"(?P<field>\w+) (?P<value>-?\d+)"
 )
 def step_then_process_event_has_int_field(context, evt_name, field, value):
-    assert (
-        context.pm_process_event_name == evt_name
-    ), f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    assert context.pm_process_event_name == evt_name, (
+        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    )
     actual = getattr(context.pm_process_event, field)
     assert actual == int(value), f"{evt_name}.{field}: expected {value}, got {actual}"
 
@@ -1556,9 +1556,9 @@ def step_then_process_event_has_int_field(context, evt_name, field, value):
     r"(?P<phase>\w+)"
 )
 def step_then_process_event_phase(context, evt_name, phase):
-    assert (
-        context.pm_process_event_name == evt_name
-    ), f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    assert context.pm_process_event_name == evt_name, (
+        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    )
     # phase lives under orch enums, BuyInPhase/RebuyPhase/RegistrationPhase
     # Build a lookup across all three
     actual = context.pm_process_event.phase
@@ -1576,9 +1576,9 @@ def step_then_process_event_phase(context, evt_name, phase):
         if found:
             break
     assert found, f"Could not resolve phase name {phase!r}"
-    assert (
-        actual == expected_val
-    ), f"{evt_name}.phase: expected {phase} ({expected_val}), got {actual}"
+    assert actual == expected_val, (
+        f"{evt_name}.phase: expected {phase} ({expected_val}), got {actual}"
+    )
 
 
 @then(
@@ -1586,13 +1586,13 @@ def step_then_process_event_phase(context, evt_name, phase):
     r"fee amount (?P<amount>-?\d+)"
 )
 def step_then_process_event_fee_amount(context, evt_name, amount):
-    assert (
-        context.pm_process_event_name == evt_name
-    ), f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    assert context.pm_process_event_name == evt_name, (
+        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    )
     actual = context.pm_process_event.fee.amount
-    assert actual == int(
-        amount
-    ), f"{evt_name}.fee.amount: expected {amount}, got {actual}"
+    assert actual == int(amount), (
+        f"{evt_name}.fee.amount: expected {amount}, got {actual}"
+    )
 
 
 @then(
@@ -1600,9 +1600,9 @@ def step_then_process_event_fee_amount(context, evt_name, amount):
     r'code is "(?P<code>[^"]+)"'
 )
 def step_then_process_event_failure_code(context, evt_name, code):
-    assert (
-        context.pm_process_event_name == evt_name
-    ), f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    assert context.pm_process_event_name == evt_name, (
+        f"Expected asserting {evt_name} but last event was {context.pm_process_event_name}"
+    )
     actual = context.pm_process_event.failure.code
     assert actual == code, f"{evt_name}.failure.code: expected {code!r}, got {actual!r}"
 

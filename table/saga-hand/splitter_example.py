@@ -27,7 +27,6 @@ _TableSettled = getattr(table, "TableSettled", None)
 _TransferFunds = getattr(player, "TransferFunds", None)
 
 if _TableSettled is not None and _TransferFunds is not None:
-
     # region saga_splitter
     @saga(name="saga-table-player-splitter", source="table", target="player")
     class TableSettledSplitterSaga:

@@ -88,9 +88,9 @@ class TableStateBuilder:
         self._max_buy_in = 1000
         self._small_blind = 5
         self._big_blind = 10
-        self._seats: dict[int, tuple[bytes, int]] = (
-            {}
-        )  # position -> (player_root, stack)
+        self._seats: dict[
+            int, tuple[bytes, int]
+        ] = {}  # position -> (player_root, stack)
         self._status = "waiting"
         self._hand_count = 0
 

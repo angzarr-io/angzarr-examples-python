@@ -43,7 +43,7 @@ test: test-pytest test-example-unit test-example-acceptance
 
 # Format code (use --check for CI)
 fmt *FLAGS:
-    uv run black {{FLAGS}} .
+    uv run ruff format --check {{FLAGS}} .
 
 # Lint code
 lint:
@@ -95,4 +95,4 @@ mutation-test:
 # Auto-format code
 fmt-fix:
     uv run ruff check --fix . --exclude angzarr-client-python
-    uv run black .
+    uv run ruff format .

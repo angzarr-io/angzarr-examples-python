@@ -151,9 +151,7 @@ def run_training_loop(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Run tournament-train loop for poker AI"
-    )
+    parser = argparse.ArgumentParser(description="Run tournament-train loop for poker AI")
     parser.add_argument(
         "--database-url",
         type=str,

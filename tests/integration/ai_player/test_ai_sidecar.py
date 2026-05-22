@@ -62,9 +62,9 @@ class TestReflection:
         methods = _reflection_describe_methods(
             channel, "angzarr_client.proto.examples.v1.AiSidecar"
         )
-        assert (
-            methods == EXPECTED_RPCS
-        ), f"missing: {EXPECTED_RPCS - methods}, extra: {methods - EXPECTED_RPCS}"
+        assert methods == EXPECTED_RPCS, (
+            f"missing: {EXPECTED_RPCS - methods}, extra: {methods - EXPECTED_RPCS}"
+        )
 
 
 class TestHealth:

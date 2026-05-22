@@ -180,17 +180,17 @@ def step_then_reservation_request_accepted(context):
     Requested event was emitted (success path). PM behavior beyond this
     is observed by the next scenario step.
     """
-    assert (
-        context.command_succeeded
-    ), f"Reservation Initiate* failed: {context.last_error}"
+    assert context.command_succeeded, (
+        f"Reservation Initiate* failed: {context.last_error}"
+    )
 
 
 @then(r"the reservation request was rejected")
 def step_then_reservation_request_rejected(context):
     """Assert the reservation aggregate rejected the Initiate*."""
-    assert (
-        not context.command_succeeded
-    ), "Expected reservation request to be rejected, but it succeeded"
+    assert not context.command_succeeded, (
+        "Expected reservation request to be rejected, but it succeeded"
+    )
 
 
 # ---------------------------------------------------------------------------

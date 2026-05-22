@@ -204,9 +204,9 @@ class CommandExecutor:
         Raises:
             AssertionError: If no event or command failed.
         """
-        assert (
-            self.last_result is not None
-        ), f"No event - command failed: {self.last_error}"
+        assert self.last_result is not None, (
+            f"No event - command failed: {self.last_error}"
+        )
         return self.last_result
 
     def get_error(self) -> CommandRejectedError:

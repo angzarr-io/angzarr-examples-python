@@ -191,8 +191,7 @@ class AiPlayerServicer:
         profiles = self._opponent_store.get_profiles(list(request.player_roots))
         return pb.OpponentStatsResponse(
             profiles=[
-                self._convert_profile_to_proto(root, profile)
-                for root, profile in profiles.items()
+                self._convert_profile_to_proto(root, profile) for root, profile in profiles.items()
             ]
         )
 
@@ -341,9 +340,7 @@ class AiPlayerServicer:
         if not request.model_path:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             context.set_details("model_path is required")
-            return pb.ReloadModelResponse(
-                success=False, message="model_path is required"
-            )
+            return pb.ReloadModelResponse(success=False, message="model_path is required")
 
         try:
             self._model = PokerNet.load(request.model_path, device=self._config.device)

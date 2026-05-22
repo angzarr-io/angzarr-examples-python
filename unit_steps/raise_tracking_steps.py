@@ -146,26 +146,25 @@ def step_then_min_raise_to(context, expected):
 def step_then_last_raise_increment(context, expected):
     """Verify last_raise_increment."""
     assert context.last_raise_increment == int(expected), (
-        f"Expected last_raise_increment={expected}, got "
-        f"{context.last_raise_increment}"
+        f"Expected last_raise_increment={expected}, got {context.last_raise_increment}"
     )
 
 
 @then(r"current_bet is (?P<expected>-?\d+)")
 def step_then_current_bet(context, expected):
     """Verify current_bet."""
-    assert context.current_bet == int(
-        expected
-    ), f"Expected current_bet={expected}, got {context.current_bet}"
+    assert context.current_bet == int(expected), (
+        f"Expected current_bet={expected}, got {context.current_bet}"
+    )
 
 
 @then(r"the all-in amount is less than min_raise_to")
 def step_then_all_in_less_than_min_raise(context):
     """Verify the all-in amount is less than min_raise_to."""
     min_raise_to = context.current_bet + context.last_raise_increment
-    assert (
-        context.all_in_to < min_raise_to
-    ), f"all-in {context.all_in_to} is not less than min_raise_to {min_raise_to}"
+    assert context.all_in_to < min_raise_to, (
+        f"all-in {context.all_in_to} is not less than min_raise_to {min_raise_to}"
+    )
 
 
 @then(r"the bet is reopened for prior actors")
@@ -176,17 +175,17 @@ def step_then_bet_reopened(context):
     full raise, betting reopens for players who already acted. The
     ``apply_short_all_in`` helper sets ``action_reopened`` accordingly.
     """
-    assert (
-        context.action_reopened is True
-    ), "Expected action to be reopened, but the tracker reports it is not"
+    assert context.action_reopened is True, (
+        "Expected action to be reopened, but the tracker reports it is not"
+    )
 
 
 @then(r"the bet is not reopened for prior actors")
 def step_then_bet_not_reopened(context):
     """Verify cumulative shorts below the threshold do NOT reopen action."""
-    assert (
-        context.action_reopened is False
-    ), "Expected action NOT to be reopened, but the tracker reports it is"
+    assert context.action_reopened is False, (
+        "Expected action NOT to be reopened, but the tracker reports it is"
+    )
 
 
 # --- Per-street reset steps ---

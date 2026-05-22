@@ -71,9 +71,7 @@ class ExperienceStore:
         return json.dumps(
             {
                 "session_id": context.session_id,
-                "player_root": (
-                    context.player_root.hex() if context.player_root else None
-                ),
+                "player_root": (context.player_root.hex() if context.player_root else None),
                 "hand_id": context.hand_id.hex() if context.hand_id else None,
                 "snapshot": {
                     "model_id": snapshot.model_id,
@@ -142,9 +140,7 @@ class OpponentProfileStore:
             return {}
 
         with Session(self._engine) as session:
-            stmt = select(PlayerProfile).where(
-                PlayerProfile.player_root.in_(player_roots)
-            )
+            stmt = select(PlayerProfile).where(PlayerProfile.player_root.in_(player_roots))
             profiles = {}
             for profile in session.scalars(stmt):
                 profiles[profile.player_root] = {
@@ -193,9 +189,7 @@ class OpponentProfileStore:
 
                     profile.vpip = old_weight * profile.vpip + new_weight * stats.vpip
                     profile.pfr = old_weight * profile.pfr + new_weight * stats.pfr
-                    profile.af = (
-                        old_weight * profile.af + new_weight * stats.aggression_factor
-                    )
+                    profile.af = old_weight * profile.af + new_weight * stats.aggression_factor
                     profile.wtsd = old_weight * profile.wtsd + new_weight * stats.wtsd
                     profile.w_sd = old_weight * profile.w_sd + new_weight * stats.w_sd
 

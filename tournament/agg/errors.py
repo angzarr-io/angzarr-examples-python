@@ -149,8 +149,7 @@ class TournamentNotRunningOrPaused(StateMismatch):
 class BlindStructureExhausted(Exhausted):
     CODE = "BLIND_STRUCTURE_EXHAUSTED"
     TEMPLATE = (
-        "Blind structure exhausted at level {current};"
-        " max defined level is {max_value}"
+        "Blind structure exhausted at level {current}; max defined level is {max_value}"
     )
 
 
