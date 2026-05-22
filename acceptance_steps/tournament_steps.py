@@ -417,9 +417,7 @@ def _last_event_type_urls(context) -> list[str]:
     events = context.last_response.events
     if events is None:
         return []
-    return [
-        page.event.type_url for page in events.pages if page.HasField("event")
-    ]
+    return [page.event.type_url for page in events.pages if page.HasField("event")]
 
 
 def _send_tournament_command_simple(context, name: str, cmd, type_name: str):
@@ -459,9 +457,7 @@ def _send_tournament_command_simple(context, name: str, cmd, type_name: str):
 # --- EA-0011 color-up at level transition -----------------------------------
 
 
-@when(
-    r'I advance blind level on tournament "(?P<name>[^"]+)" with color-up:'
-)
+@when(r'I advance blind level on tournament "(?P<name>[^"]+)" with color-up:')
 def step_when_advance_blind_with_color_up(context, name):
     """Send AdvanceBlindLevel with chip-race fields populated from the
     Gherkin table. The handler emits BlindLevelAdvanced + ColorUpCompleted
@@ -484,15 +480,13 @@ def step_when_advance_blind_with_color_up(context, name):
         }
 
 
-@then(
-    r'a ColorUpCompleted event is emitted on tournament "(?P<name>[^"]+)"'
-)
+@then(r'a ColorUpCompleted event is emitted on tournament "(?P<name>[^"]+)"')
 def step_then_color_up_emitted(context, name):
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "ColorUpCompleted"
-    assert expected in urls, (
-        f"Expected ColorUpCompleted in tournament event book, got {urls!r}"
-    )
+    assert (
+        expected in urls
+    ), f"Expected ColorUpCompleted in tournament event book, got {urls!r}"
 
 
 def _unpack_color_up_completed(context) -> tournament.ColorUpCompleted:
@@ -511,8 +505,7 @@ def _unpack_color_up_completed(context) -> tournament.ColorUpCompleted:
 
 
 @then(
-    r"every active player's stack contains no chips of denomination "
-    r"(?P<denom>\d+)"
+    r"every active player's stack contains no chips of denomination " r"(?P<denom>\d+)"
 )
 def step_then_no_chips_of_denom(context, denom):
     """Verify the chip-race truly retired the given denomination.
@@ -532,8 +525,7 @@ def step_then_no_chips_of_denom(context, denom):
 
 
 @then(
-    r"the sum of all active stacks equals total_chips_in_play before "
-    r"the color-up"
+    r"the sum of all active stacks equals total_chips_in_play before " r"the color-up"
 )
 def step_then_chip_conservation(context):
     """Verify the conservation invariant per the ColorUpCompleted proto:
@@ -574,15 +566,14 @@ def _pick_balancing_move(context) -> dict:
     )
     smallest_name, smallest = tables[0]
     largest_name, largest = tables[-1]
-    assert largest_name != smallest_name, (
-        "Cannot rebalance a single-table tournament — need at least 2"
-    )
+    assert (
+        largest_name != smallest_name
+    ), "Cannot rebalance a single-table tournament — need at least 2"
     # Last seated player (insertion order): take the last entry of player_stacks.
     src_stacks = largest["player_stacks"]
     player_to_move = next(reversed(src_stacks.keys()))
     stack = src_stacks[player_to_move]
     # First free seat at destination (0..max-players, skipping seated).
-    dest_stacks = smallest.get("player_stacks", {})
     dest_seat = smallest["seated_players"]
     return {
         "source_name": largest_name,
@@ -648,21 +639,17 @@ def step_when_trigger_balancing(context, name):
 
 
 @then(
-    r'a PlayerMovedBetweenTables event is emitted on tournament '
-    r'"(?P<name>[^"]+)"'
+    r"a PlayerMovedBetweenTables event is emitted on tournament " r'"(?P<name>[^"]+)"'
 )
 def step_then_player_moved_emitted(context, name):
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "PlayerMovedBetweenTables"
     assert expected in urls, (
-        f"Expected PlayerMovedBetweenTables in tournament event book, "
-        f"got {urls!r}"
+        f"Expected PlayerMovedBetweenTables in tournament event book, " f"got {urls!r}"
     )
 
 
-@then(
-    r'table "(?P<table>[^"]+)" has (?P<n>\d+) active players?'
-)
+@then(r'table "(?P<table>[^"]+)" has (?P<n>\d+) active players?')
 def step_then_table_active_count(context, table, n):
     """Verify the saga-applied table size after the rebalancing move.
 
@@ -676,9 +663,9 @@ def step_then_table_active_count(context, table, n):
     expected = int(n)
     assert table in context.tables, f"Table {table!r} not tracked"
     actual = context.tables[table]["seated_players"]
-    assert actual == expected, (
-        f"Table {table!r}: expected {expected} active players, got {actual}"
-    )
+    assert (
+        actual == expected
+    ), f"Table {table!r}: expected {expected} active players, got {actual}"
 
 
 @then(
@@ -692,9 +679,9 @@ def step_then_moved_stack_preserved(context, dest, src):
     upstream ``PlayerMovedBetweenTables``, so the destination table
     seats them with the same chip count they had at the source.
     """
-    assert context.command_succeeded, (
-        "RebalanceTables did not succeed; cannot verify stack preservation"
-    )
+    assert (
+        context.command_succeeded
+    ), "RebalanceTables did not succeed; cannot verify stack preservation"
     # Find the most-recently-tracked move (the test runs scenario-scoped).
     last_move = None
     for tname in context.tournaments:
@@ -732,8 +719,7 @@ def step_given_payout_structure(context, positions, percents):
     pass
 
 
-def _send_table_command(context, table_name: str, cmd, type_name: str,
-                        sync_mode=None):
+def _send_table_command(context, table_name: str, cmd, type_name: str, sync_mode=None):
     """Send a command to a table coordinator, tracking sequence + result.
 
     Only advances the tracked sequence on success — a rejected command
@@ -756,9 +742,7 @@ def _send_table_command(context, table_name: str, cmd, type_name: str,
         if sync_mode is not None:
             kwargs["sync_mode"] = sync_mode
         try:
-            response = context.client.send_command(
-                "table", root, packed, **kwargs
-            )
+            response = context.client.send_command("table", root, packed, **kwargs)
             context.last_response = response
             context.last_error = None
             context.command_succeeded = True
@@ -802,9 +786,7 @@ def step_when_enter_bubble(context):
     _send_tournament_command_simple(
         context, name, cmd, "angzarr_client.proto.examples.v1.EnterHandForHand"
     )
-    assert context.command_succeeded, (
-        f"EnterHandForHand failed: {context.last_error}"
-    )
+    assert context.command_succeeded, f"EnterHandForHand failed: {context.last_error}"
     context.tournaments[name]["hand_for_hand"] = True
 
     # Drive the per-table fan-out directly so test sequence tracking
@@ -822,15 +804,12 @@ def step_when_enter_bubble(context):
             sync_mode=SyncMode.SYNC_MODE_SIMPLE,
         )
         assert context.command_succeeded, (
-            f"EnterTableHandForHand on {table_name!r} failed: "
-            f"{context.last_error}"
+            f"EnterTableHandForHand on {table_name!r} failed: " f"{context.last_error}"
         )
         context.tables[table_name]["h4h_status"] = "WAITING"
 
 
-@then(
-    r'a HandForHandStarted event is emitted on tournament "(?P<name>[^"]+)"'
-)
+@then(r'a HandForHandStarted event is emitted on tournament "(?P<name>[^"]+)"')
 def step_then_h4h_started_emitted(context, name):
     """Verify HandForHandStarted appeared in the tournament's event book.
 
@@ -846,9 +825,9 @@ def step_then_h4h_started_emitted(context, name):
     # that path — verified by the fact that the very next assertions in
     # the scenario depend on the table-side WAITING state which only
     # gets set when the tournament's H4H mode is on).
-    assert context.tournaments[name].get("hand_for_hand"), (
-        f"Tournament {name!r} did not enter H4H mode"
-    )
+    assert context.tournaments[name].get(
+        "hand_for_hand"
+    ), f"Tournament {name!r} did not enter H4H mode"
 
 
 @then(r'table "(?P<table>[^"]+)" status is "(?P<status>[^"]+)"')
@@ -869,9 +848,9 @@ def step_then_table_h4h_status(context, table, status):
     }.get(status)
     assert expected is not None, f"Unknown H4H status {status!r}"
     actual = context.tables[table].get("h4h_status", "")
-    assert actual == expected, (
-        f"Table {table!r}: expected H4H status {expected!r}, got {actual!r}"
-    )
+    assert (
+        actual == expected
+    ), f"Table {table!r}: expected H4H status {expected!r}, got {actual!r}"
 
 
 @when(r'a hand completes at table "(?P<table>[^"]+)"')
@@ -944,8 +923,7 @@ def step_then_table_cannot_start(context, table):
 
 
 @then(
-    r'a HandForHandRoundComplete event is emitted on tournament '
-    r'"(?P<name>[^"]+)"'
+    r"a HandForHandRoundComplete event is emitted on tournament " r'"(?P<name>[^"]+)"'
 )
 def step_then_h4h_round_complete_emitted(context, name):
     """Trigger the round-complete signal on the tournament and verify
@@ -967,14 +945,13 @@ def step_then_h4h_round_complete_emitted(context, name):
         cmd,
         "angzarr_client.proto.examples.v1.RecordHandForHandRoundComplete",
     )
-    assert context.command_succeeded, (
-        f"RecordHandForHandRoundComplete failed: {context.last_error}"
-    )
+    assert (
+        context.command_succeeded
+    ), f"RecordHandForHandRoundComplete failed: {context.last_error}"
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "HandForHandRoundComplete"
     assert expected in urls, (
-        f"Expected HandForHandRoundComplete on tournament {name!r}, "
-        f"got {urls!r}"
+        f"Expected HandForHandRoundComplete on tournament {name!r}, " f"got {urls!r}"
     )
 
 
@@ -996,9 +973,9 @@ def step_then_both_can_start(context):
             "angzarr_client.proto.examples.v1.EndTableHandForHand",
             sync_mode=SyncMode.SYNC_MODE_SIMPLE,
         )
-        assert context.command_succeeded, (
-            f"EndTableHandForHand on {table_name!r} failed: {context.last_error}"
-        )
+        assert (
+            context.command_succeeded
+        ), f"EndTableHandForHand on {table_name!r} failed: {context.last_error}"
         context.tables[table_name]["h4h_status"] = ""
 
         # Re-arm for the next round.
@@ -1013,9 +990,7 @@ def step_then_both_can_start(context):
         context.tables[table_name]["h4h_status"] = "WAITING"
 
 
-@then(
-    r'a HandForHandEnded event is emitted on tournament "(?P<name>[^"]+)"'
-)
+@then(r'a HandForHandEnded event is emitted on tournament "(?P<name>[^"]+)"')
 def step_then_h4h_ended_emitted(context, name):
     """Verify the tournament aggregate emitted HandForHandEnded.
 
@@ -1026,6 +1001,6 @@ def step_then_h4h_ended_emitted(context, name):
     """
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "HandForHandEnded"
-    assert expected in urls, (
-        f"Expected HandForHandEnded in tournament event book, got {urls!r}"
-    )
+    assert (
+        expected in urls
+    ), f"Expected HandForHandEnded in tournament event book, got {urls!r}"

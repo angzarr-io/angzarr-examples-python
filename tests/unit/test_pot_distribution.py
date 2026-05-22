@@ -15,7 +15,6 @@ from hand.agg.pot_distribution import (
     split_pot_clockwise_from_button,
 )
 
-
 # === split_pot_clockwise_from_button (TDA Rule 20A) ===
 
 
@@ -280,7 +279,7 @@ def test_split_by_suit_three_way_with_two_odd_chips():
     each get +1; lowest stays at base."""
     winners = [
         WinnerWithSuit(player_root="Alice", suit_rank=50),  # Ah
-        WinnerWithSuit(player_root="Bob", suit_rank=46),    # Kh
+        WinnerWithSuit(player_root="Bob", suit_rank=46),  # Kh
         WinnerWithSuit(player_root="Carol", suit_rank=42),  # Qh
     ]
     awards = split_pot_by_suit(pot=101, winners=winners, high_wins=True)

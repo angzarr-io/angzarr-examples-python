@@ -43,7 +43,6 @@ from table.agg.errors import (
     TableNotHalted,
 )
 
-
 # TDA Rule 11D — "Play will halt on tables 3+ players short (by
 # elimination) than the table with the most players once the blinds
 # are impacted." The threshold is part of the rule, not a runtime
@@ -701,9 +700,7 @@ class Table:
             # start the next hand until the coordinator issues
             # ResumePlayAtTable.
             if self._state.halted_for_balancing:
-                raise TableHaltedAwaitingRebalance(
-                    deficit=self._state.halted_deficit
-                )
+                raise TableHaltedAwaitingRebalance(deficit=self._state.halted_deficit)
             # TDA Rule 12 — once a table has finished its synchronised
             # H4H hand it must wait for the round-complete signal before
             # the next hand can begin. The operator/saga issues
@@ -875,6 +872,7 @@ class Table:
                     # else from player_root + table_id.
                     import hashlib
                     import random as _random
+
                     open_seats = sorted(
                         s for s in range(self.max_players) if self.get_seat(s) is None
                     )

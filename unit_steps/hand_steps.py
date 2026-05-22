@@ -253,7 +253,7 @@ def step_given_cards_dealt_variant(context, variant, count):
 
 
 @given(
-    r'a CardsDealt event for (?P<variant>\w+) with (?P<count>\d+) players '
+    r"a CardsDealt event for (?P<variant>\w+) with (?P<count>\d+) players "
     r'"(?P<names>[^"]+)" at stacks (?P<stack>\d+)'
 )
 def step_given_cards_dealt_named(context, variant, count, names, stack):
@@ -292,9 +292,9 @@ def step_given_cards_dealt_named(context, variant, count, names, stack):
     ]
 
     name_list = [n.strip() for n in names.split(",")]
-    assert len(name_list) == int(count), (
-        f"player count mismatch: declared {count}, names {name_list}"
-    )
+    assert len(name_list) == int(
+        count
+    ), f"player count mismatch: declared {count}, names {name_list}"
 
     card_idx = 0
     for i, name in enumerate(name_list):
@@ -700,9 +700,9 @@ def step_then_player_effective_stack(context, player_id, amt):
     target = uuid_for(player_id)
     for player in agg._state.players.values():
         if player.player_root == target:
-            assert player.stack == expected, (
-                f"Effective stack for {player_id} is {player.stack}, expected {expected}"
-            )
+            assert (
+                player.stack == expected
+            ), f"Effective stack for {player_id} is {player.stack}, expected {expected}"
             return
     assert False, f"Player {player_id} not in hand state"
 
@@ -720,9 +720,7 @@ def step_then_rebuy_obligation_emitted(context, player_id, amt):
             page.event.Unpack(evt)
             if evt.player_root == target and evt.amount == expected:
                 return
-    assert False, (
-        f"No RebuyObligation event for {player_id} with amount {amt}"
-    )
+    assert False, f"No RebuyObligation event for {player_id} with amount {amt}"
 
 
 # --- EU-1210 / EU-1211 mid-hand level change ---
@@ -755,6 +753,7 @@ def step_given_blind_level_advanced_mid_hand(context, lvl, sb, bb):
     Hand aggregate ignores tournament events on rebuild, so the in-hand
     big_blind / min_raise should remain at the prior level."""
     from angzarr_client.proto.examples.v1 import tournament_pb2 as t
+
     event = t.BlindLevelAdvanced(
         level=int(lvl),
         small_blind=int(sb),
@@ -775,6 +774,7 @@ def step_given_blind_level_advanced_mid_hand(context, lvl, sb, bb):
 def step_given_prior_hand_at_level(context, table_name, lvl):
     """Build a Table with prior hand history."""
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     context.table_events = [
         make_event_page(
             table_proto.TableCreated(
@@ -839,6 +839,7 @@ def step_given_blind_level_advanced_applied(context, lvl):
 def step_when_start_hand_at_named_table(context, table_name):
     from table.agg.handlers import Table
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     book = _make_event_book(context.table_events)
     agg = Table(book)
     cmd = table_proto.StartHand(blind_level=context.next_blind_level)
@@ -855,11 +856,10 @@ def step_when_start_hand_at_named_table(context, table_name):
 @then(r"the table event has blind_level (?P<lvl>\d+)")
 def step_then_table_event_blind_level(context, lvl):
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     evt = table_proto.HandStarted()
     context.result_event_any.Unpack(evt)
-    assert evt.blind_level == int(lvl), (
-        f"blind_level={evt.blind_level}, expected {lvl}"
-    )
+    assert evt.blind_level == int(lvl), f"blind_level={evt.blind_level}, expected {lvl}"
 
 
 # --- EU-1250 NL underraise correction ---
@@ -918,11 +918,7 @@ def step_when_correct_underraise(context):
         default=0,
     )
     bets = sorted(
-        {
-            p.bet_this_round
-            for p in agg._state.players.values()
-            if p.bet_this_round
-        },
+        {p.bet_this_round for p in agg._state.players.values() if p.bet_this_round},
         reverse=True,
     )
     # Legal min-raise = opening bet + opening bet (default min increment).
@@ -941,18 +937,18 @@ def step_when_correct_underraise(context):
 @then(r"a UnderbetCorrected event is emitted")
 def step_then_underbet_corrected_simple(context):
     evt_type = context.result_event_any.type_url.rsplit("/", 1)[-1]
-    assert evt_type.endswith("UnderbetCorrected"), (
-        f"Expected UnderbetCorrected, got {evt_type}"
-    )
+    assert evt_type.endswith(
+        "UnderbetCorrected"
+    ), f"Expected UnderbetCorrected, got {evt_type}"
 
 
 @then(r"the corrected raise-to amount is (?P<n>\d+)")
 def step_then_corrected_raise_to(context, n):
     evt = hand.UnderbetCorrected()
     context.result_event_any.Unpack(evt)
-    assert evt.corrected_amount == int(n), (
-        f"corrected_amount={evt.corrected_amount}, expected {n}"
-    )
+    assert evt.corrected_amount == int(
+        n
+    ), f"corrected_amount={evt.corrected_amount}, expected {n}"
 
 
 @then(r"every bettor's contribution is increased to match")
@@ -991,7 +987,7 @@ def step_given_player_called_all_in(context, player_id, amt):
 
 
 @when(
-    r'a hidden (?P<amt>\d+) chip is discovered behind player '
+    r"a hidden (?P<amt>\d+) chip is discovered behind player "
     r'"(?P<player_id>[^"]+)" after the call'
 )
 def step_when_hidden_chip_discovered(context, amt, player_id):
@@ -1052,12 +1048,10 @@ def step_when_seating_handles_tie(context):
     derived from (hand_no, both player_roots)."""
     import hashlib
     from angzarr_client.proto.examples.v1 import tournament_pb2 as t
+
     a_root = uuid_for(context.tied_players[0])
     b_root = uuid_for(context.tied_players[1])
-    seed_input = (
-        str(context.tied_hand_no).encode()
-        + a_root + b_root
-    )
+    seed_input = str(context.tied_hand_no).encode() + a_root + b_root
     seed = hashlib.sha256(seed_input).digest()[:16]
     # Deterministic: pick the contender whose bytes-sort comes first under seed XOR.
     candidates = sorted([a_root, b_root])
@@ -1090,6 +1084,7 @@ def step_then_seat_tiebreak_emitted(context):
 def step_then_tiebreak_seed_reproducible(context):
     """Re-derive the seed and check it matches."""
     import hashlib
+
     a_root = uuid_for(context.tied_players[0])
     b_root = uuid_for(context.tied_players[1])
     seed_input = str(context.tied_hand_no).encode() + a_root + b_root
@@ -1663,23 +1658,21 @@ def step_then_player_folded(context, player_id, value):
     if hasattr(context, "oot_pending"):
         for a in context.oot_pending:
             if a["player"] == player_id and a["action"] == "FOLD":
-                assert expected, (
-                    f"Expected {player_id} folded={expected} but OOT-FOLD recorded"
-                )
+                assert (
+                    expected
+                ), f"Expected {player_id} folded={expected} but OOT-FOLD recorded"
                 return
     for p in getattr(context, "stud_hand_players", []) or []:
         if p["name"] == player_id:
-            assert p.get("has_folded") == expected, (
-                f"Expected has_folded={expected}, got {p.get('has_folded')}"
-            )
+            assert (
+                p.get("has_folded") == expected
+            ), f"Expected has_folded={expected}, got {p.get('has_folded')}"
             return
     agg = getattr(context, "agg", None)
     if agg is not None:
         for player in agg.players.values():
             if player.player_root == uuid_for(player_id):
-                assert player.has_folded == expected, (
-                    f"Expected has_folded={expected}"
-                )
+                assert player.has_folded == expected, f"Expected has_folded={expected}"
                 return
     assert False, f"Player {player_id} not found in any tracker"
 
@@ -2112,9 +2105,7 @@ def step_then_player_has_hole_cards(context, player_id, count):
     ButtonCardReplaced flows (EU-1275)."""
     synthetic = getattr(context, "player_card_count_after", None)
     if synthetic is not None:
-        assert synthetic == int(count), (
-            f"Expected {count} hole cards, got {synthetic}"
-        )
+        assert synthetic == int(count), f"Expected {count} hole cards, got {synthetic}"
         return
     agg = getattr(context, "agg", None)
     assert agg is not None, "No aggregate"
@@ -2237,24 +2228,6 @@ def step_then_hand_complete_emitted_simple(context):
             found = True
             break
     assert found, "HandComplete event not found"
-
-
-@then(r'the hand status is "(?P<status>[^"]+)"')
-def step_then_hand_status_is(context, status):
-    """Verify hand status. Falls back to a synthetic ``context.hand_status``
-    flag for fouled-deck / void scenarios that don't drive the
-    aggregate (EU-1231 etc.)."""
-    synthetic = getattr(context, "hand_status", None)
-    if synthetic is not None:
-        assert synthetic == status, (
-            f"Expected status={status}, got {synthetic}"
-        )
-        return
-    agg = getattr(context, "agg", None)
-    assert agg is not None, "No hand aggregate"
-    assert agg.status == status, (
-        f"Expected status={status}, got {agg.status}"
-    )
 
 
 @then(r'player "(?P<player_id>[^"]+)" has ranking "(?P<ranking>[^"]+)"')
@@ -2507,25 +2480,6 @@ def step_then_each_player_bet_this_round(context, amount):
         )
 
 
-@then(r'player "(?P<player_id>[^"]+)" has stack (?P<stack>\d+)')
-def step_then_player_has_stack(context, player_id, stack):
-    """Verify a player's stack. Falls back to ``player_stack_after_kill``
-    for synthetic dealer-killed/refund flows (EU-1260)."""
-    expected = int(stack)
-    if hasattr(context, "player_stack_after_kill"):
-        actual = context.player_stack_after_kill.get(player_id)
-        if actual is not None:
-            assert actual == expected, (
-                f"Expected {player_id} stack {expected}, got {actual}"
-            )
-            return
-    agg = getattr(context, "agg", None)
-    assert agg is not None, "No hand aggregate"
-    player = agg.get_player(uuid_for(player_id))
-    assert player is not None, f"Player {player_id} not found"
-    assert player.stack == expected, f"Expected stack={stack}, got {player.stack}"
-
-
 @then(r'player "(?P<player_id>[^"]+)" is all-in')
 def step_then_player_is_all_in(context, player_id):
     """Verify a player's is_all_in flag."""
@@ -2656,9 +2610,7 @@ def _emit_synthetic(context, event):
     page = types.EventPage(
         header=types.PageHeader(sequence=len(context.events)),
         event=event_any,
-        created_at=Timestamp(
-            seconds=int(datetime.now(timezone.utc).timestamp())
-        ),
+        created_at=Timestamp(seconds=int(datetime.now(timezone.utc).timestamp())),
     )
     context.events.append(page)
     context.result = _make_event_book([page])
@@ -2677,9 +2629,7 @@ def step_given_no_substantial_action(context):
     context.substantial_action = False
 
 
-@when(
-    r"the dealer accidentally exposes (?P<player_id>\w+)'s first downcard"
-)
+@when(r"the dealer accidentally exposes (?P<player_id>\w+)'s first downcard")
 def step_when_dealer_exposes_first_downcard(context, player_id):
     if not context.substantial_action:
         evt = hand.MisdealDeclared(
@@ -2697,23 +2647,23 @@ def step_when_dealer_exposes_first_downcard(context, player_id):
 def step_then_misdeal_reason(context, reason):
     evt = getattr(context, "misdeal_event", None)
     assert evt is not None, "No MisdealDeclared event was emitted"
-    assert evt.reason == reason, (
-        f"Expected misdeal reason {reason!r}, got {evt.reason!r}"
-    )
+    assert (
+        evt.reason == reason
+    ), f"Expected misdeal reason {reason!r}, got {evt.reason!r}"
 
 
 @then(r"the dealer button is preserved")
 def step_then_button_preserved(context):
-    assert getattr(context, "button_preserved", False), (
-        "Expected dealer button to be preserved"
-    )
+    assert getattr(
+        context, "button_preserved", False
+    ), "Expected dealer button to be preserved"
 
 
 @then(r"no chips have been forfeited")
 def step_then_no_chips_forfeited(context):
-    assert not getattr(context, "chips_forfeited", False), (
-        "Expected no chip forfeits, but the context flagged some"
-    )
+    assert not getattr(
+        context, "chips_forfeited", False
+    ), "Expected no chip forfeits, but the context flagged some"
 
 
 # EU-1325 — RP-10A: exposed downcard becomes upcard
@@ -2724,9 +2674,7 @@ def step_given_deal_in_progress(context):
     context.deal_in_progress = True
 
 
-@when(
-    r"the dealer exposes (?P<player_id>\w+)'s intended second downcard"
-)
+@when(r"the dealer exposes (?P<player_id>\w+)'s intended second downcard")
 def step_when_dealer_exposes_intended_downcard(context, player_id):
     # Pick any card; the cucumber doesn't care about the specific rank
     # — the assertion is that the conversion event is emitted with the
@@ -2740,9 +2688,11 @@ def step_when_dealer_exposes_intended_downcard(context, player_id):
     context.stud_conversion_event = evt
     # Advance the per-player conversion bookkeeping so subsequent Then
     # steps can read counts.
-    context.stud_player_card_counts = context.stud_player_card_counts if hasattr(
-        context, "stud_player_card_counts"
-    ) else {}
+    context.stud_player_card_counts = (
+        context.stud_player_card_counts
+        if hasattr(context, "stud_player_card_counts")
+        else {}
+    )
     context.stud_player_card_counts[player_id] = {"down": 1, "up": 1}
     context.stud_door_card_face_down = {player_id: True}
     context.stud_bring_in_eligible = {player_id: True}
@@ -2756,12 +2706,10 @@ def step_when_dealer_exposes_intended_downcard(context, player_id):
 def step_then_player_card_counts(context, player_id, down, up):
     counts = context.stud_player_card_counts.get(player_id)
     assert counts is not None, f"No card counts recorded for {player_id}"
-    assert counts["down"] == int(down), (
-        f"Expected {down} down card(s), got {counts['down']}"
-    )
-    assert counts["up"] == int(up), (
-        f"Expected {up} up card(s), got {counts['up']}"
-    )
+    assert counts["down"] == int(
+        down
+    ), f"Expected {down} down card(s), got {counts['down']}"
+    assert counts["up"] == int(up), f"Expected {up} up card(s), got {counts['up']}"
 
 
 @then(
@@ -2769,9 +2717,9 @@ def step_then_player_card_counts(context, player_id, down, up):
     r"\(the door card\) is dealt face down"
 )
 def step_then_next_card_face_down(context, player_id):
-    assert context.stud_door_card_face_down.get(player_id), (
-        f"Expected the next dealt card to {player_id} to be face down"
-    )
+    assert context.stud_door_card_face_down.get(
+        player_id
+    ), f"Expected the next dealt card to {player_id} to be face down"
 
 
 @then(
@@ -2779,9 +2727,9 @@ def step_then_next_card_face_down(context, player_id):
     r"based on her up card"
 )
 def step_then_player_bring_in_eligible(context, player_id):
-    assert context.stud_bring_in_eligible.get(player_id), (
-        f"Expected {player_id} to remain bring-in-eligible"
-    )
+    assert context.stud_bring_in_eligible.get(
+        player_id
+    ), f"Expected {player_id} to remain bring-in-eligible"
 
 
 # EU-1326 — RP-10B: exposed 7th-street card replaced
@@ -2813,25 +2761,23 @@ def step_when_dealer_exposes_7th(context, player_id):
 
 @then(r"the original card is removed from play")
 def step_then_original_removed(context):
-    assert not context.original_in_play, (
-        "Expected the original 7th-street card to be removed from play"
-    )
+    assert (
+        not context.original_in_play
+    ), "Expected the original 7th-street card to be removed from play"
 
 
-@then(
-    r"the replacement card is dealt face down to (?P<player_id>\w+)"
-)
+@then(r"the replacement card is dealt face down to (?P<player_id>\w+)")
 def step_then_replacement_face_down(context, player_id):
-    assert context.replacement_face_down, (
-        f"Expected the replacement card for {player_id} to be face down"
-    )
+    assert (
+        context.replacement_face_down
+    ), f"Expected the replacement card for {player_id} to be face down"
 
 
 # EU-1335 — WSOP all 3 first cards down → scramble + select
 
 
 @given(
-    r'the dealer accidentally dealt all 3 of (?P<player_id>\w+)\'s '
+    r"the dealer accidentally dealt all 3 of (?P<player_id>\w+)\'s "
     r"first cards face down"
 )
 def step_given_three_face_down(context, player_id):
@@ -2856,9 +2802,11 @@ def step_when_floor_selects_door(context, player_id):
         selected_at=make_timestamp(),
     )
     context.door_selected_event = evt
-    context.stud_player_card_counts = context.stud_player_card_counts if hasattr(
-        context, "stud_player_card_counts"
-    ) else {}
+    context.stud_player_card_counts = (
+        context.stud_player_card_counts
+        if hasattr(context, "stud_player_card_counts")
+        else {}
+    )
     context.stud_player_card_counts[player_id] = {"down": 2, "up": 1}
     _emit_synthetic(context, evt)
 
@@ -2870,12 +2818,10 @@ def step_when_floor_selects_door(context, player_id):
 def step_then_player_card_counts_plain(context, player_id, down, up):
     counts = context.stud_player_card_counts.get(player_id)
     assert counts is not None, f"No card counts recorded for {player_id}"
-    assert counts["down"] == int(down), (
-        f"Expected {down} down cards, got {counts['down']}"
-    )
-    assert counts["up"] == int(up), (
-        f"Expected {up} up card, got {counts['up']}"
-    )
+    assert counts["down"] == int(
+        down
+    ), f"Expected {down} down cards, got {counts['down']}"
+    assert counts["up"] == int(up), f"Expected {up} up card, got {counts['up']}"
 
 
 @then(r"the up-card selection has rng_seed populated for replay determinism")
@@ -2888,10 +2834,7 @@ def step_then_door_rng_seed(context):
 # EU-1336 — wrong bring-in correction window
 
 
-@given(
-    r'player "(?P<player_id>[^"]+)" was incorrectly designated as '
-    r"the bring-in"
-)
+@given(r'player "(?P<player_id>[^"]+)" was incorrectly designated as ' r"the bring-in")
 def step_given_incorrect_bring_in(context, player_id):
     context.incorrect_bring_in_player = player_id
 
@@ -2901,9 +2844,7 @@ def step_given_incorrect_bring_in_posted(context, player_id):
     context.incorrect_bring_in_posted_amount = 100  # canonical bring-in
 
 
-@when(
-    r'player "(?P<player_id>[^"]+)" \(the next to act\) has not yet acted'
-)
+@when(r'player "(?P<player_id>[^"]+)" \(the next to act\) has not yet acted')
 def step_when_next_to_act_has_not_acted(context, player_id):
     # Within the correction window — emit BringInCorrected. The "actual
     # low card" is the third named player in the roster (Carol in
@@ -2980,9 +2921,7 @@ def step_when_dealer_reports_misdeal(context, kind):
 @then(r'the result is "(?P<outcome>[^"]+)"')
 def step_then_misdeal_outcome(context, outcome):
     actual = getattr(context, "misdeal_outcome", None)
-    assert actual == outcome, (
-        f"Expected misdeal outcome {outcome!r}, got {actual!r}"
-    )
+    assert actual == outcome, f"Expected misdeal outcome {outcome!r}, got {actual!r}"
 
 
 # EU-1231 — fouled deck detected
@@ -2993,9 +2932,7 @@ def step_given_sa_occurred(context):
     context.substantial_action = True
 
 
-@when(
-    r"the dealer reports a fouled deck \(duplicate \"(?P<card>[^\"]+)\" found\)"
-)
+@when(r"the dealer reports a fouled deck \(duplicate \"(?P<card>[^\"]+)\" found\)")
 def step_when_fouled_deck_reported(context, card):
     evt = hand.FouledDeckDetected(
         duplicate_card=card,
@@ -3009,26 +2946,30 @@ def step_when_fouled_deck_reported(context, card):
 
 @then(r"a FouledDeckDetected event is emitted")
 def step_then_fouled_deck_emitted(context):
-    assert getattr(context, "fouled_deck_event", None) is not None, (
-        "No FouledDeckDetected event was synthesized"
-    )
+    assert (
+        getattr(context, "fouled_deck_event", None) is not None
+    ), "No FouledDeckDetected event was synthesized"
 
 
-@then(
-    r"every player's bet_this_round and prior contributions are refunded"
-)
+@then(r"every player's bet_this_round and prior contributions are refunded")
 def step_then_all_bets_refunded(context):
-    assert getattr(context, "bets_refunded", False), (
-        "Expected all bets refunded after fouled-deck detection"
-    )
+    assert getattr(
+        context, "bets_refunded", False
+    ), "Expected all bets refunded after fouled-deck detection"
 
 
 @then(r'the hand status is "(?P<status>[^"]+)"')
 def step_then_hand_status_is(context, status):
-    actual = getattr(context, "hand_status", None)
-    assert actual == status, (
-        f"Expected hand status {status!r}, got {actual!r}"
-    )
+    """Verify hand status. Falls back to a synthetic ``context.hand_status``
+    flag for fouled-deck / void scenarios that don't drive the
+    aggregate (EU-1231 etc.); otherwise reads the live aggregate."""
+    synthetic = getattr(context, "hand_status", None)
+    if synthetic is not None:
+        assert synthetic == status, f"Expected status={status}, got {synthetic}"
+        return
+    agg = getattr(context, "agg", None)
+    assert agg is not None, "No hand aggregate"
+    assert agg.status == status, f"Expected status={status}, got {agg.status}"
 
 
 # EU-1232 — Substantial Action threshold
@@ -3054,8 +2995,7 @@ def step_when_players_take_actions(context, actions):
 def step_then_substantial_action(context, sa):
     expected = sa.lower() == "true"
     assert context.substantial_action is expected, (
-        f"Expected substantial_action={expected}, "
-        f"got {context.substantial_action}"
+        f"Expected substantial_action={expected}, " f"got {context.substantial_action}"
     )
 
 
@@ -3098,17 +3038,17 @@ def step_then_hand_state_has_phase(context, phase):
     expected = getattr(poker_types, phase)
     state = getattr(context, "hand_state", None) or context.agg._state
     actual = state.current_phase
-    assert actual == expected, (
-        f"Expected current_phase {phase} ({expected}), got {actual}"
-    )
+    assert (
+        actual == expected
+    ), f"Expected current_phase {phase} ({expected}), got {actual}"
 
 
 @then(r"no MisdealDeclared event is in the hand stream")
 def step_then_no_misdeal_in_stream(context):
     for page in context.events:
-        assert not page.event.Is(hand.MisdealDeclared.DESCRIPTOR), (
-            "Found a MisdealDeclared event; expected none"
-        )
+        assert not page.event.Is(
+            hand.MisdealDeclared.DESCRIPTOR
+        ), "Found a MisdealDeclared event; expected none"
 
 
 # EU-1274 — re-deal preserves button + level
@@ -3142,44 +3082,32 @@ def step_when_hand_redealt(context):
     _emit_synthetic(context, evt)
 
 
-@then(
-    r"the dealer button is still at seat (?P<seat>\d+) \((?P<player_id>[^)]+)\)"
-)
+@then(r"the dealer button is still at seat (?P<seat>\d+) \((?P<player_id>[^)]+)\)")
 def step_then_button_still_at_seat(context, seat, player_id):
     evt = context.hand_redealt_event
-    assert evt.dealer_position == int(seat), (
-        f"Expected button at seat {seat}, got {evt.dealer_position}"
-    )
+    assert evt.dealer_position == int(
+        seat
+    ), f"Expected button at seat {seat}, got {evt.dealer_position}"
 
 
-@then(
-    r"the hand level is (?P<level>\d+) \(SB (?P<sb>\d+) / BB (?P<bb>\d+)\)"
-)
+@then(r"the hand level is (?P<level>\d+) \(SB (?P<sb>\d+) / BB (?P<bb>\d+)\)")
 def step_then_hand_level(context, level, sb, bb):
     evt = context.hand_redealt_event
     assert evt.level == int(level), f"Expected level {level}, got {evt.level}"
-    assert evt.small_blind == int(sb), (
-        f"Expected SB {sb}, got {evt.small_blind}"
-    )
-    assert evt.big_blind == int(bb), (
-        f"Expected BB {bb}, got {evt.big_blind}"
-    )
+    assert evt.small_blind == int(sb), f"Expected SB {sb}, got {evt.small_blind}"
+    assert evt.big_blind == int(bb), f"Expected BB {bb}, got {evt.big_blind}"
 
 
 # EU-1275 — button card replaced
 
 
-@given(
-    r'player "(?P<player_id>[^"]+)" was dealt only (?P<count>\d+) hole card'
-)
+@given(r'player "(?P<player_id>[^"]+)" was dealt only (?P<count>\d+) hole card')
 def step_given_player_dealt_few_cards(context, player_id, count):
     context.short_dealt_player = player_id
     context.short_dealt_count = int(count)
 
 
-@when(
-    r'player "(?P<player_id>[^"]+)" announces the missing card before acting'
-)
+@when(r'player "(?P<player_id>[^"]+)" announces the missing card before acting')
 def step_when_announce_missing_before_acting(context, player_id):
     replacement = poker_types.Card(suit=poker_types.HEARTS, rank=poker_types.SEVEN)
     evt = hand.ButtonCardReplaced(
@@ -3192,14 +3120,12 @@ def step_when_announce_missing_before_acting(context, player_id):
     _emit_synthetic(context, evt)
 
 
-@then(
-    r'player "(?P<player_id>[^"]+)" has (?P<count>\d+) hole cards'
-)
+@then(r'player "(?P<player_id>[^"]+)" has (?P<count>\d+) hole cards')
 def step_then_player_has_n_hole_cards(context, player_id, count):
     actual = getattr(context, "player_card_count_after", None)
-    assert actual == int(count), (
-        f"Expected {player_id} to have {count} hole cards, got {actual}"
-    )
+    assert actual == int(
+        count
+    ), f"Expected {player_id} to have {count} hole cards, got {actual}"
 
 
 # EU-1276/1277/1278 — flop anomalies
@@ -3221,9 +3147,7 @@ def step_when_floor_selects_burn_from_4(context):
         dealt_at=make_timestamp(),
     )
     for i in range(3):
-        evt.cards.append(
-            poker_types.Card(suit=poker_types.SPADES, rank=2 + i)
-        )
+        evt.cards.append(poker_types.Card(suit=poker_types.SPADES, rank=2 + i))
     context.community_cards_dealt_event = evt
     context.stud_next_burn_count = 1
     _emit_synthetic(context, evt)
@@ -3253,9 +3177,7 @@ def step_when_no_flop_action(context):
     # 2 of the original 3 + 1 new from the stub.
     evt.cards.append(context.original_3_flop_cards[1])
     evt.cards.append(context.original_3_flop_cards[2])
-    evt.cards.append(
-        poker_types.Card(suit=poker_types.CLUBS, rank=poker_types.FIVE)
-    )
+    evt.cards.append(poker_types.Card(suit=poker_types.CLUBS, rank=poker_types.FIVE))
     context.community_cards_dealt_event = evt
     context.stud_next_burn_count = 1
     context.scrambled_card_now_burn = context.original_3_flop_cards[0]
@@ -3266,16 +3188,16 @@ def step_when_no_flop_action(context):
 def step_then_event_n_cards_dealt(context, count):
     evt = getattr(context, "community_cards_dealt_event", None)
     assert evt is not None, "No CommunityCardsDealt event recorded"
-    assert len(evt.cards) == int(count), (
-        f"Expected {count} cards dealt, got {len(evt.cards)}"
-    )
+    assert len(evt.cards) == int(
+        count
+    ), f"Expected {count} cards dealt, got {len(evt.cards)}"
 
 
 @then(r"exactly 1 of the original 3 flop cards is now the burn")
 def step_then_one_of_3_now_burn(context):
-    assert getattr(context, "scrambled_card_now_burn", None) is not None, (
-        "Expected one of the original 3 flop cards to be recorded as burn"
-    )
+    assert (
+        getattr(context, "scrambled_card_now_burn", None) is not None
+    ), "Expected one of the original 3 flop cards to be recorded as burn"
 
 
 @given(r"the dealer put out a 3-card flop without burning")
@@ -3291,9 +3213,7 @@ def step_given_3card_flop_no_burn(context):
         dealt_at=make_timestamp(),
     )
     for i in range(3):
-        flop_event.cards.append(
-            poker_types.Card(suit=poker_types.HEARTS, rank=2 + i)
-        )
+        flop_event.cards.append(poker_types.Card(suit=poker_types.HEARTS, rank=2 + i))
     context.events.append(make_event_page(flop_event, len(context.events)))
 
 
@@ -3317,13 +3237,16 @@ def step_given_player_checked_flop(context, player_id):
 
 
 @then(r'the event has phase "(?P<phase>[^"]+)"')
-def step_then_event_has_phase(context, phase):
+def step_then_event_has_phase_via_context(context, phase):
+    """Sibling of ``step_then_event_has_phase`` for scenarios that stash
+    the CommunityCardsDealt event on ``context.community_cards_dealt_event``
+    instead of routing through ``context.result_event_any``."""
     evt = getattr(context, "community_cards_dealt_event", None)
     assert evt is not None
     expected = getattr(poker_types, phase)
-    assert evt.phase == expected, (
-        f"Expected event phase {phase} ({expected}), got {evt.phase}"
-    )
+    assert (
+        evt.phase == expected
+    ), f"Expected event phase {phase} ({expected}), got {evt.phase}"
 
 
 # EU-1280/1281/1282 — premature flop / turn / river
@@ -3379,9 +3302,9 @@ def step_when_premature_river(context):
 
 @then(r"the original burn card is preserved")
 def step_then_original_burn_preserved(context):
-    assert context.original_burn_preserved, (
-        "Expected the original burn card to be preserved across the reshuffle"
-    )
+    assert (
+        context.original_burn_preserved
+    ), "Expected the original burn card to be preserved across the reshuffle"
 
 
 @then(r"the original turn burn card is preserved")
@@ -3400,8 +3323,6 @@ def step_then_3_premature_returned(context):
         f"Expected 3 premature cards returned, got "
         f"{context.premature_cards_returned}"
     )
-
-
 
 
 @when(r"the preflop betting round completes")
@@ -3428,14 +3349,11 @@ def step_when_handle_deal_community(context, count):
     # Determine the next phase based on how many community-cards events
     # already exist + the original phase progression.
     flop_already = any(
-        page.event.Is(hand.CommunityCardsDealt.DESCRIPTOR)
-        for page in context.events
+        page.event.Is(hand.CommunityCardsDealt.DESCRIPTOR) for page in context.events
     )
     if not flop_already:
         phase = poker_types.FLOP
-    elif context.events and any(
-        _is_phase(p, poker_types.FLOP) for p in context.events
-    ):
+    elif context.events and any(_is_phase(p, poker_types.FLOP) for p in context.events):
         phase = poker_types.TURN
     else:
         phase = poker_types.RIVER
@@ -3444,17 +3362,13 @@ def step_when_handle_deal_community(context, count):
     elif n == 1:
         # Distinguish turn from river by counting prior CommunityCardsDealt.
         community_count = sum(
-            1
-            for p in context.events
-            if p.event.Is(hand.CommunityCardsDealt.DESCRIPTOR)
+            1 for p in context.events if p.event.Is(hand.CommunityCardsDealt.DESCRIPTOR)
         )
         phase = poker_types.TURN if community_count == 0 else poker_types.RIVER
 
     evt = hand.CommunityCardsDealt(phase=phase, dealt_at=make_timestamp())
     for i in range(n):
-        evt.cards.append(
-            poker_types.Card(suit=poker_types.CLUBS, rank=2 + i)
-        )
+        evt.cards.append(poker_types.Card(suit=poker_types.CLUBS, rank=2 + i))
     context.community_cards_dealt_event = evt
     _emit_synthetic(context, evt)
 
@@ -3491,16 +3405,16 @@ def step_when_detect_stub_disorder(context):
 
 @then(r"a StubReshuffleRequired event is emitted")
 def step_then_stub_reshuffle_emitted(context):
-    assert getattr(context, "stub_reshuffle_event", None) is not None, (
-        "Expected StubReshuffleRequired event to be emitted"
-    )
+    assert (
+        getattr(context, "stub_reshuffle_event", None) is not None
+    ), "Expected StubReshuffleRequired event to be emitted"
 
 
 @then(r"the burn for the next street is taken from the reshuffled stub")
 def step_then_burn_from_reshuffled(context):
-    assert context.stud_next_burn_count == 1, (
-        "Expected burn count of 1 from reshuffled stub"
-    )
+    assert (
+        context.stud_next_burn_count == 1
+    ), "Expected burn count of 1 from reshuffled stub"
 
 
 @then(r"no community cards already exposed are altered")
@@ -3508,9 +3422,9 @@ def step_then_no_community_altered(context):
     """Sentinel — the existing CommunityCardsDealt events on the event
     book aren't replaced. Verify by counting them before/after; for
     the synthetic flow we just record that no mutation occurred."""
-    assert not getattr(context, "community_cards_altered", False), (
-        "Expected no exposed community cards to be altered"
-    )
+    assert not getattr(
+        context, "community_cards_altered", False
+    ), "Expected no exposed community cards to be altered"
 
 
 # Batch 15 — Misc edge cases (EU-1290, 1344, 1345, 1359, 1360, 1362, 1363)
@@ -3548,9 +3462,9 @@ def step_when_dealer_detects_button_error(context):
 
 @then(r"no button correction event is emitted")
 def step_then_no_button_correction(context):
-    assert not context.button_correction_emitted, (
-        "Expected no button-correction event after SA"
-    )
+    assert (
+        not context.button_correction_emitted
+    ), "Expected no button-correction event after SA"
 
 
 @then(
@@ -3558,9 +3472,9 @@ def step_then_no_button_correction(context):
     r"(?P<seat>\d+) \((?P<player_id>[^)]+)\)"
 )
 def step_then_button_continues_at_seat(context, seat, player_id):
-    assert context.button_actual_seat == int(seat), (
-        f"Expected button at seat {seat}, got {context.button_actual_seat}"
-    )
+    assert context.button_actual_seat == int(
+        seat
+    ), f"Expected button at seat {seat}, got {context.button_actual_seat}"
 
 
 @then(
@@ -3574,9 +3488,9 @@ def step_then_next_starthand_advances(context, seat, player_id, not_back_seat):
     prior seat."""
     expected = int(seat)
     forbidden = int(not_back_seat)
-    assert expected != forbidden, (
-        "Test data invariant: the advance seat shouldn't equal the back-up seat"
-    )
+    assert (
+        expected != forbidden
+    ), "Test data invariant: the advance seat shouldn't equal the back-up seat"
     # The "advance" is conceptually current+1; we just record that the
     # next button is consistent with that and not the back-up.
     context.next_button_seat = expected
@@ -3586,7 +3500,7 @@ def step_then_next_starthand_advances(context, seat, player_id, not_back_seat):
 
 
 @given(
-    r'a HandComplete event for the prior hand with pot (?P<pot>\d+) '
+    r"a HandComplete event for the prior hand with pot (?P<pot>\d+) "
     r'awarded to "(?P<winner>[^"]+)"'
 )
 def step_given_prior_hand_complete(context, pot, winner):
@@ -3640,9 +3554,7 @@ def step_when_dispute_pot(context, player_id):
 # EU-1345 — discretionary color-up deferred
 
 
-@given(
-    r"a hand in progress with current_bet (?P<bet>\d+) and pot (?P<pot>\d+)"
-)
+@given(r"a hand in progress with current_bet (?P<bet>\d+) and pot (?P<pot>\d+)")
 def step_given_hand_in_progress_bet_pot(context, bet, pot):
     if not hasattr(context, "events"):
         context.events = []
@@ -3663,8 +3575,7 @@ def step_given_hand_in_progress_bet_pot(context, bet, pot):
 
 
 @when(
-    r"the TD issues a DiscretionaryColorUp command for denomination "
-    r"(?P<denom>\d+)"
+    r"the TD issues a DiscretionaryColorUp command for denomination " r"(?P<denom>\d+)"
 )
 def step_when_td_color_up(context, denom):
     evt = hand.ColorUpScheduled(
@@ -3683,14 +3594,10 @@ def step_then_color_up_accepted_no_mutation(context):
     assert context.no_in_hand_stack_mutation
 
 
-@then(
-    r'a ColorUpScheduled event is emitted with apply_at "(?P<when>[^"]+)"'
-)
+@then(r'a ColorUpScheduled event is emitted with apply_at "(?P<when>[^"]+)"')
 def step_then_color_up_apply_at(context, when):
     evt = context.color_up_event
-    assert evt.apply_at == when, (
-        f"Expected apply_at={when}, got {evt.apply_at}"
-    )
+    assert evt.apply_at == when, f"Expected apply_at={when}, got {evt.apply_at}"
 
 
 # EU-1359 — opponent stack disclosure
@@ -3725,15 +3632,13 @@ def step_when_request_opponent_stack(context, requester, target):
 
 
 @then(
-    r'an OpponentStackDisclosed event is emitted with player '
+    r"an OpponentStackDisclosed event is emitted with player "
     r'"(?P<player_id>[^"]+)" stack (?P<stack>\d+)'
 )
 def step_then_opponent_stack_disclosed(context, player_id, stack):
     evt = context.opponent_stack_event
     assert evt.target_root == uuid_for(player_id)
-    assert evt.stack == int(stack), (
-        f"Expected stack {stack}, got {evt.stack}"
-    )
+    assert evt.stack == int(stack), f"Expected stack {stack}, got {evt.stack}"
 
 
 # EU-1360 — over-betting expecting change is forbidden
@@ -3760,20 +3665,16 @@ def step_when_push_chip_declare(context, player_id, chip, verbal):
 
 @then(r'no change is returned to "(?P<player_id>[^"]+)"')
 def step_then_no_change_returned(context, player_id):
-    assert context.no_change_returned, (
-        f"Expected no change returned to {player_id}"
-    )
+    assert context.no_change_returned, f"Expected no change returned to {player_id}"
 
 
-@then(r'the action event has amount (?P<amount>\d+)')
+@then(r"the action event has amount (?P<amount>\d+)")
 def step_then_action_event_amount(context, amount):
     assert context.result is not None and context.result.pages
     page = context.result.pages[0]
     evt = hand.ActionTaken()
     page.event.Unpack(evt)
-    assert evt.amount == int(amount), (
-        f"Expected amount {amount}, got {evt.amount}"
-    )
+    assert evt.amount == int(amount), f"Expected amount {amount}, got {evt.amount}"
 
 
 # EU-1362 — disclosure violation penalty
@@ -3806,9 +3707,7 @@ def step_when_disclose_hole_cards(context, player_id):
     _emit_synthetic(context, evt)
 
 
-@when(
-    r'player "(?P<player_id>[^"]+)" exposes both her hole cards face-up'
-)
+@when(r'player "(?P<player_id>[^"]+)" exposes both her hole cards face-up')
 def step_when_expose_hole_cards(context, player_id):
     evt = hand.PenaltyAssessed(
         player_root=uuid_for(player_id),
@@ -3823,15 +3722,13 @@ def step_when_expose_hole_cards(context, player_id):
 
 
 @then(
-    r'a PenaltyAssessed event is emitted with player '
+    r"a PenaltyAssessed event is emitted with player "
     r'"(?P<player_id>[^"]+)" reason "(?P<reason>[^"]+)"'
 )
 def step_then_penalty_assessed_with_reason(context, player_id, reason):
     evt = context.penalty_event
     assert evt.player_root == uuid_for(player_id)
-    assert evt.reason == reason, (
-        f"Expected reason {reason}, got {evt.reason}"
-    )
+    assert evt.reason == reason, f"Expected reason {reason}, got {evt.reason}"
 
 
 @then(r'the penalty severity is "(?P<floor>[^"]+)" or above')
@@ -3843,30 +3740,25 @@ def step_then_penalty_severity_at_least(context, floor):
         "DISQUALIFICATION": 4,
     }
     floor_level = severity_order.get(floor.upper(), 0)
-    actual_level = severity_order.get(
-        _ACTION_NAMES_BY_ENUM.get(context.penalty_event.severity, ""), 0
-    ) or context.penalty_event.severity
     # PenaltySeverity values are 1..4 already (from the proto enum). The
     # severity_order dict maps the *names* but the proto value IS the
     # ordinal; just compare directly.
-    assert context.penalty_event.severity >= floor_level, (
-        f"Expected severity ≥ {floor} ({floor_level}), got {context.penalty_event.severity}"
-    )
+    assert (
+        context.penalty_event.severity >= floor_level
+    ), f"Expected severity ≥ {floor} ({floor_level}), got {context.penalty_event.severity}"
 
 
 @then(r"the penalty starts at the end of the current hand")
 def step_then_penalty_post_hand(context):
     evt = context.penalty_event
-    assert evt.starts_after_current_hand, (
-        "Expected starts_after_current_hand=True"
-    )
+    assert evt.starts_after_current_hand, "Expected starts_after_current_hand=True"
 
 
 @then(r'player "(?P<player_id>[^"]+)" hand remains live this hand')
 def step_then_hand_remains_live(context, player_id):
-    assert context.player_hand_remains_live, (
-        f"Expected {player_id}'s hand to remain live"
-    )
+    assert (
+        context.player_hand_remains_live
+    ), f"Expected {player_id}'s hand to remain live"
 
 
 # Batch 6 — Showdown / tabling / refunds (EU-1200, 1201, 1221, 1260, 1261,
@@ -3880,9 +3772,9 @@ def step_then_plays_the_board(context, flag):
     page = context.result.pages[0]
     evt = hand.CardsRevealed()
     page.event.Unpack(evt)
-    assert evt.plays_the_board is expected, (
-        f"Expected plays_the_board={expected}, got {evt.plays_the_board}"
-    )
+    assert (
+        evt.plays_the_board is expected
+    ), f"Expected plays_the_board={expected}, got {evt.plays_the_board}"
 
 
 @when(
@@ -3922,9 +3814,7 @@ def step_when_reveal_tabling_partial(context, player_id, idx):
 def step_then_error_message_contains(context, needle):
     """Free-form error-message containment check. Used by Rule 19
     partial-muck rejection."""
-    err = getattr(context, "error", None) or getattr(
-        context, "error_message", None
-    )
+    err = getattr(context, "error", None) or getattr(context, "error_message", None)
     if err is None and context.error_message is None:
         raise AssertionError("Expected an error, got none")
     msg = str(err) if err else context.error_message
@@ -3937,9 +3827,7 @@ def step_then_error_message_contains(context, needle):
 # EU-1221 — uncontested showdown
 
 
-@when(
-    r'the showdown becomes uncontested with "(?P<player_id>[^"]+)" remaining'
-)
+@when(r'the showdown becomes uncontested with "(?P<player_id>[^"]+)" remaining')
 def step_when_showdown_uncontested(context, player_id):
     """Synthesize the PotAwarded for the uncontested winner without
     requiring a CardsRevealed."""
@@ -3975,9 +3863,9 @@ def step_then_no_cards_revealed_for(context, player_id):
         if page.event.Is(hand.CardsRevealed.DESCRIPTOR):
             evt = hand.CardsRevealed()
             page.event.Unpack(evt)
-            assert evt.player_root != target, (
-                f"Found a CardsRevealed for {player_id}; expected none"
-            )
+            assert (
+                evt.player_root != target
+            ), f"Found a CardsRevealed for {player_id}; expected none"
 
 
 # EU-1260 / EU-1261 — refund on accidentally killed / mucked-while-claiming
@@ -4044,16 +3932,11 @@ def step_when_dealer_mucks_hand(context, player_id):
     _emit_synthetic(context, killed)
 
 
-@then(
-    r"a HandKilledByDealer event is emitted for player "
-    r'"(?P<player_id>[^"]+)"'
-)
+@then(r"a HandKilledByDealer event is emitted for player " r'"(?P<player_id>[^"]+)"')
 def step_then_hand_killed_emitted(context, player_id):
     evt = getattr(context, "hand_killed_event", None)
     assert evt is not None, "No HandKilledByDealer event recorded"
-    assert evt.player_root == uuid_for(player_id), (
-        "HandKilledByDealer player mismatch"
-    )
+    assert evt.player_root == uuid_for(player_id), "HandKilledByDealer player mismatch"
 
 
 @then(r'player "(?P<player_id>[^"]+)" has stack (?P<stack>\d+)')
@@ -4062,18 +3945,18 @@ def step_then_player_has_stack(context, player_id, stack):
     if hasattr(context, "player_stack_after_kill"):
         actual = context.player_stack_after_kill.get(player_id)
         if actual is not None:
-            assert actual == expected, (
-                f"Expected {player_id} stack {expected}, got {actual}"
-            )
+            assert (
+                actual == expected
+            ), f"Expected {player_id} stack {expected}, got {actual}"
             return
     # Fall back to aggregate state lookup.
     agg = getattr(context, "agg", None)
     if agg is not None:
         for player in agg.players.values():
             if player.player_root == uuid_for(player_id):
-                assert player.stack == expected, (
-                    f"Expected {player_id} stack {expected}, got {player.stack}"
-                )
+                assert (
+                    player.stack == expected
+                ), f"Expected {player_id} stack {expected}, got {player.stack}"
                 return
     raise AssertionError(f"Could not verify {player_id} stack")
 
@@ -4085,14 +3968,13 @@ def step_given_river_dealt(context):
     if not hasattr(context, "events"):
         context.events = []
     for phase in (poker_types.FLOP, poker_types.TURN, poker_types.RIVER):
-        evt = hand.CommunityCardsDealt(
-            phase=phase, dealt_at=make_timestamp()
-        )
+        evt = hand.CommunityCardsDealt(phase=phase, dealt_at=make_timestamp())
         n = 3 if phase == poker_types.FLOP else 1
         for i in range(n):
             evt.cards.append(
                 poker_types.Card(
-                    suit=poker_types.SPADES, rank=2 + i + (10 if phase == poker_types.RIVER else 0)
+                    suit=poker_types.SPADES,
+                    rank=2 + i + (10 if phase == poker_types.RIVER else 0),
                 )
             )
         context.events.append(make_event_page(evt, len(context.events)))
@@ -4131,23 +4013,20 @@ def step_when_muck_face_down_before_call(context, player_id, other):
 def step_then_uncalled_bet_returned(context, player_id, amount):
     evt = getattr(context, "uncalled_bet_event", None)
     assert evt is not None, "No UncalledBetReturned event recorded"
-    assert evt.player_root == uuid_for(player_id), (
-        "UncalledBetReturned player mismatch"
-    )
-    assert evt.amount == int(amount), (
-        f"Expected refund amount {amount}, got {evt.amount}"
-    )
+    assert evt.player_root == uuid_for(player_id), "UncalledBetReturned player mismatch"
+    assert evt.amount == int(
+        amount
+    ), f"Expected refund amount {amount}, got {evt.amount}"
 
 
 @then(
-    r'player "(?P<player_id>[^"]+)" stack is restored by '
-    r"the uncalled portion only"
+    r'player "(?P<player_id>[^"]+)" stack is restored by ' r"the uncalled portion only"
 )
 def step_then_stack_restored_by_uncalled(context, player_id):
     evt = getattr(context, "uncalled_bet_event", None)
-    assert evt is not None and evt.amount > 0, (
-        "Expected an uncalled refund event with positive amount"
-    )
+    assert (
+        evt is not None and evt.amount > 0
+    ), "Expected an uncalled refund event with positive amount"
 
 
 # EU-1342 / EU-1343 — Rule 18 disclosure
@@ -4167,9 +4046,7 @@ def step_given_player_holds_cards(context, player_id):
     context.player_still_holds_cards = player_id
 
 
-@given(
-    r'player "(?P<player_id>[^"]+)" mucked her cards face-down without tabling'
-)
+@given(r'player "(?P<player_id>[^"]+)" mucked her cards face-down without tabling')
 def step_given_player_mucked_face_down(context, player_id):
     context.player_mucked_without_tabling = player_id
 
@@ -4205,16 +4082,13 @@ def step_when_handle_request_show_hand(context, requester, target):
     _emit_synthetic(context, evt)
 
 
-@then(
-    r"a HandTablingRequired event is emitted for player "
-    r'"(?P<player_id>[^"]+)"'
-)
+@then(r"a HandTablingRequired event is emitted for player " r'"(?P<player_id>[^"]+)"')
 def step_then_tabling_required_for(context, player_id):
     evt = getattr(context, "hand_tabling_event", None)
     assert evt is not None, "No HandTablingRequired event recorded"
-    assert evt.target_root == uuid_for(player_id), (
-        f"Expected target {player_id}, got root mismatch"
-    )
+    assert evt.target_root == uuid_for(
+        player_id
+    ), f"Expected target {player_id}, got root mismatch"
 
 
 @then(r'player "(?P<player_id>[^"]+)" hand must be tabled')
@@ -4254,9 +4128,7 @@ def step_when_oot_action(context, player_id, action, amount):
 
 @when(r'player "(?P<player_id>[^"]+)" checks')
 def step_when_player_checks_oot_path(context, player_id):
-    context.oot_in_turn_actions.append(
-        {"player": player_id, "action": "CHECK"}
-    )
+    context.oot_in_turn_actions.append({"player": player_id, "action": "CHECK"})
 
 
 @when(r'player "(?P<player_id>[^"]+)" calls (?P<amount>\d+) out of turn')
@@ -4268,14 +4140,10 @@ def step_when_calls_out_of_turn(context, player_id, amount):
 
 @when(r'player "(?P<player_id>[^"]+)" folds out of turn')
 def step_when_folds_out_of_turn(context, player_id):
-    context.oot_pending.append(
-        {"player": player_id, "action": "FOLD", "amount": 0}
-    )
+    context.oot_pending.append({"player": player_id, "action": "FOLD", "amount": 0})
 
 
-@when(
-    r'player "(?P<player_id>[^"]+)" did not speak up before substantial action'
-)
+@when(r'player "(?P<player_id>[^"]+)" did not speak up before substantial action')
 def step_when_skipped_did_not_speak(context, player_id):
     """RP-53B — at least 2 OOT actions = SA. If the skipped player
     didn't defend, emit SkippedPlayerLostRightToAct."""
@@ -4343,13 +4211,11 @@ def step_then_oot_returned(context, player_id):
     context.oot_action_changed = changed
 
 
-@then(
-    r'player "(?P<player_id>[^"]+)" may now call, raise, or fold'
-)
+@then(r'player "(?P<player_id>[^"]+)" may now call, raise, or fold')
 def step_then_player_may_options(context, player_id):
-    assert context.oot_action_changed, (
-        f"Expected {player_id} to have full options after OOT-returned"
-    )
+    assert (
+        context.oot_action_changed
+    ), f"Expected {player_id} to have full options after OOT-returned"
 
 
 @then(
@@ -4381,18 +4247,18 @@ def step_then_oot_has_folded_synthetic(context, player_id, value):
     if hasattr(context, "oot_pending"):
         for a in context.oot_pending:
             if a["player"] == player_id and a["action"] == "FOLD":
-                assert expected, (
-                    f"Expected {player_id} folded={expected} but OOT-FOLD recorded"
-                )
+                assert (
+                    expected
+                ), f"Expected {player_id} folded={expected} but OOT-FOLD recorded"
                 return
     # Fall through to the original aggregate-state assertion.
     agg = getattr(context, "agg", None)
     assert agg is not None, "No aggregate to read has_folded from"
     for player in agg._state.players.values():
         if context.player_name_by_root.get(player.player_root) == player_id:
-            assert player.has_folded == expected, (
-                f"Expected has_folded={expected}, got {player.has_folded}"
-            )
+            assert (
+                player.has_folded == expected
+            ), f"Expected has_folded={expected}, got {player.has_folded}"
             return
     raise AssertionError(f"Unknown player {player_id!r}")
 
@@ -4403,22 +4269,18 @@ def step_then_oot_has_folded_synthetic(context, player_id, value):
 )
 def step_then_skipped_event_emitted(context, player_id):
     evt = getattr(context, "skipped_player_event", None)
-    assert evt is not None, (
-        "No SkippedPlayerLostRightToAct event was synthesized"
-    )
-    assert evt.player_root == uuid_for(player_id), (
-        f"Expected event for {player_id}, got root mismatch"
-    )
+    assert evt is not None, "No SkippedPlayerLostRightToAct event was synthesized"
+    assert evt.player_root == uuid_for(
+        player_id
+    ), f"Expected event for {player_id}, got root mismatch"
 
 
-@then(
-    r'the OOT actions of "(?P<a>[^"]+)" and "(?P<b>[^"]+)" are binding'
-)
+@then(r'the OOT actions of "(?P<a>[^"]+)" and "(?P<b>[^"]+)" are binding')
 def step_then_oot_actions_binding(context, a, b):
     actors = {x["player"] for x in context.oot_pending}
-    assert a in actors and b in actors, (
-        f"Expected OOT actions from {a} and {b}; got {actors}"
-    )
+    assert (
+        a in actors and b in actors
+    ), f"Expected OOT actions from {a} and {b}; got {actors}"
 
 
 # EU-1320 — HORSE button freeze on flop→stud transition
@@ -4511,22 +4373,19 @@ def step_when_rotation_transitions(context, game):
 @then(r"the dealer button is frozen at seat (?P<seat>\d+)")
 def step_then_dealer_button_frozen(context, seat):
     expected = int(seat)
-    assert context.horse_frozen_seat == expected, (
-        f"Expected button frozen at seat {expected}, got {context.horse_frozen_seat}"
-    )
+    assert (
+        context.horse_frozen_seat == expected
+    ), f"Expected button frozen at seat {expected}, got {context.horse_frozen_seat}"
 
 
 @then(r"the frozen position is recorded for the next flop-game rotation")
 def step_then_frozen_position_recorded(context):
-    assert context.horse_recorded_freeze is not None, (
-        "Expected frozen position to be recorded for the next flop-game rotation"
-    )
+    assert (
+        context.horse_recorded_freeze is not None
+    ), "Expected frozen position to be recorded for the next flop-game rotation"
 
 
-@when(
-    r"the rotation transitions back to (?P<game>.+) "
-    r"after the stud rotation"
-)
+@when(r"the rotation transitions back to (?P<game>.+) " r"after the stud rotation")
 def step_when_rotation_transitions_back_after_stud(context, game):
     # Resume the button at the recorded frozen seat. The intervening
     # stud hands didn't advance the button.
@@ -4538,9 +4397,9 @@ def step_when_rotation_transitions_back_after_stud(context, game):
 @then(r"the dealer button resumes at seat (?P<seat>\d+)")
 def step_then_dealer_button_resumes(context, seat):
     expected = int(seat)
-    assert context.horse_dealer_seat == expected, (
-        f"Expected dealer button at seat {expected}, got {context.horse_dealer_seat}"
-    )
+    assert (
+        context.horse_dealer_seat == expected
+    ), f"Expected dealer button at seat {expected}, got {context.horse_dealer_seat}"
 
 
 # EU-1337 — bring-in completion is not a raise
@@ -4579,10 +4438,7 @@ def step_given_stud_limit_bring_in_small_bet(context, bring_in, small):
     context.stud_bring_in_amount = int(bring_in)
 
 
-@given(
-    r'player "(?P<player_id>[^"]+)" posted the bring-in for '
-    r"(?P<amount>\d+)"
-)
+@given(r'player "(?P<player_id>[^"]+)" posted the bring-in for ' r"(?P<amount>\d+)")
 def step_given_player_posted_bring_in(context, player_id, amount):
     evt = hand.BringInPosted(
         player_root=uuid_for(player_id),
@@ -4605,16 +4461,19 @@ def step_when_player_completes(context, player_id, amount):
 
 
 @then(r'the action event has action "(?P<action>[^"]+)"')
-def step_then_action_event_has_action(context, action):
+def step_then_action_event_has_action_quoted(context, action):
+    """Sibling of ``step_then_action_event_has_action`` for the
+    quoted-action variant — the unquoted-friendly form matches
+    `"?(?P<action>\\w+)"?`, this one requires quotes."""
     assert context.result is not None and context.result.pages
     page = context.result.pages[0]
     assert page.event.Is(hand.ActionTaken.DESCRIPTOR)
     evt = hand.ActionTaken()
     page.event.Unpack(evt)
     expected = getattr(poker_types, action)
-    assert evt.action == expected, (
-        f"Expected action {action} ({expected}), got {evt.action}"
-    )
+    assert (
+        evt.action == expected
+    ), f"Expected action {action} ({expected}), got {evt.action}"
 
 
 @then(r"the action event does NOT count toward the per-round raise cap")
@@ -4638,16 +4497,16 @@ def step_then_up_to_n_raises_allowed(context, n):
     agg = Hand(book)
     cap = agg._state.raise_cap_per_round or 4
     remaining = cap - agg._state.raises_this_round
-    assert remaining >= expected, (
-        f"Expected at least {expected} raises remaining, got {remaining}"
-    )
+    assert (
+        remaining >= expected
+    ), f"Expected at least {expected} raises remaining, got {remaining}"
 
 
 # EU-1324 — stud muck-by-pickup forbidden
 
 
 @given(
-    r'a Seven Card Stud hand on (?P<street>3rd|4th|5th|6th|7th) street '
+    r"a Seven Card Stud hand on (?P<street>3rd|4th|5th|6th|7th) street "
     r'with player "(?P<player_id>[^"]+)" facing a bet'
 )
 def step_given_stud_hand_player_facing_bet(context, street, player_id):
@@ -4677,23 +4536,16 @@ def step_given_stud_hand_player_facing_bet(context, street, player_id):
     for i, name in enumerate(("Alice", player_id, "Carol")):
         if name == player_id:
             cards_dealt.players.append(
-                hand.PlayerInHand(
-                    player_root=target_root, position=i, stack=10000
-                )
+                hand.PlayerInHand(player_root=target_root, position=i, stack=10000)
             )
         else:
             cards_dealt.players.append(
-                hand.PlayerInHand(
-                    player_root=uuid_for(name), position=i, stack=10000
-                )
+                hand.PlayerInHand(player_root=uuid_for(name), position=i, stack=10000)
             )
     context.events.append(make_event_page(cards_dealt, len(context.events)))
 
 
-@when(
-    r'player "(?P<player_id>[^"]+)" attempts to fold by picking up '
-    r"his up cards"
-)
+@when(r'player "(?P<player_id>[^"]+)" attempts to fold by picking up ' r"his up cards")
 def step_when_fold_by_pickup(context, player_id):
     cmd = hand.PlayerAction(
         player_root=uuid_for(player_id),
@@ -4706,9 +4558,7 @@ def step_when_fold_by_pickup(context, player_id):
 # EU-1327 — RP-10C absent player's hand killed; no 4th street to non-live
 
 
-@given(
-    r'a Seven Card Stud hand with players "(?P<players>[^"]+)"'
-)
+@given(r'a Seven Card Stud hand with players "(?P<players>[^"]+)"')
 def step_given_stud_hand_with_players(context, players):
     """Lightweight roster fixture for EU-1327. Distinct from
     ``hand starting with N players`` (EU-1329/1338) since EU-1327
@@ -4763,9 +4613,7 @@ def step_then_street_event_card_count(context, count):
             )
             evt.up_cards.append(row)
         actual = len(evt.up_cards)
-    assert actual == expected, (
-        f"Expected {expected} cards dealt, got {actual}"
-    )
+    assert actual == expected, f"Expected {expected} cards dealt, got {actual}"
 
 
 @then(r'no card was dealt to player "(?P<player_id>[^"]+)"')
@@ -4774,16 +4622,14 @@ def step_then_no_card_to_player(context, player_id):
     if evt is not None:
         target = uuid_for(player_id)
         for row in evt.up_cards:
-            assert row.player_root != target, (
-                f"Expected no card dealt to {player_id}, but found a row"
-            )
+            assert (
+                row.player_root != target
+            ), f"Expected no card dealt to {player_id}, but found a row"
     else:
         # Fall back to roster check
         for p in context.stud_hand_players:
             if p["name"] == player_id:
-                assert p["is_absent"], (
-                    f"Expected {player_id} to be absent (no card)"
-                )
+                assert p["is_absent"], f"Expected {player_id} to be absent (no card)"
                 return
 
 
@@ -4834,9 +4680,10 @@ def step_then_premature_card_returned(context):
     if getattr(context, "stud_card_returned_to_stub", False):
         return
     count = getattr(context, "premature_cards_returned", None)
-    assert count in (1, 3), (
-        f"Expected premature card(s) returned to stub; got count={count}"
-    )
+    assert count in (
+        1,
+        3,
+    ), f"Expected premature card(s) returned to stub; got count={count}"
 
 
 @then(r"the stub is reshuffled")
@@ -4845,9 +4692,9 @@ def step_then_stub_reshuffled(context):
     Batch-4 stub_reshuffled flag (EU-1280..1282)."""
     if getattr(context, "stud_stub_reshuffled", False):
         return
-    assert getattr(context, "stub_reshuffled", False), (
-        "Expected the stub to be reshuffled"
-    )
+    assert getattr(
+        context, "stub_reshuffled", False
+    ), "Expected the stub to be reshuffled"
 
 
 @when(r"4th-street betting completes")
@@ -4880,9 +4727,7 @@ def step_when_handle_deal_street(context, street):
 def step_then_burn_card_count(context, count):
     expected = int(count)
     actual = getattr(context, "stud_next_burn_count", None)
-    assert actual == expected, (
-        f"Expected burn card count {expected}, got {actual}"
-    )
+    assert actual == expected, f"Expected burn card count {expected}, got {actual}"
 
 
 # EU-1331 / EU-1333 / EU-1334 — RP-10H short-stub variants
@@ -4894,15 +4739,10 @@ def step_then_burn_card_count(context, count):
 # StudCommunityCardDealt (sub-B/C, insufficient → community card).
 
 
-@given(
-    r"a Seven Card Stud hand on 7th street with (?P<count>\d+) "
-    r"active players"
-)
+@given(r"a Seven Card Stud hand on 7th street with (?P<count>\d+) " r"active players")
 def step_given_stud_7th_street_active_players(context, count):
     n = int(count)
-    context.stud_active_players = [
-        f"player-{i}" for i in range(n)
-    ]
+    context.stud_active_players = [f"player-{i}" for i in range(n)]
     context.stud_active_count = n
     context.stud_street = poker_types.SEVENTH_STREET
     # Default first-to-act-on-6th = the first active player; downstream
@@ -4996,9 +4836,9 @@ def _emit_community_card(context):
 def step_then_community_shared_by_all(context, count):
     evt = getattr(context, "stud_community_card_event", None)
     assert evt is not None, "No StudCommunityCardDealt event recorded"
-    assert len(evt.shared_with) == int(count), (
-        f"Expected {count} shared-with entries, got {len(evt.shared_with)}"
-    )
+    assert len(evt.shared_with) == int(
+        count
+    ), f"Expected {count} shared-with entries, got {len(evt.shared_with)}"
 
 
 @then(
@@ -5010,34 +4850,31 @@ def step_then_7th_first_to_act_inherited(context):
     first-to-act is inherited from 6th. Assert that the inheritance was
     recorded (the synthetic flow stores 6th-street first-to-act on
     context.stud_6th_first_to_act)."""
-    assert context.stud_community_card_in_play, (
-        "Inheritance rule only applies when a community card is in play"
-    )
-    assert context.stud_6th_first_to_act, (
-        "No 6th-street first-to-act recorded"
-    )
+    assert (
+        context.stud_community_card_in_play
+    ), "Inheritance rule only applies when a community card is in play"
+    assert context.stud_6th_first_to_act, "No 6th-street first-to-act recorded"
 
 
 @then(r"one card is dealt to each of the (?P<count>\d+) active players")
 def step_then_one_card_each(context, count):
     expected = int(count)
-    assert context.stud_cards_dealt_count == expected, (
-        f"Expected {expected} cards dealt, got {context.stud_cards_dealt_count}"
-    )
+    assert (
+        context.stud_cards_dealt_count == expected
+    ), f"Expected {expected} cards dealt, got {context.stud_cards_dealt_count}"
 
 
 @then(r"no community card is in play")
 def step_then_no_community_card(context):
-    assert not context.stud_community_card_in_play, (
-        "Expected no community card, but one was emitted"
-    )
+    assert (
+        not context.stud_community_card_in_play
+    ), "Expected no community card, but one was emitted"
 
 
 @then(r'player "(?P<player_id>[^"]+)" wager is returned')
 def step_then_wager_returned(context, player_id):
     assert context.wager_returned_to == player_id, (
-        f"Expected wager returned to {player_id}, "
-        f"got {context.wager_returned_to}"
+        f"Expected wager returned to {player_id}, " f"got {context.wager_returned_to}"
     )
 
 
@@ -5063,9 +4900,9 @@ def step_then_hand_state_pot_total(context, amount):
     expected = int(amount)
     stud_total = getattr(context, "stud_pot_total", None)
     if stud_total is not None:
-        assert stud_total == expected, (
-            f"Expected pot_total {expected}, got {stud_total}"
-        )
+        assert (
+            stud_total == expected
+        ), f"Expected pot_total {expected}, got {stud_total}"
         return
     agg = getattr(context, "agg", None)
     if agg is not None:
@@ -5935,13 +5772,11 @@ def step_then_handcomplete_no_community(context):
     encodes that intent so the proto schema can't silently grow such
     a field without breaking this scenario."""
     populated = [
-        f.name
-        for f in hand.HandComplete.DESCRIPTOR.fields
-        if "community" in f.name
+        f.name for f in hand.HandComplete.DESCRIPTOR.fields if "community" in f.name
     ]
-    assert not populated, (
-        f"HandComplete must not carry community-card fields; found {populated}"
-    )
+    assert (
+        not populated
+    ), f"HandComplete must not carry community-card fields; found {populated}"
 
 
 @then(r"the hand state has (?P<count>\d+) community cards")
@@ -5949,9 +5784,9 @@ def step_then_state_community_count(context, count):
     book = _make_event_book(context.events)
     agg = Hand(book)
     actual = len(agg.community_cards)
-    assert actual == int(count), (
-        f"hand state community cards: expected {count}, got {actual}"
-    )
+    assert actual == int(
+        count
+    ), f"hand state community cards: expected {count}, got {actual}"
 
 
 @then(r"no event in the hand stream reveals stub cards")
@@ -5973,9 +5808,9 @@ def step_then_no_stub_leakage(context):
             any_msg.Unpack(evt)
             # Cards in this event WERE actually dealt — that's allowed.
             # The rabbit-hunt prohibition is about the un-dealt stub.
-            assert len(evt.cards) <= 5, (
-                f"CommunityCardsDealt has {len(evt.cards)} cards > 5"
-            )
+            assert (
+                len(evt.cards) <= 5
+            ), f"CommunityCardsDealt has {len(evt.cards)} cards > 5"
 
 
 # ----------------------------------------------------------------------------
@@ -5983,9 +5818,7 @@ def step_then_no_stub_leakage(context):
 # ----------------------------------------------------------------------------
 
 
-@given(
-    r"the dealer button is at seat (?P<seat>\d+) \((?P<player_id>[^)]+)\)"
-)
+@given(r"the dealer button is at seat (?P<seat>\d+) \((?P<player_id>[^)]+)\)")
 def step_given_button_at_seat(context, seat, player_id):
     """Sanity-check the dealer button position recorded by the most
     recent CardsDealt event. Keeps the gherkin self-documenting: a
@@ -6001,9 +5834,9 @@ def step_given_button_at_seat(context, seat, player_id):
             continue
         evt = hand.CardsDealt()
         any_msg.Unpack(evt)
-        assert evt.dealer_position == seat_int, (
-            f"dealer_position: expected seat {seat_int}, got {evt.dealer_position}"
-        )
+        assert (
+            evt.dealer_position == seat_int
+        ), f"dealer_position: expected seat {seat_int}, got {evt.dealer_position}"
         for p in evt.players:
             if p.position == seat_int:
                 assert p.player_root == target_root, (
@@ -6041,9 +5874,9 @@ def step_then_no_event_of_type_in_stream(context, event_name):
         if any_msg is None:
             continue
         type_url = getattr(any_msg, "type_url", "")
-        assert not type_url.endswith(suffix), (
-            f"unexpected {event_name} event in hand stream: {type_url}"
-        )
+        assert not type_url.endswith(
+            suffix
+        ), f"unexpected {event_name} event in hand stream: {type_url}"
 
 
 @given(r'player "(?P<player_id>[^"]+)" was absent at the initial deal')
@@ -6070,9 +5903,7 @@ def step_given_player_absent_at_deal(context, player_id):
                 break
         any_msg.Pack(evt, type_url_prefix="type.googleapis.com/")
         return
-    raise AssertionError(
-        f"No CardsDealt event found to mark {player_id!r} absent on"
-    )
+    raise AssertionError(f"No CardsDealt event found to mark {player_id!r} absent on")
 
 
 @given(r'players_to_show order "(?P<order>[^"]+)"')
@@ -6457,7 +6288,7 @@ def step_when_stud_bets_upper_limit(context, player_id, amount, street):
     _execute_handler(context, "action", cmd)
 
 
-@then(r'no rejection is raised based on the open pair')
+@then(r"no rejection is raised based on the open pair")
 def step_then_no_open_pair_rejection(context):
     """EU-1341 — Razz must not reject the upper-limit bet despite the
     visible open pair. Asserts ``context.error`` is None (or, if some
@@ -6476,8 +6307,8 @@ def step_then_no_open_pair_rejection(context):
 
 
 @given(
-    r'a (?P<variant>Seven Card Stud Hi/Lo 8b|Seven Card Stud Hi/Lo|'
-    r'Seven Card Stud|Razz) hand at showdown with players '
+    r"a (?P<variant>Seven Card Stud Hi/Lo 8b|Seven Card Stud Hi/Lo|"
+    r"Seven Card Stud|Razz) hand at showdown with players "
     r'"(?P<players>[^"]+)"'
 )
 def step_given_stud_showdown_named_players(context, variant, players):
@@ -6490,8 +6321,7 @@ def step_given_stud_showdown_named_players(context, variant, players):
 
     name_list = [n.strip() for n in players.split(",")]
     context.showdown_players = [
-        {"name": name, "seat": i, "folded": False}
-        for i, name in enumerate(name_list)
+        {"name": name, "seat": i, "folded": False} for i, name in enumerate(name_list)
     ]
     context.is_stud_showdown = True
     context.rules = _rules_from_label(variant)
@@ -6659,8 +6489,8 @@ def step_given_stud_showdown_holding_n_cards(context, player_id, count):
 
 
 @given(
-    r'a (?P<variant>Seven Card Stud Hi/Lo 8b|Seven Card Stud Hi/Lo|'
-    r'Seven Card Stud|Razz) hand starting with (?P<count>\d+) players '
+    r"a (?P<variant>Seven Card Stud Hi/Lo 8b|Seven Card Stud Hi/Lo|"
+    r"Seven Card Stud|Razz) hand starting with (?P<count>\d+) players "
     r'"(?P<names>[^"]+)"'
 )
 def step_given_stud_hand_starting(context, variant, count, names):
@@ -6690,7 +6520,7 @@ def step_given_stud_hand_starting(context, variant, count, names):
 
 @given(
     r'player "(?P<player_id>[^"]+)" was the lowest-card-by-suit but is '
-    r'all-in for the ante'
+    r"all-in for the ante"
 )
 def step_given_player_lowest_all_in_ante(context, player_id):
     for p in context.stud_hand_players:
@@ -6731,23 +6561,20 @@ def step_when_3rd_street_betting_begins(context):
     # Players who must act: every seat except the bring-in (who is
     # all-in). They face a minimum equal to the bring-in amount.
     context.acting_players = [
-        p["name"]
-        for p in context.stud_hand_players
-        if not p["is_all_in_for_ante"]
+        p["name"] for p in context.stud_hand_players if not p["is_all_in_for_ante"]
     ]
     context.minimum_bet_label = "bring-in"
 
 
 @then(
-    r'the minimum bet for "(?P<a>[^"]+)" and "(?P<b>[^"]+)" is '
-    r"the bring-in amount"
+    r'the minimum bet for "(?P<a>[^"]+)" and "(?P<b>[^"]+)" is ' r"the bring-in amount"
 )
 def step_then_min_bet_bring_in(context, a, b):
     assert a in context.acting_players, f"{a} is not in the acting set"
     assert b in context.acting_players, f"{b} is not in the acting set"
-    assert context.minimum_bet_label == "bring-in", (
-        f"Expected minimum bet = bring-in, got {context.minimum_bet_label!r}"
-    )
+    assert (
+        context.minimum_bet_label == "bring-in"
+    ), f"Expected minimum bet = bring-in, got {context.minimum_bet_label!r}"
 
 
 # --- EU-1338 — absent at 3rd street forfeit -------------------------------
@@ -6809,17 +6636,14 @@ def step_then_stud_hand_killed(context, player_id):
     after the 3rd-street completion forfeit."""
     for p in context.stud_hand_players:
         if p["name"] == player_id:
-            assert p.get("has_folded"), (
-                f"Expected {player_id}'s hand to be killed, but it is live"
-            )
+            assert p.get(
+                "has_folded"
+            ), f"Expected {player_id}'s hand to be killed, but it is live"
             return
     raise AssertionError(f"Unknown player {player_id!r}")
 
 
-@then(
-    r'player "(?P<player_id>[^"]+)" ante (?P<ante>\d+) is '
-    r"forfeited to the pot"
-)
+@then(r'player "(?P<player_id>[^"]+)" ante (?P<ante>\d+) is ' r"forfeited to the pot")
 def step_then_ante_forfeited(context, player_id, ante):
     for p in context.stud_hand_players:
         if p["name"] == player_id:
@@ -6846,8 +6670,6 @@ def step_then_bring_in_forfeited(context, player_id, amount):
     raise AssertionError(f"Unknown player {player_id!r}")
 
 
-
-
 @given(r"the missing card is the 7th street downcard")
 def step_given_missing_card_is_7th(context):
     """No-op fixture clarifier — the prior ``holding N cards`` step has
@@ -6870,29 +6692,15 @@ def step_then_result_depends_on_floor(context):
     """EU-1340 sentinel — assert the handler emitted a
     FloorDecisionRequired (rather than a CardsRevealed/CardsMucked or
     a hard rejection)."""
-    assert context.error is None, (
-        f"Expected floor-discretion path, got rejection: {context.error}"
-    )
+    assert (
+        context.error is None
+    ), f"Expected floor-discretion path, got rejection: {context.error}"
     assert context.result is not None, "No result event emitted"
     assert context.result.pages, "Result book is empty"
     page = context.result.pages[0]
     assert page.event.Is(
         hand.FloorDecisionRequired.DESCRIPTOR
     ), f"Expected FloorDecisionRequired, got {page.event.TypeName()}"
-
-
-@then(
-    r'a FloorDecisionRequired event is emitted with reason "(?P<reason>[^"]+)"'
-)
-def step_then_floor_decision_required(context, reason):
-    assert context.result is not None and context.result.pages
-    page = context.result.pages[0]
-    assert page.event.Is(hand.FloorDecisionRequired.DESCRIPTOR)
-    evt = hand.FloorDecisionRequired()
-    page.event.Unpack(evt)
-    assert evt.reason == reason, (
-        f"Expected FloorDecisionRequired.reason={reason!r}, got {evt.reason!r}"
-    )
 
 
 # --- Pot-limit pre-flop calculation (EU-1286) ---
@@ -6920,7 +6728,7 @@ def step_given_bb_posted(context, player_id, amt):
 
 
 @when(
-    r'I compute the pot-limit pre-flop maximum raise-to amount for '
+    r"I compute the pot-limit pre-flop maximum raise-to amount for "
     r'"(?P<player_id>[^"]+)"'
 )
 def step_when_pl_max_raise(context, player_id):
@@ -6943,10 +6751,7 @@ def step_when_pl_max_raise(context, player_id):
 # --- "Bet the pot" in NL (EU-1287) ---
 
 
-@when(
-    r'player "(?P<player_id>[^"]+)" declares "bet the pot" on a '
-    r"no-limit table"
-)
+@when(r'player "(?P<player_id>[^"]+)" declares "bet the pot" on a ' r"no-limit table")
 def step_when_bet_the_pot_nl(context, player_id):
     """Apply TDA Rule 54D: "I bet the pot" in NL = at least min bet.
 
@@ -6975,21 +6780,17 @@ def step_then_action_amount_eq_bb(context, bb):
     assert new_pages, "Expected an emitted event but none was emitted"
     evt_any = new_pages[-1].event
     evt = hand.ActionTaken()
-    assert evt_any.Is(hand.ActionTaken.DESCRIPTOR), (
-        f"Last emitted event is not ActionTaken: {evt_any.type_url}"
-    )
+    assert evt_any.Is(
+        hand.ActionTaken.DESCRIPTOR
+    ), f"Last emitted event is not ActionTaken: {evt_any.type_url}"
     evt_any.Unpack(evt)
-    assert evt.amount == int(bb), (
-        f"Expected amount={bb}, got {evt.amount}"
-    )
+    assert evt.amount == int(bb), f"Expected amount={bb}, got {evt.amount}"
 
 
 # --- PL high underbet correction (EU-1284) ---
 
 
-@given(
-    r"blinds posted at SB (?P<sb>\d+) / BB (?P<bb>\d+) with pot (?P<pot>\d+)"
-)
+@given(r"blinds posted at SB (?P<sb>\d+) / BB (?P<bb>\d+) with pot (?P<pot>\d+)")
 def step_given_blinds_at_sb_bb_pot(context, sb, bb, pot):
     """Set up explicit SB/BB amounts with a target pot total.
 
@@ -7095,8 +6896,6 @@ def step_when_correct_illegal_overbet(context):
     compute it as the running pot total at the time the illegal bet
     started, less the illegal bet and any call.
     """
-    book = _make_event_book(context.events)
-    agg = Hand(book)
     # The corrected amount is the original pot total before the
     # illegal bet — for EU-1284 explicitly 10500. We derive by walking
     # back to the BlindPosted/ActionTaken sequence: the maximum
@@ -7118,14 +6917,10 @@ def step_when_correct_illegal_overbet(context):
     _execute_handler(context, "correct_illegal_bet", cmd)
 
 
-@then(
-    r"a UnderbetCorrected event is emitted with reason \"(?P<reason>[^\"]+)\""
-)
+@then(r"a UnderbetCorrected event is emitted with reason \"(?P<reason>[^\"]+)\"")
 def step_then_underbet_corrected(context, reason):
     """Verify a UnderbetCorrected event was emitted with the given reason."""
-    assert context.result is not None and context.result.pages, (
-        "No emitted event found"
-    )
+    assert context.result is not None and context.result.pages, "No emitted event found"
     found = False
     for page in context.result.pages:
         if page.event.Is(hand.UnderbetCorrected.DESCRIPTOR):
@@ -7142,9 +6937,9 @@ def step_then_underbet_corrected(context, reason):
 def step_then_corrected_bet_amount(context, amount):
     evt = getattr(context, "last_underbet_event", None)
     assert evt is not None, "No UnderbetCorrected event captured"
-    assert evt.corrected_amount == int(amount), (
-        f"corrected_amount={evt.corrected_amount}, expected {amount}"
-    )
+    assert evt.corrected_amount == int(
+        amount
+    ), f"corrected_amount={evt.corrected_amount}, expected {amount}"
 
 
 @then(r"every caller's contribution is reduced to (?P<amount>\d+)")
@@ -7157,9 +6952,9 @@ def step_then_caller_contribution_reduced(context, amount):
         for a in evt.adjustments
         if a.new_contribution != int(amount)
     ]
-    assert not bad, (
-        f"Adjustments not reduced to {amount}: {bad}; got {[a.new_contribution for a in evt.adjustments]}"
-    )
+    assert (
+        not bad
+    ), f"Adjustments not reduced to {amount}: {bad}; got {[a.new_contribution for a in evt.adjustments]}"
 
 
 # ----------------------------------------------------------------------------
@@ -7175,9 +6970,7 @@ _HANDLER_MAP["correct_illegal_bet"] = "handle_correct_illegal_bet"
 # --- Verbal declarations (EU-1346, 1347, 1354, 1357, 1358, 1288, 1289) ---
 
 
-@when(
-    r'player "(?P<player_id>[^"]+)" verbally declares "raise" without an amount'
-)
+@when(r'player "(?P<player_id>[^"]+)" verbally declares "raise" without an amount')
 def step_when_verbal_raise_no_amount(context, player_id):
     """TDA Rule 42 — verbal raise without amount → min legal."""
     cmd = hand.DeclareAction(
@@ -7271,9 +7064,9 @@ def step_then_undercall_corrected(context, amount):
             if evt.action == poker_types.CALL and evt.amount == int(amount):
                 found = True
                 break
-    assert found, (
-        f"No CALL event with amount={amount}; events: {[type_name_from_url_local(p.event.type_url) for p in new_pages]}"
-    )
+    assert (
+        found
+    ), f"No CALL event with amount={amount}; events: {[type_name_from_url_local(p.event.type_url) for p in new_pages]}"
 
 
 def type_name_from_url_local(type_url):
@@ -7315,9 +7108,7 @@ def step_then_no_correction_applied(context):
     """Verify post-SA stand: no UnderbetCorrected event since the SA
     occurred."""
     pages = getattr(context, "events", [])
-    has_correction = any(
-        p.event.Is(hand.UnderbetCorrected.DESCRIPTOR) for p in pages
-    )
+    has_correction = any(p.event.Is(hand.UnderbetCorrected.DESCRIPTOR) for p in pages)
     assert not has_correction, "Unexpected UnderbetCorrected emitted post-SA"
 
 
@@ -7331,9 +7122,9 @@ def step_then_commit_stands(context, player_id, amount):
     declared = getattr(context, "declared_call_amount", None)
     if declared is None:
         return
-    assert declared == int(amount), (
-        f"declared_call_amount={declared}, expected {amount}"
-    )
+    assert declared == int(
+        amount
+    ), f"declared_call_amount={declared}, expected {amount}"
 
 
 @then(r'the SA action by "(?P<player_id>[^"]+)" stands')
@@ -7344,9 +7135,8 @@ def step_then_sa_action_stands(context, player_id):
         if page.event.Is(hand.ActionTaken.DESCRIPTOR):
             evt = hand.ActionTaken()
             page.event.Unpack(evt)
-            if (
-                evt.action == poker_types.RAISE
-                and evt.player_root == uuid_for(player_id)
+            if evt.action == poker_types.RAISE and evt.player_root == uuid_for(
+                player_id
             ):
                 found = True
                 break
@@ -7372,8 +7162,7 @@ def step_when_silent_push_multi(context, player_id, amount):
 
 
 @when(
-    r'player "(?P<player_id>[^"]+)" silently pushes a single (?P<amount>\d+) '
-    r"chip"
+    r'player "(?P<player_id>[^"]+)" silently pushes a single (?P<amount>\d+) ' r"chip"
 )
 def step_when_silent_push_single(context, player_id, amount):
     """TDA Rule 44 — single oversized chip silent push = call."""
@@ -7387,9 +7176,7 @@ def step_when_silent_push_single(context, player_id, amount):
     _execute_handler(context, "action", cmd)
 
 
-@when(
-    r'player "(?P<player_id>[^"]+)" silently pushes (?P<amount>\d+) \([^)]+\)'
-)
+@when(r'player "(?P<player_id>[^"]+)" silently pushes (?P<amount>\d+) \([^)]+\)')
 def step_when_silent_push_amt(context, player_id, amount):
     """Sibling silent-push step matching the EU-1351 wording."""
     cmd = hand.PlayerAction(
@@ -7401,9 +7188,7 @@ def step_when_silent_push_amt(context, player_id, amount):
     _execute_handler(context, "action", cmd)
 
 
-@then(
-    r'player "(?P<player_id>[^"]+)" receives change of (?P<amount>\d+)'
-)
+@then(r'player "(?P<player_id>[^"]+)" receives change of (?P<amount>\d+)')
 def step_then_player_receives_change(context, player_id, amount):
     """Verify the resulting stack reflects refunded change.
 
@@ -7469,9 +7254,7 @@ def step_given_player_has_bet_with_increment(context, player_id, amount, inc):
     context.events.append(make_event_page(evt, len(context.events)))
 
 
-@given(
-    r'player "(?P<player_id>[^"]+)" has already bet (?P<amount>\d+) this street'
-)
+@given(r'player "(?P<player_id>[^"]+)" has already bet (?P<amount>\d+) this street')
 def step_given_player_prior_bet(context, player_id, amount):
     """Synthesize a BET ActionTaken to seed the player's prior bet on
     the street for Rule 46 scenarios."""
@@ -7555,9 +7338,7 @@ def step_then_player_bound(context, player_id):
     agg = Hand(book)
     p = agg.get_player(uuid_for(player_id))
     assert p is not None, f"Player {player_id} not found"
-    assert p.bound_to_call_or_raise, (
-        f"Player {player_id} should be bound to call/raise"
-    )
+    assert p.bound_to_call_or_raise, f"Player {player_id} should be bound to call/raise"
 
 
 @when(r'I handle a Fold command from "(?P<player_id>[^"]+)"')
@@ -7604,14 +7385,12 @@ def step_then_string_bet_ruled(context):
     """Confirm a StringBetReturned event is queued or that the second
     motion was returned. With our minimal model, presence of a non-
     zero ``_second_motion_amount`` is sufficient evidence."""
-    assert getattr(context, "_second_motion_amount", 0) > 0, (
-        "No string-bet detection observed"
-    )
+    assert (
+        getattr(context, "_second_motion_amount", 0) > 0
+    ), "No string-bet detection observed"
 
 
-@then(
-    r'the second-motion (?P<amount>\d+) is returned to "(?P<player_id>[^"]+)"'
-)
+@then(r'the second-motion (?P<amount>\d+) is returned to "(?P<player_id>[^"]+)"')
 def step_then_second_motion_returned(context, amount, player_id):
     """Affirm the explicit return amount matches."""
     assert getattr(context, "_second_motion_amount", 0) == int(amount), (
@@ -7629,8 +7408,6 @@ def step_then_second_motion_returned(context, amount, player_id):
 )
 def step_when_non_standard_decl(context, player_id, verbal):
     """TDA Rule 57 — non-standard declaration emits FloorDecisionRequired."""
-    book = _make_event_book(context.events)
-    agg = Hand(book)
     evt = hand.FloorDecisionRequired(
         player_root=uuid_for(player_id),
         reason="NON_STANDARD_DECLARATION",
@@ -7643,10 +7420,7 @@ def step_when_non_standard_decl(context, player_id, verbal):
     context.last_floor_event = evt
 
 
-@then(
-    r"a FloorDecisionRequired event is emitted with reason "
-    r'"(?P<reason>[^"]+)"'
-)
+@then(r"a FloorDecisionRequired event is emitted with reason " r'"(?P<reason>[^"]+)"')
 def step_then_floor_decision_required(context, reason):
     """Verify FloorDecisionRequired with the given reason."""
     found = False
@@ -7668,9 +7442,7 @@ def step_then_action_held(context):
         if page.event.Is(hand.FloorDecisionRequired.DESCRIPTOR):
             break
         pages_after_decl.append(page)
-    bad = [
-        p for p in pages_after_decl if p.event.Is(hand.ActionTaken.DESCRIPTOR)
-    ]
+    bad = [p for p in pages_after_decl if p.event.Is(hand.ActionTaken.DESCRIPTOR)]
     assert not bad, "Unexpected ActionTaken emitted alongside floor decision"
 
 
@@ -7680,10 +7452,7 @@ def step_given_turn_to_act(context, player_id):
     context.turn_to_act = player_id
 
 
-@when(
-    r'player "(?P<player_id>[^"]+)" out of turn says '
-    r'"(?P<verbal>[^"]+)"'
-)
+@when(r'player "(?P<player_id>[^"]+)" out of turn says ' r'"(?P<verbal>[^"]+)"')
 def step_when_oot_verbal(context, player_id, verbal):
     """TDA Rule 59 — out-of-turn conditional/future declaration is
     non-binding. We just record the speaker; no event emitted."""
@@ -7692,8 +7461,7 @@ def step_when_oot_verbal(context, player_id, verbal):
 
 
 @when(
-    r'player "(?P<player_id>[^"]+)" then checks \(no raise — the condition '
-    r"fails\)"
+    r'player "(?P<player_id>[^"]+)" then checks \(no raise — the condition ' r"fails\)"
 )
 def step_when_check_no_raise(context, player_id):
     """The conditional fails (no raise) — confirms the OOT statement
@@ -7739,7 +7507,6 @@ def step_given_betting_situation(context, context_kind):
     """Set up the betting state described in the scenario outline column."""
     if "facing no bet" in context_kind:
         # Simulate a flop: blinds posted, betting round complete, FLOP dealt.
-        book = _make_event_book(context.events)
         # Post blinds at 5/10
         sb_root = uuid_for("player-1")
         bb_root = uuid_for("player-2")
@@ -7881,9 +7648,9 @@ def step_then_recorded_action(context, expected):
             page.event.Unpack(evt)
             found = evt.action
             break
-    assert found == expected_action, (
-        f"Expected action {expected!r} ({expected_action}), got {found}"
-    )
+    assert (
+        found == expected_action
+    ), f"Expected action {expected!r} ({expected_action}), got {found}"
 
 
 # --- Binding fold no bet to call (EU-1289) ---
@@ -7917,6 +7684,4 @@ def step_then_player_stack(context, player_id, amount):
     agg = Hand(book)
     p = agg.get_player(uuid_for(player_id))
     assert p is not None
-    assert p.stack == int(amount), (
-        f"{player_id} stack={p.stack}, expected {amount}"
-    )
+    assert p.stack == int(amount), f"{player_id} stack={p.stack}, expected {amount}"

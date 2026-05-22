@@ -880,7 +880,10 @@ _EVENT_TYPES = {
 }
 
 
-@then(r"the result is an? (?:angzarr_client\.proto\.)?examples\.v1\." r"(?P<evt>\w+) event")
+@then(
+    r"the result is an? (?:angzarr_client\.proto\.)?examples\.v1\."
+    r"(?P<evt>\w+) event"
+)
 def step_then_result_is_event(context, evt):
     assert (
         context.result_event_any is not None
@@ -1401,9 +1404,7 @@ def step_then_penalty_type(context, ptype):
 def step_then_penalty_missed_hands(context, n):
     evt = tournament.PenaltyIssued()
     context.result_event_any.Unpack(evt)
-    assert evt.missed_hands == int(n), (
-        f"missed_hands={evt.missed_hands}, expected {n}"
-    )
+    assert evt.missed_hands == int(n), f"missed_hands={evt.missed_hands}, expected {n}"
 
 
 @given(
@@ -1474,9 +1475,9 @@ def step_when_disqualify_player(context, player_id, reason):
 def step_then_dq_chips_forfeited(context, n):
     evt = tournament.PlayerDisqualified()
     context.result_event_any.Unpack(evt)
-    assert evt.chips_removed == int(n), (
-        f"chips_removed={evt.chips_removed}, expected {n}"
-    )
+    assert evt.chips_removed == int(
+        n
+    ), f"chips_removed={evt.chips_removed}, expected {n}"
 
 
 @then(r"total_chips_in_play is (?P<n>\d+)")
@@ -1509,9 +1510,9 @@ def step_then_total_chips_in_play(context, n):
                 page.event.Unpack(evt)
                 agg._state.total_chips_in_play += evt.chips_added_by_rescue
                 agg._state.total_chips_in_play -= evt.chips_removed_by_race
-    assert agg._state.total_chips_in_play == int(n), (
-        f"total_chips_in_play={agg._state.total_chips_in_play}, expected {n}"
-    )
+    assert agg._state.total_chips_in_play == int(
+        n
+    ), f"total_chips_in_play={agg._state.total_chips_in_play}, expected {n}"
 
 
 @then(r'player "(?P<player_id>[^"]+)" is no longer in registered_players')
@@ -1519,9 +1520,9 @@ def step_then_player_removed(context, player_id):
     book = _make_event_book(context.events)
     agg = Tournament(book)
     key = uuid_for(player_id).hex()
-    assert key not in agg._state.registered_players, (
-        f"Player {player_id} should not be in registered_players"
-    )
+    assert (
+        key not in agg._state.registered_players
+    ), f"Player {player_id} should not be in registered_players"
 
 
 # --- EU-1374 soft-play DQ ---
@@ -1570,9 +1571,7 @@ def step_given_running_tournament_softplay(context, player_id, other):
     context.seed_total_chips_in_play = 3000
 
 
-@when(
-    r'the floor disqualifies player "(?P<player_id>[^"]+)" for soft play'
-)
+@when(r'the floor disqualifies player "(?P<player_id>[^"]+)" for soft play')
 def step_when_floor_dq_softplay(context, player_id):
     """Issue a DQ command via the floor."""
     _ensure_events(context)
@@ -1614,14 +1613,10 @@ def step_then_dq_with_reason(context, player_id, reason):
             if evt.player_root == uuid_for(player_id) and evt.reason == reason:
                 found = True
                 break
-    assert found, (
-        f"Expected PlayerDisqualified for {player_id} with reason {reason!r}"
-    )
+    assert found, f"Expected PlayerDisqualified for {player_id} with reason {reason!r}"
 
 
-@then(
-    r'player "(?P<player_id>[^"]+)" chips are removed from total_chips_in_play'
-)
+@then(r'player "(?P<player_id>[^"]+)" chips are removed from total_chips_in_play')
 def step_then_player_chips_removed(context, player_id):
     """Verify the DQ event recorded the player's chips and the
     aggregate post-state reflects the removal."""
@@ -1639,9 +1634,7 @@ def step_then_player_chips_removed(context, player_id):
             if evt.player_root == uuid_for(player_id):
                 found_chips = evt.chips_removed
                 break
-    assert found_chips > 0, (
-        f"Expected non-zero chips_removed for {player_id}"
-    )
+    assert found_chips > 0, f"Expected non-zero chips_removed for {player_id}"
 
 
 # --- Bounty (EU-1372, 1373) ---
@@ -1701,22 +1694,18 @@ def step_then_bounty_awarded(context, elim, ko, amt):
             ):
                 found = True
                 break
-    assert found, (
-        f"Expected BountyAwarded(eliminator={elim}, knocked_out={ko}, amount={amt})"
-    )
+    assert (
+        found
+    ), f"Expected BountyAwarded(eliminator={elim}, knocked_out={ko}, amount={amt})"
 
 
-@then(
-    r'player "(?P<player_id>[^"]+)" bounty_total increases by (?P<amt>\d+)'
-)
+@then(r'player "(?P<player_id>[^"]+)" bounty_total increases by (?P<amt>\d+)')
 def step_then_bounty_total(context, player_id, amt):
     book = _make_event_book(context.events)
     agg = Tournament(book)
     bt = getattr(agg._state, "bounty_totals", {})
     actual = bt.get(uuid_for(player_id).hex(), 0)
-    assert actual >= int(amt), (
-        f"bounty_total[{player_id}]={actual}, expected ≥{amt}"
-    )
+    assert actual >= int(amt), f"bounty_total[{player_id}]={actual}, expected ≥{amt}"
 
 
 # --- EU-1373 last-two simultaneous bust ---
@@ -1743,9 +1732,7 @@ def step_when_both_all_in_lose(context):
 @when(r'the higher pre-hand stack is "(?P<player_id>[^"]+)" \(\d+ > \d+\)')
 def step_when_higher_pre_hand_stack(context, player_id):
     """Issue an AwardBounty with tiebreak metadata."""
-    other = next(
-        n for n in context.heads_up_stacks if n != player_id
-    )
+    other = next(n for n in context.heads_up_stacks if n != player_id)
     cmd = tournament.AwardBounty(
         eliminator_root=uuid_for(player_id),
         knocked_out_root=uuid_for(other),
@@ -1766,22 +1753,17 @@ def step_then_no_bounty_for(context, player_id):
             evt = tournament.BountyAwarded()
             page.event.Unpack(evt)
             bountys.append(evt)
-    bad = [
-        b for b in bountys if b.knocked_out_root == uuid_for(player_id)
-    ]
     # The "knocked out" player is the one we don't award. That's the OK
     # case. The check here just ensures only one bounty event exists.
-    assert len(bountys) == 1, (
-        f"Expected exactly 1 BountyAwarded event; got {len(bountys)}"
-    )
+    assert (
+        len(bountys) == 1
+    ), f"Expected exactly 1 BountyAwarded event; got {len(bountys)}"
 
 
 # --- EU-1314 no-show ---
 
 
-@given(
-    r'a running tournament "(?P<name>[^"]+)" with starting_stack (?P<stack>\d+)'
-)
+@given(r'a running tournament "(?P<name>[^"]+)" with starting_stack (?P<stack>\d+)')
 def step_given_running_named_with_stack(context, name, stack):
     """Setup helper for a named running tournament with explicit stack."""
     cmd = tournament.CreateTournament(
@@ -1828,7 +1810,7 @@ def step_when_no_show_deadline_expires(context, name):
 
 
 @then(
-    r'a angzarr_client\.proto\.examples\.v1\.NoShowDetected event is emitted '
+    r"a angzarr_client\.proto\.examples\.v1\.NoShowDetected event is emitted "
     r'for player "(?P<player_id>[^"]+)"'
 )
 def step_then_no_show_emitted(context, player_id):
@@ -1853,9 +1835,7 @@ def step_then_buy_in_held(context, player_id, amt):
             if evt.player_root == uuid_for(player_id) and evt.buy_in_held == int(amt):
                 found = True
                 break
-    assert found, (
-        f"Expected NoShowDetected for {player_id} with buy_in_held={amt}"
-    )
+    assert found, f"Expected NoShowDetected for {player_id} with buy_in_held={amt}"
 
 
 @then(r'player "(?P<player_id>[^"]+)" is not in players_remaining')
@@ -1863,9 +1843,9 @@ def step_then_not_in_players_remaining(context, player_id):
     book = _make_event_book(context.events)
     agg = Tournament(book)
     key = uuid_for(player_id).hex()
-    assert key not in agg._state.registered_players, (
-        f"{player_id} should not be in registered_players"
-    )
+    assert (
+        key not in agg._state.registered_players
+    ), f"{player_id} should not be in registered_players"
 
 
 # --- EU-1160 / EU-1161 / EU-1162 chip race ---
@@ -1902,9 +1882,11 @@ def step_given_running_with_active(context, name, n):
         _append_player_enrolled(context, label)
     _append_tournament_started(context)
     context.chip_race_player_labels = [
-        _CHIP_RACE_DEFAULT_NAMES[i]
-        if i < len(_CHIP_RACE_DEFAULT_NAMES)
-        else f"p{i + 1}"
+        (
+            _CHIP_RACE_DEFAULT_NAMES[i]
+            if i < len(_CHIP_RACE_DEFAULT_NAMES)
+            else f"p{i + 1}"
+        )
         for i in range(n_int)
     ]
 
@@ -1989,6 +1971,7 @@ def step_when_advance_with_chip_race(context, retire, new):
     # entry by mutating the aggregate state directly (test fixture).
     if not agg._state.blind_structure:
         from angzarr_client.proto.examples.v1.tournament_pb2 import BlindLevel
+
         agg._state.blind_structure = [
             BlindLevel(level=2, small_blind=25, big_blind=50, ante=0),
         ]
@@ -2033,17 +2016,15 @@ def step_then_no_player_got_more_than_one(context):
         retire_count = s.player_chip_inventories.get(key, {}).get(
             evt.retired_denomination, 0
         )
-        full_new = (
-            retire_count * evt.retired_denomination // evt.new_denomination
-        )
+        full_new = retire_count * evt.retired_denomination // evt.new_denomination
         from_race = award.chips_won - full_new
         # rescue clause adds at most 1 chip on top of any race award; only
         # the race component itself must be ≤ 1 per Rule 24A.
         if award.rescued:
             from_race -= 1
-        assert from_race <= 1, (
-            f"Player {key[:8]} got {from_race} chips from the race; expected ≤1"
-        )
+        assert (
+            from_race <= 1
+        ), f"Player {key[:8]} got {from_race} chips from the race; expected ≤1"
 
 
 @then(r'player "(?P<player_id>[^"]+)" stack is at least (?P<min_stack>\d+)')
@@ -2051,9 +2032,9 @@ def step_then_player_stack_at_least(context, player_id, min_stack):
     s = context.chip_race_post_state
     key = uuid_for(player_id).hex()
     stack = s.player_stacks.get(key, 0)
-    assert stack >= int(min_stack), (
-        f"Player {player_id} stack={stack}, expected ≥ {min_stack}"
-    )
+    assert stack >= int(
+        min_stack
+    ), f"Player {player_id} stack={stack}, expected ≥ {min_stack}"
 
 
 @then(r"the event has chips_added_by_rescue and chips_removed_by_race")
@@ -2129,7 +2110,9 @@ def _execute_with_seeded_clock(context, method_name, cmd):
         # Once seeded, future calls reuse the in-flight state via
         # context.h4h_agg_state below.
     if hasattr(context, "h4h_post_state"):
-        agg._state.level_seconds_remaining = context.h4h_post_state.level_seconds_remaining
+        agg._state.level_seconds_remaining = (
+            context.h4h_post_state.level_seconds_remaining
+        )
     actual_name = _HANDLER_MAP.get(method_name, method_name)
     method = getattr(agg, actual_name)
     result_event = method(cmd)
@@ -2163,14 +2146,12 @@ def step_when_h4h_hand_completes(context):
 @then(r"the level_seconds_remaining(?: after the hand)? (?:equals|is) (?P<n>\d+)")
 def step_then_level_seconds_remaining(context, n):
     s = context.h4h_post_state
-    assert s.level_seconds_remaining == int(n), (
-        f"level_seconds_remaining={s.level_seconds_remaining}, expected {n}"
-    )
+    assert s.level_seconds_remaining == int(
+        n
+    ), f"level_seconds_remaining={s.level_seconds_remaining}, expected {n}"
 
 
-@when(
-    r'players "(?P<players>[^"]+)" both bust on the same hand-for-hand hand'
-)
+@when(r'players "(?P<players>[^"]+)" both bust on the same hand-for-hand hand')
 def step_when_players_simultaneous_bust(context, players):
     """Issue RecordSimultaneousBusts with the named players."""
     names = [n.strip() for n in players.split(",")]
@@ -2215,6 +2196,7 @@ def step_given_dealer_about_to_advance(context, table_name, seat):
     occupied, and a prior HandStarted event whose dealer is one less
     than the vacated seat (so next-dealer rotation lands on it)."""
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     seat_int = int(seat)
     pages = []
     pages.append(
@@ -2283,6 +2265,7 @@ def step_when_late_reg_seated(context, player_id, table_name, seat):
     """Enroll the player at the tournament aggregate, then synthesize
     a PlayerJoined event onto the table to fill the vacated seat."""
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     cmd = tournament.EnrollPlayer(
         player_root=uuid_for(player_id),
         reservation_id=f"res-{player_id}".encode(),
@@ -2308,6 +2291,7 @@ def step_when_late_reg_seated(context, player_id, table_name, seat):
 def step_when_start_hand_at_named_table_double_quoted(context, table_name):
     from table.agg.handlers import Table
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     book = _make_event_book(context.late_reg_table_pages)
     agg = Table(book)
     cmd = table_proto.StartHand()
@@ -2325,16 +2309,18 @@ def step_when_start_hand_at_named_table_double_quoted(context, table_name):
 @then(r"the dealer_position is seat (?P<seat>\d+)")
 def step_then_dealer_position_is_seat(context, seat):
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     evt = table_proto.HandStarted()
     context.result_event_any.Unpack(evt)
-    assert evt.dealer_position == int(seat), (
-        f"dealer_position={evt.dealer_position}, expected {seat}"
-    )
+    assert evt.dealer_position == int(
+        seat
+    ), f"dealer_position={evt.dealer_position}, expected {seat}"
 
 
 @then(r'player "(?P<player_id>[^"]+)" is dealt in for that hand')
 def step_then_player_dealt_in_for_hand(context, player_id):
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     evt = table_proto.HandStarted()
     context.result_event_any.Unpack(evt)
     target = uuid_for(player_id)
@@ -2365,13 +2351,14 @@ def step_given_player_on_penalty(context, player_id, rounds, ptype):
     context.penalty_initial_rounds = int(rounds)
 
 
-@given(r'the next hand at (?P<player_id>\w+)\'s table has SB at \w+\'s seat')
+@given(r"the next hand at (?P<player_id>\w+)\'s table has SB at \w+\'s seat")
 def step_given_next_hand_sb_at_player_seat(context, player_id):
     """Set up a 2-player heads-up table with the on-penalty player at
     seat 0 (where, per HU rule, dealer == SB). Build the table via
     direct events on the Table aggregate; we keep tournament events
     untouched."""
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     other_label = "Bob" if player_id != "Bob" else "Alice"
     table_events = [
         make_event_page(
@@ -2414,6 +2401,7 @@ def step_when_start_hand_at_player_table(context, player_id):
     on context.table_events for downstream Then steps."""
     from table.agg.handlers import Table
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     book = _make_event_book(context.table_events)
     agg = Table(book)
     cmd = table_proto.StartHand(
@@ -2437,6 +2425,7 @@ def step_when_start_hand_at_player_table(context, player_id):
 @then(r'player "(?P<player_id>[^"]+)" had her? SB posted from her? stack')
 def step_then_sb_posted_from_stack(context, player_id):
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     found = False
     for page in context.table_events:
         if page.event.Is(table_proto.PlayerHandKilledByPenalty.DESCRIPTOR):
@@ -2451,6 +2440,7 @@ def step_then_sb_posted_from_stack(context, player_id):
 @then(r'player "(?P<player_id>[^"]+)" hand is killed after the initial deal')
 def step_then_hand_killed(context, player_id):
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
     found = False
     for page in context.table_events:
         if page.event.Is(table_proto.PlayerHandKilledByPenalty.DESCRIPTOR):
@@ -2516,9 +2506,7 @@ def step_given_hand_started_with_stacks(context, spec):
     context.pre_hand_stacks = pairs
 
 
-@when(
-    r'players "(?P<players>[^"]+)" both bust on the same hand at the same table'
-)
+@when(r'players "(?P<players>[^"]+)" both bust on the same hand at the same table')
 def step_when_simultaneous_bust_same_table(context, players):
     names = [n.strip() for n in players.split(",")]
     pre_stacks = getattr(context, "pre_hand_stacks", {})
@@ -2531,17 +2519,13 @@ def step_when_simultaneous_bust_same_table(context, players):
     _execute_handler(context, "record_sim_busts", cmd)
 
 
-@then(
-    r'no TournamentResult has player_root "(?P<label>[^"]+)" with non-zero payout'
-)
+@then(r'no TournamentResult has player_root "(?P<label>[^"]+)" with non-zero payout')
 def step_then_no_result_with_nonzero_payout(context, label):
     evt = tournament.TournamentCompleted()
     context.result_event_any.Unpack(evt)
     target = uuid_for(label)
     matches = [r for r in evt.results if r.player_root == target and r.payout > 0]
-    assert not matches, (
-        f"Found unexpected paid TournamentResult for {label}: {matches}"
-    )
+    assert not matches, f"Found unexpected paid TournamentResult for {label}: {matches}"
 
 
 @then(
@@ -2561,9 +2545,7 @@ def step_then_result_tiebreak_reason(context, pos, reason):
 # --- EU-1371 HORSE rotation ---
 
 
-@given(
-    r"a HORSE tournament with (?P<n>\d+) active players starting on Texas Hold'em"
-)
+@given(r"a HORSE tournament with (?P<n>\d+) active players starting on Texas Hold'em")
 def step_given_horse_tournament(context, n):
     n_int = int(n)
     cmd = tournament.CreateTournament(
@@ -2609,9 +2591,9 @@ def step_then_variant_transitions(context, variant):
     assert expected_id is not None, f"Unknown variant label {variant!r}"
     evt = tournament.MixedGameVariantRotated()
     context.result_event_any.Unpack(evt)
-    assert evt.to_variant == expected_id, (
-        f"Expected to_variant={expected_id} ({variant}), got {evt.to_variant}"
-    )
+    assert (
+        evt.to_variant == expected_id
+    ), f"Expected to_variant={expected_id} ({variant}), got {evt.to_variant}"
 
 
 # --- EU-1375 end-of-day ---
@@ -2646,15 +2628,11 @@ def step_when_stop_new_hands(context):
     _execute_handler(context, "handle_stop_new_hands", cmd)
 
 
-@then(
-    r'a NewHandsHalted event is emitted with effective_at "(?P<at>[^"]+)"'
-)
+@then(r'a NewHandsHalted event is emitted with effective_at "(?P<at>[^"]+)"')
 def step_then_new_hands_halted(context, at):
     evt = tournament.NewHandsHalted()
     context.result_event_any.Unpack(evt)
-    assert evt.effective_at == at, (
-        f"effective_at={evt.effective_at!r}, expected {at!r}"
-    )
+    assert evt.effective_at == at, f"effective_at={evt.effective_at!r}, expected {at!r}"
 
 
 @then(r"the in-progress hand is allowed to complete normally")
@@ -2675,14 +2653,12 @@ def step_when_hand_completes(context):
 def step_then_transitions_to_bagging(context):
     book = _make_event_book(context.events)
     agg = Tournament(book)
-    assert agg._state.status == tournament.TournamentStatus.TOURNAMENT_BAGGED, (
-        f"status={agg._state.status}, expected TOURNAMENT_BAGGED"
-    )
+    assert (
+        agg._state.status == tournament.TournamentStatus.TOURNAMENT_BAGGED
+    ), f"status={agg._state.status}, expected TOURNAMENT_BAGGED"
 
 
-@then(
-    r"no new StartHand command is accepted until the next day's resume"
-)
+@then(r"no new StartHand command is accepted until the next day's resume")
 def step_then_no_start_hand_until_resume(context):
     """Enforced by status: tournaments in BAGGED state cannot start new
     hands. We assert the status reflects this; a real StartHand on the
@@ -2721,9 +2697,7 @@ def step_given_completed_day1_with_bagtag(context, n):
     context.bagged_stacks = {label: 1500 + i * 100 for i, label in enumerate(names)}
 
 
-@given(
-    r"a BagAndTagComplete event recorded each player's stack and seat"
-)
+@given(r"a BagAndTagComplete event recorded each player's stack and seat")
 def step_given_bag_and_tag_event(context):
     snapshots = [
         tournament.PlayerBagSnapshot(
@@ -2750,9 +2724,9 @@ def step_when_resume_day2(context):
 @then(r"a TournamentResumed event is emitted")
 def step_then_tournament_resumed(context):
     evt_type = type_name_from_url(context.result_event_any.type_url)
-    assert evt_type.endswith("TournamentResumed"), (
-        f"Expected TournamentResumed event, got {evt_type}"
-    )
+    assert evt_type.endswith(
+        "TournamentResumed"
+    ), f"Expected TournamentResumed event, got {evt_type}"
 
 
 @then(r"every player's starting stack equals their Day 1 bagged stack")
@@ -2761,9 +2735,9 @@ def step_then_starting_stack_equals_bagged(context):
     agg = Tournament(book)
     for label, stack in context.bagged_stacks.items():
         snap = agg._state.bagged_snapshots.get(uuid_for(label).hex())
-        assert snap is not None and snap.stack == stack, (
-            f"Player {label} bagged stack mismatch: snap={snap}, expected {stack}"
-        )
+        assert (
+            snap is not None and snap.stack == stack
+        ), f"Player {label} bagged stack mismatch: snap={snap}, expected {stack}"
 
 
 @then(
@@ -2858,9 +2832,9 @@ def step_when_re_entry(context, player_id, chips):
 def step_then_event_chips_forfeited(context, n):
     evt = tournament.PlayerReEntered()
     context.result_event_any.Unpack(evt)
-    assert evt.chips_forfeited == int(n), (
-        f"chips_forfeited={evt.chips_forfeited}, expected {n}"
-    )
+    assert evt.chips_forfeited == int(
+        n
+    ), f"chips_forfeited={evt.chips_forfeited}, expected {n}"
 
 
 # --- EU-1370 absent player on broken table ---
@@ -2890,7 +2864,9 @@ def step_given_broken_table_with_absent(context, from_t, player_id, at_table):
     context.absent_player = player_id
 
 
-@given(r'player "(?P<player_id>[^"]+)" had (?P<stack>\d+) in chips on "(?P<table>[^"]+)"')
+@given(
+    r'player "(?P<player_id>[^"]+)" had (?P<stack>\d+) in chips on "(?P<table>[^"]+)"'
+)
 def step_given_absent_chips(context, player_id, stack, table):
     context.absent_stack = int(stack)
 
@@ -2922,34 +2898,29 @@ def step_then_player_moved_tables(context, player_id, from_t):
         if page.event.Is(tournament.PlayerMovedTables.DESCRIPTOR):
             evt = tournament.PlayerMovedTables()
             page.event.Unpack(evt)
-            if (
-                evt.player_root == uuid_for(player_id)
-                and evt.from_table_root == uuid_for(from_t)
-            ):
+            if evt.player_root == uuid_for(
+                player_id
+            ) and evt.from_table_root == uuid_for(from_t):
                 found = True
                 break
     assert found, f"No PlayerMovedTables for {player_id} from {from_t}"
 
 
-@then(
-    r'player "(?P<player_id>[^"]+)" stack at the new table equals (?P<stack>\d+)'
-)
+@then(r'player "(?P<player_id>[^"]+)" stack at the new table equals (?P<stack>\d+)')
 def step_then_player_stack_at_new_table(context, player_id, stack):
     for page in context.events:
         if page.event.Is(tournament.PlayerMovedTables.DESCRIPTOR):
             evt = tournament.PlayerMovedTables()
             page.event.Unpack(evt)
             if evt.player_root == uuid_for(player_id):
-                assert evt.stack == int(stack), (
-                    f"PlayerMovedTables stack={evt.stack}, expected {stack}"
-                )
+                assert evt.stack == int(
+                    stack
+                ), f"PlayerMovedTables stack={evt.stack}, expected {stack}"
                 return
     assert False, f"No PlayerMovedTables event for {player_id}"
 
 
-@then(
-    r'player "(?P<player_id>[^"]+)" missed-blinds clock continues at the new table'
-)
+@then(r'player "(?P<player_id>[^"]+)" missed-blinds clock continues at the new table')
 def step_then_missed_blinds_clock_continues(context, player_id):
     """absent_at_move=true on PlayerMovedTables is the marker that
     the missed-blinds clock keeps running."""
@@ -2958,9 +2929,9 @@ def step_then_missed_blinds_clock_continues(context, player_id):
             evt = tournament.PlayerMovedTables()
             page.event.Unpack(evt)
             if evt.player_root == uuid_for(player_id):
-                assert evt.absent_at_move, (
-                    "absent_at_move must be true for missed-blinds clock to continue"
-                )
+                assert (
+                    evt.absent_at_move
+                ), "absent_at_move must be true for missed-blinds clock to continue"
                 return
     assert False, f"No PlayerMovedTables event for {player_id}"
 
@@ -3000,9 +2971,7 @@ def step_given_hu_absent_minutes(context, player_id, mins):
     context.hu_absent_minutes = int(mins)
 
 
-@when(
-    r'(?P<mins>\d+) minutes elapses with player "(?P<player_id>[^"]+)" still absent'
-)
+@when(r'(?P<mins>\d+) minutes elapses with player "(?P<player_id>[^"]+)" still absent')
 def step_when_hu_absent_elapses(context, mins, player_id):
     cmd = tournament.AdvanceAbsentBlind(
         table_root=uuid_for("hu-table"),
@@ -3047,18 +3016,18 @@ def step_then_button_advances(context, n):
 def step_then_stack_increased_by_blinds(context, player_id):
     s = context.hu_post_state
     key = uuid_for(player_id).hex()
-    assert s.player_stacks.get(key, 0) > 1500, (
-        f"Stack should have increased; got {s.player_stacks.get(key)}"
-    )
+    assert (
+        s.player_stacks.get(key, 0) > 1500
+    ), f"Stack should have increased; got {s.player_stacks.get(key)}"
 
 
 @then(r'player "(?P<player_id>[^"]+)" stack is decreased by SB \+ BB')
 def step_then_stack_decreased_by_blinds(context, player_id):
     s = context.hu_post_state
     key = uuid_for(player_id).hex()
-    assert s.player_stacks.get(key, 1500) < 1500, (
-        f"Stack should have decreased; got {s.player_stacks.get(key)}"
-    )
+    assert (
+        s.player_stacks.get(key, 1500) < 1500
+    ), f"Stack should have decreased; got {s.player_stacks.get(key)}"
 
 
 @then(
@@ -3074,6 +3043,6 @@ def step_then_penalty_decremented(context, player_id, n):
     agg = Tournament(book)
     decrement_event = agg.handle_decrement_penalty(cmd)
     expected = max(0, context.penalty_initial_rounds - int(n))
-    assert decrement_event.rounds_remaining == expected, (
-        f"rounds_remaining={decrement_event.rounds_remaining}, expected {expected}"
-    )
+    assert (
+        decrement_event.rounds_remaining == expected
+    ), f"rounds_remaining={decrement_event.rounds_remaining}, expected {expected}"

@@ -18,8 +18,18 @@ import grpc
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client.proto.angzarr.v1.command_handler_pb2 import CommandResponse
-from angzarr_client.proto.angzarr.v1.command_handler_pb2_grpc import CommandHandlerCoordinatorServiceStub
-from angzarr_client.proto.angzarr.v1.types_pb2 import UUID, CommandBook, CommandPage, CommandRequest, Cover, PageHeader, SyncMode
+from angzarr_client.proto.angzarr.v1.command_handler_pb2_grpc import (
+    CommandHandlerCoordinatorServiceStub,
+)
+from angzarr_client.proto.angzarr.v1.types_pb2 import (
+    UUID,
+    CommandBook,
+    CommandPage,
+    CommandRequest,
+    Cover,
+    PageHeader,
+    SyncMode,
+)
 
 
 def _ensure_proto_uuid(root):

@@ -27,7 +27,6 @@ from table.agg.errors import (
     TableNotHalted,
 )
 
-
 TABLE_NAME = "Table-A"
 
 
@@ -47,9 +46,7 @@ def _page(event, sequence: int) -> types.EventPage:
 def _seed_book(*events) -> types.EventBook:
     return types.EventBook(
         cover=types.Cover(
-            root=types.UUID(
-                value=_uuid.uuid5(_uuid.NAMESPACE_OID, TABLE_NAME).bytes
-            ),
+            root=types.UUID(value=_uuid.uuid5(_uuid.NAMESPACE_OID, TABLE_NAME).bytes),
             domain="table",
         ),
         pages=[_page(evt, i) for i, evt in enumerate(events)],
@@ -96,9 +93,7 @@ def test_handle_halt_emits_event_with_deficit_and_table_root() -> None:
     agg = _make_seated_table()
     deficit = MIN_HALT_FOR_BALANCING_DEFICIT  # 3, the minimum that issues
 
-    event = agg.handle_halt_for_balancing(
-        table_proto.HaltForBalancing(deficit=deficit)
-    )
+    event = agg.handle_halt_for_balancing(table_proto.HaltForBalancing(deficit=deficit))
 
     assert isinstance(event, table_proto.TableHaltedForBalancing)
     assert event.deficit == deficit
@@ -120,9 +115,7 @@ def test_halt_below_threshold_rejected() -> None:
 
     with pytest.raises(HaltDeficitBelowMin) as exc_info:
         agg.handle_halt_for_balancing(
-            table_proto.HaltForBalancing(
-                deficit=MIN_HALT_FOR_BALANCING_DEFICIT - 1
-            )
+            table_proto.HaltForBalancing(deficit=MIN_HALT_FOR_BALANCING_DEFICIT - 1)
         )
 
     assert exc_info.value.code == "HALT_DEFICIT_BELOW_MIN"
@@ -134,9 +127,7 @@ def test_double_halt_rejected() -> None:
     agg.handle_halt_for_balancing(table_proto.HaltForBalancing(deficit=3))
 
     with pytest.raises(TableAlreadyHalted):
-        agg.handle_halt_for_balancing(
-            table_proto.HaltForBalancing(deficit=4)
-        )
+        agg.handle_halt_for_balancing(table_proto.HaltForBalancing(deficit=4))
 
     # State unchanged from the original halt.
     assert agg._state.halted_deficit == 3

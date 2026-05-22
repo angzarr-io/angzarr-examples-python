@@ -855,19 +855,25 @@ def step_wait_for_cards_dealt(context, table):
 @when(r"the dealer deals the flop")
 def step_when_deal_flop(context):
     cmd = hand.DealCommunityCards(count=3)
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.v1.DealCommunityCards")
+    _send_hand_command(
+        context, cmd, "angzarr_client.proto.examples.v1.DealCommunityCards"
+    )
 
 
 @when(r"the dealer deals the turn")
 def step_when_deal_turn(context):
     cmd = hand.DealCommunityCards(count=1)
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.v1.DealCommunityCards")
+    _send_hand_command(
+        context, cmd, "angzarr_client.proto.examples.v1.DealCommunityCards"
+    )
 
 
 @when(r"the dealer deals the river")
 def step_when_deal_river(context):
     cmd = hand.DealCommunityCards(count=1)
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.v1.DealCommunityCards")
+    _send_hand_command(
+        context, cmd, "angzarr_client.proto.examples.v1.DealCommunityCards"
+    )
 
 
 @when(r'"(?P<name>[^"]+)" reveals their cards')

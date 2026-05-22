@@ -1008,8 +1008,11 @@ def step_then_action_on_position(context, pos):
 # three classes simultaneously without sys.path collisions at runtime.
 
 
-from angzarr_client import Destinations  # noqa: E402
-from angzarr_client.helpers import type_name_from_url  # noqa: E402
+# ruff: noqa: E402 — imports below are intentionally late so each PM's
+# state.py / handlers.py modules can be loaded under aliased sys.modules
+# names before the proto types are bound (see _load_reservation_pm).
+from angzarr_client import Destinations
+from angzarr_client.helpers import type_name_from_url
 from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in
 from angzarr_client.proto.examples.v1 import orchestration_pb2 as orch
 from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker
