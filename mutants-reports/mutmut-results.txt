@@ -1,1 +1,0 @@
-error: Extra `dev` is not defined in the project's `optional-dependencies` table
