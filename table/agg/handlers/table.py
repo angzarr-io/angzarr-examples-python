@@ -108,6 +108,13 @@ class _TableState:
     # Players-short relative to the largest table at halt time.  Carried
     # for diagnostic surfacing in the StartHand-while-halted rejection.
     halted_deficit: int = 0
+    # TDA Rule 11D detection — flipped by apply_bb_on_empty_predicted /
+    # apply_bb_on_empty_resolved. True iff the seat that previously
+    # held the BB has been vacated (eliminated or sat-out) and no
+    # subsequent rotation/refill has restored an active player there.
+    # The flag is the local-only half of Rule 11D's trigger; the
+    # cross-table deficit half lives in the tournament aggregate.
+    bb_on_empty_flagged: bool = False
 
 
 # Module-level registry of (event_type, applier_method_name) for replay.
@@ -334,6 +341,18 @@ class Table:
         state.halted_for_balancing = False
         state.halted_deficit = 0
 
+    @applies(table_proto.TableBBOnEmptyPredicted)
+    def apply_table_bb_on_empty_predicted(
+        self, state: _TableState, _event: table_proto.TableBBOnEmptyPredicted
+    ) -> None:
+        state.bb_on_empty_flagged = True
+
+    @applies(table_proto.TableBBOnEmptyResolved)
+    def apply_table_bb_on_empty_resolved(
+        self, state: _TableState, _event: table_proto.TableBBOnEmptyResolved
+    ) -> None:
+        state.bb_on_empty_flagged = False
+
     # --- State accessors (operate on self._state; used by tests) ---
 
     @property
@@ -520,6 +539,54 @@ class Table:
         new_dealer = active[(sb_idx - 1) % len(active)]
         return (new_dealer, new_sb, new_bb)
 
+    # --- TDA Rule 11D 'blinds are impacted' predicate -----------------------
+    #
+    # The rule: "Play will halt on tables 3+ players short … once the blinds
+    # are impacted." This predicate captures the LOCAL half — the BB rotation
+    # has been disrupted by the seat that previously held the BB no longer
+    # holding an active player. The cross-table-deficit half lives in the
+    # tournament aggregate.
+    #
+    # Matches the existing dead-button override condition at
+    # ``_advance_blinds_with_dead_button:499`` (prev_bb_busted): same seat-
+    # vacated check, evaluated as a standalone predicate so handlers can
+    # detect the edge without invoking the full rotation logic.
+
+    def _predicate_bb_on_empty(self) -> bool:
+        state = self._state
+        if state.last_big_blind_position < 0:
+            return False  # no prior hand → no BB to vacate
+        if not state.seats:
+            return False
+        active = {pos for pos, seat in state.seats.items() if not seat.is_sitting_out}
+        return state.last_big_blind_position not in active
+
+    def _emit_bb_edge_if_flipped(self) -> None:
+        """Emit the edge event if the predicate has flipped since the
+        flag was last set. False→True emits ``TableBBOnEmptyPredicted``;
+        True→False emits ``TableBBOnEmptyResolved``. No-op if no edge.
+
+        Called from handlers AFTER the primary event has been applied
+        (so the post-mutation seat layout is observable). Stateful-path
+        only — router-mode multi-event emission is a separate framework
+        concern."""
+        prior = self._state.bb_on_empty_flagged
+        current = self._predicate_bb_on_empty()
+        if not prior and current:
+            self._emit(
+                table_proto.TableBBOnEmptyPredicted(
+                    table_root=self._state.table_root,
+                    predicted_at=now(),
+                )
+            )
+        elif prior and not current:
+            self._emit(
+                table_proto.TableBBOnEmptyResolved(
+                    table_root=self._state.table_root,
+                    resolved_at=now(),
+                )
+            )
+
     def _derive_blind_positions(
         self, active: list[int], dealer: int
     ) -> tuple[int, int, int]:
@@ -641,6 +708,9 @@ class Table:
             )
             if not router_mode:
                 self._emit(event)
+                # TDA Rule 11D: a join that fills the prior BB seat
+                # resolves the flag.
+                self._emit_bb_edge_if_flipped()
             return event
         finally:
             if router_mode:
@@ -676,6 +746,9 @@ class Table:
             )
             if not router_mode:
                 self._emit(event)
+                # TDA Rule 11D local trigger: emit the edge event if
+                # leaving this seat just vacated the prior BB position.
+                self._emit_bb_edge_if_flipped()
             return event
         finally:
             if router_mode:
@@ -789,6 +862,12 @@ class Table:
                     )
                     if not router_mode:
                         self._emit(kill_event)
+            if not router_mode:
+                # TDA Rule 11D: the BB rotation may have just landed on
+                # a previously-vacated seat (or moved off one) — check
+                # for the edge after last_big_blind_position has been
+                # updated by the HandStarted apply.
+                self._emit_bb_edge_if_flipped()
             return event
         finally:
             if router_mode:
@@ -919,6 +998,11 @@ class Table:
                 )
             if not router_mode:
                 self._emit(event)
+                # TDA Rule 11D: a successful seat that fills the prior
+                # BB position resolves the flag. SeatingRejected events
+                # don't change seat state so the predicate stays put,
+                # but the helper short-circuits on no-edge anyway.
+                self._emit_bb_edge_if_flipped()
             return event
         finally:
             if router_mode:

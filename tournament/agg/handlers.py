@@ -101,6 +101,12 @@ class _TournamentState:
     # Each entry is a frozenset of player_root_hex strings; consumed by
     # CompleteTournament to split the next paid position(s).
     simultaneous_bust_groups: list = field(default_factory=list)
+    # TDA Rule 11D — cross-table state-of-record fed by saga-table-
+    # tournament. Tournament aggregate evaluates the deficit rule
+    # against these dicts when BB-on-empty signals arrive.
+    table_player_counts: dict[bytes, int] = field(default_factory=dict)
+    table_bb_on_empty_flagged: dict[bytes, bool] = field(default_factory=dict)
+    pending_halt_orders: set = field(default_factory=set)
 
 
 _APPLIER_REGISTRY: list[tuple[type, str]] = []
@@ -1083,6 +1089,271 @@ class Tournament:
         self, state: _TournamentState, _event: tournament.PlayerMovedBetweenTables
     ) -> None:
         pass
+
+    # ---- Short-table halt orchestration (TDA Rule 11D) ------------------
+    #
+    # Two input paths feed the same TableHaltOrdered / TableResumeOrdered
+    # events that saga-tournament-halt-fanout consumes:
+    #
+    #   1. Operator-issued: HaltShortTable / ResumeShortTable. The
+    #      operator decides externally; tournament records the order
+    #      and the saga fans out.
+    #
+    #   2. Saga-issued (auto-detection): RecordTable* commands fed by
+    #      saga-table-tournament from table-domain events. The Record*
+    #      handlers update per-table state and ALSO evaluate the rule
+    #      (deficit ≥ 3 + BB-on-empty) to emit fan-out events
+    #      automatically.
+
+    @handles(tournament.HaltShortTable)
+    def handle_halt_short_table(
+        self,
+        cmd: tournament.HaltShortTable,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.TableHaltOrdered:
+        """Operator-issued halt. The deficit is supplied by the caller —
+        the tournament records the order without re-checking the rule
+        (that's the operator's job to validate, or the table aggregate's
+        on the receiving side via HaltDeficitBelowMin)."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TournamentNotFound()
+            if not self.is_running:
+                raise TournamentNotRunning()
+            event = tournament.TableHaltOrdered(
+                target_table_root=cmd.target_table_root,
+                deficit=cmd.deficit,
+                ordered_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(tournament.ResumeShortTable)
+    def handle_resume_short_table(
+        self,
+        cmd: tournament.ResumeShortTable,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.TableResumeOrdered:
+        """Operator-issued resume. Symmetric to HaltShortTable."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TournamentNotFound()
+            if not self.is_running:
+                raise TournamentNotRunning()
+            event = tournament.TableResumeOrdered(
+                target_table_root=cmd.target_table_root,
+                ordered_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(tournament.RecordTablePlayerJoined)
+    def handle_record_table_player_joined(
+        self,
+        cmd: tournament.RecordTablePlayerJoined,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.TournamentTablePlayerJoined:
+        """Saga-fed count update. Records the join into per-table state.
+        No rule evaluation here — count changes alone don't trigger
+        Rule 11D; the BB-on-empty signal is the trigger."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TournamentNotFound()
+            event = tournament.TournamentTablePlayerJoined(
+                table_root=cmd.table_root,
+                player_root=cmd.player_root,
+                recorded_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(tournament.RecordTablePlayerLeft)
+    def handle_record_table_player_left(
+        self,
+        cmd: tournament.RecordTablePlayerLeft,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ) -> tournament.TournamentTablePlayerLeft:
+        """Saga-fed count update for a player leaving."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TournamentNotFound()
+            event = tournament.TournamentTablePlayerLeft(
+                table_root=cmd.table_root,
+                player_root=cmd.player_root,
+                recorded_at=now(),
+            )
+            if not router_mode:
+                self._emit(event)
+            return event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(tournament.RecordTableBBOnEmpty)
+    def handle_record_table_bb_on_empty(
+        self,
+        cmd: tournament.RecordTableBBOnEmpty,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ):
+        """Saga-fed BB-on-empty flag. Updates state AND evaluates the
+        deficit rule — if the source table is 3+ short relative to the
+        largest table, ALSO emits TableHaltOrdered (the fan-out trigger
+        for saga-tournament-halt-fanout).
+
+        Returns a list when both events are emitted; a single event
+        otherwise. The dispatcher's _pack_events handles both shapes."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TournamentNotFound()
+            flag_event = tournament.TournamentTableBBOnEmpty(
+                table_root=cmd.table_root,
+                recorded_at=now(),
+            )
+            if not router_mode:
+                self._emit(flag_event)
+
+            # Rule evaluation: compute deficit against the largest
+            # currently-tracked table. _state is fresh post-apply.
+            deficit = self._compute_table_deficit(cmd.table_root)
+            if deficit >= 3 and cmd.table_root not in self._state.pending_halt_orders:
+                halt_event = tournament.TableHaltOrdered(
+                    target_table_root=cmd.table_root,
+                    deficit=deficit,
+                    ordered_at=now(),
+                )
+                if not router_mode:
+                    self._emit(halt_event)
+                return [flag_event, halt_event]
+            return flag_event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    @handles(tournament.RecordTableBBOnEmptyCleared)
+    def handle_record_table_bb_on_empty_cleared(
+        self,
+        cmd: tournament.RecordTableBBOnEmptyCleared,
+        state: _TournamentState | None = None,
+        seq: int | None = None,
+    ):
+        """Saga-fed BB-on-empty resolution. If the table was halted,
+        ALSO emits TableResumeOrdered."""
+        router_mode = state is not None
+        saved = self._router_bind(state) if router_mode else None
+        try:
+            if not self.exists:
+                raise TournamentNotFound()
+            clear_event = tournament.TournamentTableBBOnEmptyCleared(
+                table_root=cmd.table_root,
+                recorded_at=now(),
+            )
+            was_halted = cmd.table_root in self._state.pending_halt_orders
+            if not router_mode:
+                self._emit(clear_event)
+
+            if was_halted:
+                resume_event = tournament.TableResumeOrdered(
+                    target_table_root=cmd.table_root,
+                    ordered_at=now(),
+                )
+                if not router_mode:
+                    self._emit(resume_event)
+                return [clear_event, resume_event]
+            return clear_event
+        finally:
+            if router_mode:
+                self._state = saved
+
+    def _compute_table_deficit(self, table_root: bytes) -> int:
+        """Return ``max_other_table_count - this_table_count`` against
+        all tables with count > 0. Used by the BB-on-empty rule
+        evaluation to decide whether to issue TableHaltOrdered.
+        Returns 0 if the table isn't tracked or no other tables have
+        players."""
+        counts = self._state.table_player_counts
+        this_count = counts.get(table_root, 0)
+        other_max = max(
+            (c for t, c in counts.items() if t != table_root and c > 0),
+            default=0,
+        )
+        if other_max == 0:
+            return 0
+        return other_max - this_count
+
+    @applies(tournament.TableHaltOrdered)
+    def apply_table_halt_ordered(
+        self, state: _TournamentState, event: tournament.TableHaltOrdered
+    ) -> None:
+        state.pending_halt_orders.add(event.target_table_root)
+
+    @applies(tournament.TableResumeOrdered)
+    def apply_table_resume_ordered(
+        self, state: _TournamentState, event: tournament.TableResumeOrdered
+    ) -> None:
+        state.pending_halt_orders.discard(event.target_table_root)
+
+    @applies(tournament.TournamentTablePlayerJoined)
+    def apply_tournament_table_player_joined(
+        self,
+        state: _TournamentState,
+        event: tournament.TournamentTablePlayerJoined,
+    ) -> None:
+        state.table_player_counts[event.table_root] = (
+            state.table_player_counts.get(event.table_root, 0) + 1
+        )
+
+    @applies(tournament.TournamentTablePlayerLeft)
+    def apply_tournament_table_player_left(
+        self,
+        state: _TournamentState,
+        event: tournament.TournamentTablePlayerLeft,
+    ) -> None:
+        prior = state.table_player_counts.get(event.table_root, 0)
+        # Clamp at zero — a saga restart could double-deliver leaves.
+        state.table_player_counts[event.table_root] = max(0, prior - 1)
+
+    @applies(tournament.TournamentTableBBOnEmpty)
+    def apply_tournament_table_bb_on_empty(
+        self,
+        state: _TournamentState,
+        event: tournament.TournamentTableBBOnEmpty,
+    ) -> None:
+        state.table_bb_on_empty_flagged[event.table_root] = True
+
+    @applies(tournament.TournamentTableBBOnEmptyCleared)
+    def apply_tournament_table_bb_on_empty_cleared(
+        self,
+        state: _TournamentState,
+        event: tournament.TournamentTableBBOnEmptyCleared,
+    ) -> None:
+        state.table_bb_on_empty_flagged[event.table_root] = False
 
     # ---- Hand-for-hand bubble play (TDA Rule 12) ------------------------
 
