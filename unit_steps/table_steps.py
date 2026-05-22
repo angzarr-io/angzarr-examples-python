@@ -329,16 +329,31 @@ def _execute_handler_for_table(context, table_name: str, method_name: str, cmd):
     final-table combine, etc.) stage events on ``context.multi_tables``
     keyed by table name. This helper rebuilds the named table's
     aggregate from its own page list rather than the single global
-    ``context.events``."""
-    events = context.multi_tables.get(table_name, []) if hasattr(
-        context, "multi_tables"
-    ) else []
+    ``context.events``, then appends any successfully-emitted event
+    back so the next command against the same table sees the prior
+    fact in its event book (e.g. resume-after-halt needs the halt
+    event present on replay)."""
+    if not hasattr(context, "multi_tables"):
+        context.multi_tables = {}
+    events = context.multi_tables.get(table_name, [])
     _execute_handler(context, method_name, cmd, events=events)
     # Map the named table back so later Then-steps can reach the same
     # aggregate via ``context.table_aggs[name]`` rather than the singleton.
     if not hasattr(context, "table_aggs"):
         context.table_aggs = {}
     context.table_aggs[table_name] = context.agg
+    # Persist the emitted event so subsequent commands against this
+    # table replay against the post-emit state.
+    if context.error is None and context.result is not None and context.result.pages:
+        emitted = context.result.pages[-1]
+        events.append(
+            types.EventPage(
+                header=types.PageHeader(sequence=len(events)),
+                event=emitted.event,
+                created_at=emitted.created_at,
+            )
+        )
+        context.multi_tables[table_name] = events
 
 
 def _stamp_scenario_cover(context, err):
@@ -1218,11 +1233,19 @@ def step_then_player_dealt_in_next(context, player_id):
 # --- EU-1184 halt for balancing ---
 
 
+@given(
+    r'the next hand at "(?P<table_name>[^"]+)" would assign the BB to an empty seat'
+)
 @when(
     r'the next hand at "(?P<table_name>[^"]+)" would assign the BB to an empty seat'
 )
 def step_when_next_hand_bb_empty(context, table_name):
     """Drive ``HaltForBalancing`` against the named table.
+
+    Bound to both ``@given`` and ``@when`` so the same trigger condition
+    can be used as setup (EU-1184B's resume scenario, where the halt is
+    established as a precondition for resuming) or as the action under
+    test (EU-1184's halt scenario).
 
     Computes the deficit from the multi-table event fixture — the same
     cross-table count the tournament detection saga will use once that
@@ -1255,6 +1278,51 @@ def step_then_halted_for_balancing_emitted(context, table_name):
     event = table.TableHaltedForBalancing()
     context.result_event_any.Unpack(event)
     assert event.table_root == uuid_for(table_name)
+
+
+@when(r'the coordinator resumes play at "(?P<table_name>[^"]+)"')
+def step_when_coordinator_resumes(context, table_name):
+    """Drive ``ResumePlayAtTable`` against a previously-halted table.
+
+    EU-1184B sets the table up via the same halt-detection Given as
+    EU-1184; this When dispatches the coordinator's resume command and
+    the table clears its halted-for-balancing flag."""
+    _execute_handler_for_table(
+        context,
+        table_name,
+        "handle_resume_play_at_table",
+        table.ResumePlayAtTable(),
+    )
+
+
+@then(
+    r'a angzarr_client\.proto\.examples\.v1\.TableResumedForBalancing event is '
+    r'emitted for "(?P<table_name>[^"]+)"'
+)
+def step_then_resumed_for_balancing_emitted(context, table_name):
+    event = table.TableResumedForBalancing()
+    context.result_event_any.Unpack(event)
+    assert event.table_root == uuid_for(table_name), (
+        f"Expected table_root for {table_name!r}, "
+        f"got {event.table_root!r}"
+    )
+
+
+@then(r'"(?P<table_name>[^"]+)" is no longer halted for balancing')
+def step_then_no_longer_halted(context, table_name):
+    agg = context.table_aggs.get(table_name)
+    assert agg is not None, (
+        f"No aggregate recorded for {table_name!r}; the When-step must "
+        f"have driven a command via _execute_handler_for_table"
+    )
+    assert agg._state.halted_for_balancing is False, (
+        f"Expected halted_for_balancing=False on {table_name}, "
+        f"got {agg._state.halted_for_balancing}"
+    )
+    assert agg._state.halted_deficit == 0, (
+        f"Expected halted_deficit=0 on {table_name}, "
+        f"got {agg._state.halted_deficit}"
+    )
 
 
 # --- EU-1185 dodging-blinds penalty ---
