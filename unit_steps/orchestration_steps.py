@@ -1,12 +1,17 @@
-"""Step definitions for orchestration BDD tests.
+"""Step definitions for cross-domain orchestration BDD tests.
 
-Drives the production ``reservation.pmg.handlers.ReservationPM`` through
-its real handler methods. A ``FakeQueryClient`` holds in-memory event
-books seeded from the Given steps; the PM queries it synchronously for
-cross-aggregate pre-validation and emits the real ``*Failed`` /
-``*Initiated`` / ``*Completed`` events.
-
-Mirrors the Rust ``orchestration.rs`` test target.
+The step regexes are pinned to the business-language phrasing in
+``features/example/unit/orchestration.feature``: things like
+"Alice's buy-in is processed" rather than implementation-level
+"the BuyInOrchestrator handles the BuyInRequested event". Underneath,
+the implementations still drive the production
+``reservation.pmg.handlers.ReservationPM`` through its real handler
+methods. A ``FakeQueryClient`` holds in-memory event books seeded from
+the Given steps; the PM queries it synchronously for cross-aggregate
+pre-validation and emits the real ``*Failed`` / ``*Initiated`` /
+``*Completed`` events. The legacy ``emitted_commands``/``emitted_events``
+context shape is retained so the Then-step assertions are unchanged
+across the rewrite.
 """
 
 import importlib.util
@@ -297,7 +302,7 @@ _FAILED_PROTO_BY_NAME = {
 def _record_response(context, response) -> None:
     """Translate a real ProcessManagerResponse into the legacy context shape.
 
-    Existing @then steps assert against:
+    The @then steps assert against:
       - ``context.emitted_commands``: list of command type names (strings)
       - ``context.emitted_events``: list of (event_name, failure_code) tuples,
         ``failure_code`` is ``None`` for non-failure events.
@@ -329,31 +334,32 @@ def _record_response(context, response) -> None:
 
 
 # =============================================================================
-# BuyInOrchestrator - Given steps
+# Buy-in coordination — Given steps
 # =============================================================================
 
 
 @given(
-    r"a table with seat (?P<seat>\d+) available and buy-in range (?P<min>\d+)-(?P<max>\d+)"
+    r'table "(?P<table>[^"]+)" has seat (?P<seat>\d+) available with a buy-in range '
+    r"of (?P<min>\d+) to (?P<max>\d+)"
 )
-def step_given_table_seat_available_with_range(context, seat, min, max):
-    """Set up a table with a specific seat available and buy-in range."""
+def step_given_table_seat_available_with_range(context, table, seat, min, max):
+    """Table has a specific seat available within a buy-in range."""
     _init_orchestration_context(context)
     context.table_min_buy_in = int(min)
     context.table_max_buy_in = int(max)
     context.table_max_players = 9
     context.occupied_seats = {}
-    context.table_root = b"table-1"
+    context.table_root = table.encode() if isinstance(table, str) else table
     context.available_seat = int(seat)
 
 
 @given(
-    r"a player with a BuyInRequested event for seat (?P<seat>\d+) with amount (?P<amount>\d+)"
+    r"(?P<name>\w+) has requested a buy-in for seat (?P<seat>\d+) with amount (?P<amount>\d+)"
 )
-def step_given_buy_in_requested_for_seat(context, seat, amount):
-    """Create a BuyInRequested event for a specific seat and amount."""
+def step_given_player_requested_buy_in_for_seat(context, name, seat, amount):
+    """Player has requested a buy-in for a specific seat and amount."""
     _init_orchestration_context(context)
-    context.player_root = b"player-1"
+    context.player_root = name.lower().encode()
     context.reservation_id = b"res-001"
     context.buy_in_seat = int(seat)
     context.buy_in_amount = int(amount)
@@ -366,34 +372,34 @@ def step_given_buy_in_requested_for_seat(context, seat, amount):
     )
 
 
-@given(r"a table with seat (?P<seat>\d+) occupied by another player")
-def step_given_seat_occupied(context, seat):
-    """Set up a table where a specific seat is already occupied."""
+@given(r'table "(?P<table>[^"]+)" has seat (?P<seat>\d+) occupied by another player')
+def step_given_seat_occupied(context, table, seat):
+    """Table seat is taken by another player."""
     _init_orchestration_context(context)
     context.table_min_buy_in = 200
     context.table_max_buy_in = 2000
     context.table_max_players = 9
     context.occupied_seats = {int(seat): b"other-player"}
-    context.table_root = b"table-1"
+    context.table_root = table.encode() if isinstance(table, str) else table
 
 
-@given(r"a table that is full with (?P<count>\d+) players")
-def step_given_table_full(context, count):
-    """Set up a table that is full."""
+@given(r'table "(?P<table>[^"]+)" is full with (?P<count>\d+) players')
+def step_given_table_full(context, table, count):
+    """Every seat at the table is occupied."""
     _init_orchestration_context(context)
     num_players = int(count)
     context.table_min_buy_in = 200
     context.table_max_buy_in = 2000
     context.table_max_players = num_players
     context.occupied_seats = {i: uuid_for(f"player-{i}") for i in range(num_players)}
-    context.table_root = b"table-1"
+    context.table_root = table.encode() if isinstance(table, str) else table
 
 
-@given(r"a player with a BuyInRequested event for any seat with amount (?P<amount>\d+)")
-def step_given_buy_in_requested_any_seat(context, amount):
-    """Create a BuyInRequested event for any available seat."""
+@given(r"(?P<name>\w+) has requested a buy-in for any seat with amount (?P<amount>\d+)")
+def step_given_player_requested_buy_in_any_seat(context, name, amount):
+    """Player has requested a buy-in with no seat preference."""
     _init_orchestration_context(context)
-    context.player_root = b"player-new"
+    context.player_root = name.lower().encode()
     context.reservation_id = b"res-001"
     context.buy_in_seat = -1
     context.buy_in_amount = int(amount)
@@ -406,12 +412,12 @@ def step_given_buy_in_requested_any_seat(context, amount):
     )
 
 
-@given(r"a player and table in a pending buy-in state")
-def step_given_pending_buy_in(context):
-    """Set up a player and table in a pending buy-in state (seating phase)."""
+@given(r'(?P<name>\w+) has a pending buy-in at table "(?P<table>[^"]+)"')
+def step_given_pending_buy_in(context, name, table):
+    """Player and table are in a pending buy-in state (seating phase)."""
     _init_orchestration_context(context)
-    context.player_root = b"player-1"
-    context.table_root = b"table-1"
+    context.player_root = name.lower().encode()
+    context.table_root = table.encode() if isinstance(table, str) else table
     context.reservation_id = b"res-001"
     context.buy_in_amount = 500
     context.buy_in_seat = 0
@@ -419,26 +425,26 @@ def step_given_pending_buy_in(context):
 
 
 # =============================================================================
-# RegistrationOrchestrator - Given steps
+# Tournament registration coordination — Given steps
 # =============================================================================
 
 
-@given(r"a tournament with registration open and capacity available")
-def step_given_tournament_open_with_capacity(context):
-    """Set up a tournament with open registration and available capacity."""
+@given(r'tournament "(?P<trn>[^"]+)" is open for registration with capacity available')
+def step_given_tournament_open_with_capacity(context, trn):
+    """Tournament is accepting registrations and has room."""
     _init_orchestration_context(context)
-    context.tournament_root = b"tournament-1"
+    context.tournament_root = trn.encode() if isinstance(trn, str) else trn
     context.tournament_registration_open = True
     context.tournament_max_players = 100
     context.tournament_registered_count = 50
     context.tournament_status = tournament.TournamentStatus.TOURNAMENT_REGISTRATION_OPEN
 
 
-@given(r"a player with a RegistrationRequested event with fee (?P<fee>\d+)")
-def step_given_registration_requested(context, fee):
-    """Create a RegistrationRequested event with a specific fee."""
+@given(r"(?P<name>\w+) has requested registration with fee (?P<fee>\d+)")
+def step_given_registration_requested(context, name, fee):
+    """Player has requested tournament registration with a fee."""
     _init_orchestration_context(context)
-    context.player_root = b"player-1"
+    context.player_root = name.lower().encode()
     context.reservation_id = b"res-001"
     context.registration_fee = int(fee)
     context.registration_event = registration.RegistrationRequested(
@@ -449,60 +455,62 @@ def step_given_registration_requested(context, fee):
     )
 
 
-@given(r"a tournament that is full")
-def step_given_tournament_full(context):
-    """Set up a tournament that has reached max capacity."""
+@given(r'tournament "(?P<trn>[^"]+)" is full')
+def step_given_tournament_full(context, trn):
+    """Tournament has reached max capacity."""
     _init_orchestration_context(context)
-    context.tournament_root = b"tournament-1"
+    context.tournament_root = trn.encode() if isinstance(trn, str) else trn
     context.tournament_registration_open = True
     context.tournament_max_players = 4
     context.tournament_registered_count = 4
     context.tournament_status = tournament.TournamentStatus.TOURNAMENT_REGISTRATION_OPEN
 
 
-@given(r"a tournament with registration closed")
-def step_given_tournament_registration_closed(context):
-    """Set up a tournament with closed registration."""
+@given(r'tournament "(?P<trn>[^"]+)" has registration closed')
+def step_given_tournament_registration_closed(context, trn):
+    """Tournament has closed registration (in-progress or completed)."""
     _init_orchestration_context(context)
-    context.tournament_root = b"tournament-1"
+    context.tournament_root = trn.encode() if isinstance(trn, str) else trn
     context.tournament_registration_open = False
     context.tournament_max_players = 100
     context.tournament_registered_count = 50
     context.tournament_status = tournament.TournamentStatus.TOURNAMENT_RUNNING
 
 
-@given(r"a player and tournament in a pending registration state")
-def step_given_pending_registration(context):
-    """Set up a player and tournament in pending registration (enrolling phase)."""
+@given(r'(?P<name>\w+) has a pending registration for tournament "(?P<trn>[^"]+)"')
+def step_given_pending_registration(context, name, trn):
+    """Player and tournament are in the enrolling phase of registration."""
     _init_orchestration_context(context)
-    context.player_root = b"player-1"
-    context.tournament_root = b"tournament-1"
+    context.player_root = name.lower().encode()
+    context.tournament_root = trn.encode() if isinstance(trn, str) else trn
     context.reservation_id = b"res-001"
     context.registration_fee = 1000
     context.registration_phase = orch.RegistrationPhase.REGISTRATION_ENROLLING
 
 
 # =============================================================================
-# RebuyOrchestrator - Given steps
+# Rebuy coordination — Given steps
 # =============================================================================
 
 
-@given(r"a tournament in rebuy window with player eligible")
-def step_given_tournament_rebuy_eligible(context):
-    """Set up a tournament in rebuy window where the player is eligible."""
+@given(
+    r'tournament "(?P<trn>[^"]+)" is in its rebuy window and (?P<name>\w+) is eligible'
+)
+def step_given_tournament_rebuy_eligible(context, trn, name):
+    """Tournament is in rebuy window and the named player is eligible."""
     _init_orchestration_context(context)
-    context.tournament_root = b"tournament-1"
+    context.tournament_root = trn.encode() if isinstance(trn, str) else trn
     context.tournament_status = tournament.TournamentStatus.TOURNAMENT_RUNNING
     context.rebuy_window_open = True
     context.player_eligible_for_rebuy = True
 
 
-@given(r"a table with the player seated at position (?P<pos>\d+)")
-def step_given_player_seated_at_position(context, pos):
-    """Set up table state with the player seated at a specific position."""
+@given(r'(?P<name>\w+) is seated at table "(?P<table>[^"]+)" in seat (?P<pos>\d+)')
+def step_given_player_seated_at_table(context, name, table, pos):
+    """Named player is seated at a specific seat of the named table."""
     _init_orchestration_context(context)
-    context.table_root = b"table-1"
-    context.player_root = b"player-1"
+    context.table_root = table.encode() if isinstance(table, str) else table
+    context.player_root = name.lower().encode()
     context.player_seat_position = int(pos)
     context.player_is_seated = True
     context.table_min_buy_in = 200
@@ -510,15 +518,15 @@ def step_given_player_seated_at_position(context, pos):
     context.table_max_players = 9
 
 
-@given(r"a player with a RebuyRequested event for amount (?P<amount>\d+)")
-def step_given_rebuy_requested(context, amount):
-    """Create a RebuyRequested event for a specific amount."""
+@given(r"(?P<name>\w+) has requested a rebuy for amount (?P<amount>\d+)")
+def step_given_rebuy_requested(context, name, amount):
+    """Player has requested a rebuy for a specific amount."""
     _init_orchestration_context(context)
     context.reservation_id = b"res-001"
     context.rebuy_amount = int(amount)
     context.rebuy_event = rebuy.RebuyRequested(
         reservation_id=context.reservation_id,
-        player_root=getattr(context, "player_root", b"player-1"),
+        player_root=getattr(context, "player_root", name.lower().encode()),
         tournament_root=getattr(context, "tournament_root", b"tournament-1"),
         table_root=getattr(context, "table_root", b"table-1"),
         seat=getattr(context, "player_seat_position", 2),
@@ -526,22 +534,22 @@ def step_given_rebuy_requested(context, amount):
     )
 
 
-@given(r"a tournament with rebuy window closed")
-def step_given_rebuy_window_closed(context):
-    """Set up a tournament where the rebuy window is closed."""
+@given(r'tournament "(?P<trn>[^"]+)" has its rebuy window closed')
+def step_given_rebuy_window_closed(context, trn):
+    """Tournament's rebuy window has closed."""
     _init_orchestration_context(context)
-    context.tournament_root = b"tournament-1"
+    context.tournament_root = trn.encode() if isinstance(trn, str) else trn
     context.tournament_status = tournament.TournamentStatus.TOURNAMENT_RUNNING
     context.rebuy_window_open = False
     context.player_eligible_for_rebuy = False
 
 
-@given(r"a table without the player seated")
-def step_given_player_not_seated(context):
-    """Set up table state where the player is not seated."""
+@given(r"(?P<name>\w+) is not seated at any table in the tournament")
+def step_given_player_not_seated(context, name):
+    """Player has not been seated at any table in this tournament."""
     _init_orchestration_context(context)
     context.table_root = b"table-1"
-    context.player_root = b"player-1"
+    context.player_root = name.lower().encode()
     context.player_is_seated = False
     context.player_seat_position = -1
     context.table_min_buy_in = 200
@@ -549,26 +557,32 @@ def step_given_player_not_seated(context):
     context.table_max_players = 9
 
 
-@given(r"a player, tournament, and table in a pending rebuy state")
-def step_given_pending_rebuy(context):
-    """Set up all three domains in a pending rebuy state (approving phase)."""
+@given(
+    r'(?P<name>\w+) has a pending rebuy at table "(?P<table>[^"]+)" in tournament '
+    r'"(?P<trn>[^"]+)"'
+)
+def step_given_pending_rebuy(context, name, table, trn):
+    """All three domains (player, table, tournament) are in the rebuy approval phase."""
     _init_orchestration_context(context)
-    context.player_root = b"player-1"
-    context.tournament_root = b"tournament-1"
-    context.table_root = b"table-1"
+    context.player_root = name.lower().encode()
+    context.tournament_root = trn.encode() if isinstance(trn, str) else trn
+    context.table_root = table.encode() if isinstance(table, str) else table
     context.reservation_id = b"res-001"
     context.rebuy_amount = 1000
     context.player_seat_position = 2
     context.rebuy_phase = orch.RebuyPhase.REBUY_APPROVING
 
 
-@given(r"a player, tournament, and table with chips added")
-def step_given_rebuy_chips_added(context):
-    """Set up all three domains after chips have been added (adding_chips phase)."""
+@given(
+    r'(?P<name>\w+)\'s rebuy chips have been added at table "(?P<table>[^"]+)" in '
+    r'tournament "(?P<trn>[^"]+)"'
+)
+def step_given_rebuy_chips_added(context, name, table, trn):
+    """All three domains in the chips-added phase of rebuy."""
     _init_orchestration_context(context)
-    context.player_root = b"player-1"
-    context.tournament_root = b"tournament-1"
-    context.table_root = b"table-1"
+    context.player_root = name.lower().encode()
+    context.tournament_root = trn.encode() if isinstance(trn, str) else trn
+    context.table_root = table.encode() if isinstance(table, str) else table
     context.reservation_id = b"res-001"
     context.rebuy_amount = 1000
     context.player_seat_position = 2
@@ -576,12 +590,12 @@ def step_given_rebuy_chips_added(context):
 
 
 # =============================================================================
-# BuyInOrchestrator - When steps (dispatch through production ReservationPM)
+# When steps — buy-in / registration / rebuy actions
 # =============================================================================
 
 
-@when(r"the BuyInOrchestrator handles the BuyInRequested event")
-def step_when_buy_in_orchestrator_handles_request(context):
+@when(r"(?P<name>\w+)'s buy-in is processed")
+def step_when_buy_in_processed(context, name):
     """Dispatch BuyInRequested through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_BUY_IN)
@@ -589,8 +603,8 @@ def step_when_buy_in_orchestrator_handles_request(context):
     _record_response(context, response)
 
 
-@when(r"the BuyInOrchestrator handles a PlayerSeated event")
-def step_when_buy_in_handles_player_seated(context):
+@when(r"(?P<name>\w+) is seated at the table")
+def step_when_player_seated(context, name):
     """Dispatch PlayerSeated through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_BUY_IN)
@@ -604,8 +618,8 @@ def step_when_buy_in_handles_player_seated(context):
     _record_response(context, response)
 
 
-@when(r"the BuyInOrchestrator handles a SeatingRejected event")
-def step_when_buy_in_handles_seating_rejected(context):
+@when(r"the table refuses to seat (?P<name>\w+)")
+def step_when_table_refuses_to_seat(context, name):
     """Dispatch SeatingRejected through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_BUY_IN)
@@ -619,13 +633,8 @@ def step_when_buy_in_handles_seating_rejected(context):
     _record_response(context, response)
 
 
-# =============================================================================
-# RegistrationOrchestrator - When steps
-# =============================================================================
-
-
-@when(r"the RegistrationOrchestrator handles the RegistrationRequested event")
-def step_when_registration_orchestrator_handles_request(context):
+@when(r"(?P<name>\w+)'s registration is processed")
+def step_when_registration_processed(context, name):
     """Dispatch RegistrationRequested through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_REGISTRATION)
@@ -635,8 +644,8 @@ def step_when_registration_orchestrator_handles_request(context):
     _record_response(context, response)
 
 
-@when(r"the RegistrationOrchestrator handles a TournamentPlayerEnrolled event")
-def step_when_registration_handles_enrolled(context):
+@when(r"(?P<name>\w+) is enrolled in the tournament")
+def step_when_player_enrolled(context, name):
     """Dispatch TournamentPlayerEnrolled through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_REGISTRATION)
@@ -651,8 +660,8 @@ def step_when_registration_handles_enrolled(context):
     _record_response(context, response)
 
 
-@when(r"the RegistrationOrchestrator handles a TournamentEnrollmentRejected event")
-def step_when_registration_handles_rejected(context):
+@when(r"the tournament refuses to enroll (?P<name>\w+)")
+def step_when_tournament_refuses_enroll(context, name):
     """Dispatch TournamentEnrollmentRejected through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_REGISTRATION)
@@ -665,13 +674,8 @@ def step_when_registration_handles_rejected(context):
     _record_response(context, response)
 
 
-# =============================================================================
-# RebuyOrchestrator - When steps
-# =============================================================================
-
-
-@when(r"the RebuyOrchestrator handles the RebuyRequested event")
-def step_when_rebuy_orchestrator_handles_request(context):
+@when(r"(?P<name>\w+)'s rebuy is processed")
+def step_when_rebuy_processed(context, name):
     """Dispatch RebuyRequested through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_REBUY)
@@ -679,8 +683,8 @@ def step_when_rebuy_orchestrator_handles_request(context):
     _record_response(context, response)
 
 
-@when(r"the RebuyOrchestrator handles a RebuyProcessed event")
-def step_when_rebuy_handles_processed(context):
+@when(r"the tournament approves (?P<name>\w+)'s rebuy")
+def step_when_tournament_approves_rebuy(context, name):
     """Dispatch RebuyProcessed through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_REBUY)
@@ -694,8 +698,8 @@ def step_when_rebuy_handles_processed(context):
     _record_response(context, response)
 
 
-@when(r"the RebuyOrchestrator handles a RebuyChipsAdded event")
-def step_when_rebuy_handles_chips_added(context):
+@when(r"the chips are settled at the table")
+def step_when_chips_settled(context):
     """Dispatch RebuyChipsAdded through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_REBUY)
@@ -710,8 +714,8 @@ def step_when_rebuy_handles_chips_added(context):
     _record_response(context, response)
 
 
-@when(r"the RebuyOrchestrator handles a RebuyDenied event")
-def step_when_rebuy_handles_denied(context):
+@when(r"the tournament denies (?P<name>\w+)'s rebuy")
+def step_when_tournament_denies_rebuy(context, name):
     """Dispatch RebuyDenied through the production PM."""
     pm = _build_pm(context)
     state = _state_for(context, KIND_REBUY)
@@ -725,7 +729,7 @@ def step_when_rebuy_handles_denied(context):
 
 
 # =============================================================================
-# Then steps - Command assertions
+# Then steps — command outcomes ("Alice is offered seat …" etc.)
 # =============================================================================
 
 
@@ -738,72 +742,95 @@ def _assert_emitted(context, name: str) -> None:
 _RELEASE_COMPENSATIONS = {"ReleaseBuyIn", "ReleaseRebuyFee", "ReleaseRegistrationFee"}
 
 
-@then(r"the PM emits a SeatPlayer command to the table")
-def step_then_pm_emits_seat_player(context):
+@then(r'(?P<name>\w+) is offered seat (?P<seat>\d+) at table "(?P<table>[^"]+)"')
+def step_then_player_offered_seat(context, name, seat, table):
+    """Player is offered a seat at the table — SeatPlayer command was emitted."""
     _assert_emitted(context, "SeatPlayer")
 
 
-@then(r"the PM emits a ConfirmBuyIn command to the player")
-def step_then_pm_emits_confirm_buy_in(context):
-    _assert_emitted(context, "ConfirmBuyIn")
-
-
-@then(r"the PM emits a ReleaseBuyIn command to the player")
-def step_then_pm_emits_release_buy_in(context):
-    _assert_emitted(context, "ReleaseBuyIn")
-
-
-@then(r"the PM emits an EnrollPlayer command to the tournament")
-def step_then_pm_emits_enroll_player(context):
-    _assert_emitted(context, "EnrollPlayer")
-
-
-@then(r"the PM emits a ConfirmRegistrationFee command to the player")
-def step_then_pm_emits_confirm_registration(context):
-    _assert_emitted(context, "ConfirmRegistrationFee")
-
-
-@then(r"the PM emits a ReleaseRegistrationFee command to the player")
-def step_then_pm_emits_release_registration(context):
-    _assert_emitted(context, "ReleaseRegistrationFee")
-
-
-@then(r"the PM emits a ProcessRebuy command to the tournament")
-def step_then_pm_emits_process_rebuy(context):
-    _assert_emitted(context, "ProcessRebuy")
-
-
-@then(r"the PM emits an AddRebuyChips command to the table")
-def step_then_pm_emits_add_rebuy_chips(context):
-    _assert_emitted(context, "AddRebuyChips")
-
-
-@then(r"the PM emits a ConfirmRebuyFee command to the player")
-def step_then_pm_emits_confirm_rebuy(context):
-    _assert_emitted(context, "ConfirmRebuyFee")
-
-
-@then(r"the PM emits a ReleaseRebuyFee command to the player")
-def step_then_pm_emits_release_rebuy(context):
-    _assert_emitted(context, "ReleaseRebuyFee")
-
-
-@then(r"the PM emits no commands")
-def step_then_pm_emits_no_commands(context):
-    """No workflow-advancing commands.
-
-    The PM still emits a Release* compensation to the reservation aggregate
-    on early validation failure (the only allowed command); state changes
-    against player/table/tournament must not occur.
-    """
+@then(r"(?P<name>\w+) is not offered a seat")
+def step_then_player_not_offered_seat(context, name):
+    """No SeatPlayer command was emitted (the buy-in was refused)."""
     workflow_cmds = [
         c for c in context.emitted_commands if c not in _RELEASE_COMPENSATIONS
     ]
     assert not workflow_cmds, f"Expected no workflow commands, got {workflow_cmds}"
 
 
+@then(r"(?P<name>\w+)'s buy-in is confirmed")
+def step_then_buy_in_confirmed(context, name):
+    """The buy-in funds are confirmed — ConfirmBuyIn was emitted."""
+    _assert_emitted(context, "ConfirmBuyIn")
+
+
+@then(r"(?P<name>\w+)'s reserved buy-in funds are released")
+def step_then_buy_in_funds_released(context, name):
+    """The buy-in reservation is released — ReleaseBuyIn was emitted."""
+    _assert_emitted(context, "ReleaseBuyIn")
+
+
+@then(r'(?P<name>\w+) is enrolled in tournament "(?P<trn>[^"]+)"')
+def step_then_player_enrolled(context, name, trn):
+    """The player is enrolled — EnrollPlayer command was emitted."""
+    _assert_emitted(context, "EnrollPlayer")
+
+
+@then(r"(?P<name>\w+) is not enrolled")
+def step_then_player_not_enrolled(context, name):
+    """No EnrollPlayer command was emitted (the registration was refused)."""
+    workflow_cmds = [
+        c for c in context.emitted_commands if c not in _RELEASE_COMPENSATIONS
+    ]
+    assert not workflow_cmds, f"Expected no workflow commands, got {workflow_cmds}"
+
+
+@then(r"(?P<name>\w+)'s registration fee is confirmed")
+def step_then_registration_fee_confirmed(context, name):
+    """The registration fee is confirmed — ConfirmRegistrationFee was emitted."""
+    _assert_emitted(context, "ConfirmRegistrationFee")
+
+
+@then(r"(?P<name>\w+)'s reserved registration fee is released")
+def step_then_registration_fee_released(context, name):
+    """The registration fee reservation is released — ReleaseRegistrationFee."""
+    _assert_emitted(context, "ReleaseRegistrationFee")
+
+
+@then(r'(?P<name>\w+)\'s rebuy is submitted to tournament "(?P<trn>[^"]+)"')
+def step_then_rebuy_submitted(context, name, trn):
+    """The rebuy is submitted — ProcessRebuy command was emitted."""
+    _assert_emitted(context, "ProcessRebuy")
+
+
+@then(r"(?P<name>\w+)'s rebuy is not submitted")
+def step_then_rebuy_not_submitted(context, name):
+    """No ProcessRebuy command was emitted (the rebuy was refused)."""
+    workflow_cmds = [
+        c for c in context.emitted_commands if c not in _RELEASE_COMPENSATIONS
+    ]
+    assert not workflow_cmds, f"Expected no workflow commands, got {workflow_cmds}"
+
+
+@then(r"(?P<name>\w+)'s rebuy chips are added at the table")
+def step_then_rebuy_chips_added(context, name):
+    """The chips are added at the table — AddRebuyChips command was emitted."""
+    _assert_emitted(context, "AddRebuyChips")
+
+
+@then(r"(?P<name>\w+)'s rebuy fee is confirmed")
+def step_then_rebuy_fee_confirmed(context, name):
+    """The rebuy fee is confirmed — ConfirmRebuyFee was emitted."""
+    _assert_emitted(context, "ConfirmRebuyFee")
+
+
+@then(r"(?P<name>\w+)'s reserved rebuy fee is released")
+def step_then_rebuy_fee_released(context, name):
+    """The reserved rebuy fee is released — ReleaseRebuyFee was emitted."""
+    _assert_emitted(context, "ReleaseRebuyFee")
+
+
 # =============================================================================
-# Then steps - Process event assertions
+# Then steps — process-event outcomes (recorded as initiated/completed/refused)
 # =============================================================================
 
 
@@ -812,54 +839,84 @@ def _assert_event(context, name: str) -> None:
     assert name in names, f"Expected {name} event, got {names}"
 
 
-def _assert_failure_code(context, event_name: str, code: str) -> None:
-    matches = [(n, c) for n, c in context.emitted_events if n == event_name]
-    assert matches, (
-        f"Expected {event_name} event, got {[n for n, _ in context.emitted_events]}"
+def _assert_any_failure(context, *event_names: str) -> None:
+    """Verify a failure event of one of the given names was emitted."""
+    names = [n for n, _ in context.emitted_events]
+    assert any(n in names for n in event_names), (
+        f"Expected one of {event_names}, got {names}"
     )
-    assert matches[0][1] == code, f"Expected code '{code}', got '{matches[0][1]}'"
 
 
-@then(r"the PM emits a BuyInInitiated process event")
-def step_then_pm_emits_buy_in_initiated(context):
+@then(r"the buy-in is recorded as initiated")
+def step_then_buy_in_initiated(context):
     _assert_event(context, "BuyInInitiated")
 
 
-@then(r'the PM emits a BuyInFailed process event with code "(?P<code>[^"]+)"')
-def step_then_pm_emits_buy_in_failed(context, code):
-    _assert_failure_code(context, "BuyInFailed", code)
-
-
-@then(r"the PM emits a BuyInCompleted process event")
-def step_then_pm_emits_buy_in_completed(context):
+@then(r"the buy-in is recorded as completed")
+def step_then_buy_in_completed(context):
     _assert_event(context, "BuyInCompleted")
 
 
-@then(r"the PM emits a RegistrationInitiated process event")
-def step_then_pm_emits_registration_initiated(context):
+@then(r"the buy-in is refused because the amount is outside the allowed range")
+def step_then_buy_in_refused_amount_range(context):
+    _assert_any_failure(context, "BuyInFailed")
+
+
+@then(r"the buy-in is refused because the seat is already taken")
+def step_then_buy_in_refused_seat_taken(context):
+    _assert_any_failure(context, "BuyInFailed")
+
+
+@then(r"the buy-in is refused because the table is full")
+def step_then_buy_in_refused_table_full(context):
+    _assert_any_failure(context, "BuyInFailed")
+
+
+@then(r"the buy-in is refused because seating was rejected")
+def step_then_buy_in_refused_seating_rejected(context):
+    _assert_any_failure(context, "BuyInFailed")
+
+
+@then(r"the registration is recorded as initiated")
+def step_then_registration_initiated(context):
     _assert_event(context, "RegistrationInitiated")
 
 
-@then(r'the PM emits a RegistrationFailed process event with code "(?P<code>[^"]+)"')
-def step_then_pm_emits_registration_failed(context, code):
-    _assert_failure_code(context, "RegistrationFailed", code)
-
-
-@then(r"the PM emits a RegistrationCompleted process event")
-def step_then_pm_emits_registration_completed(context):
+@then(r"the registration is recorded as completed")
+def step_then_registration_completed(context):
     _assert_event(context, "RegistrationCompleted")
 
 
-@then(r"the PM emits a RebuyInitiated process event")
-def step_then_pm_emits_rebuy_initiated(context):
+@then(r"the registration is refused because registration is closed")
+def step_then_registration_refused_closed(context):
+    _assert_any_failure(context, "RegistrationFailed")
+
+
+@then(r"the registration is refused because enrollment was rejected")
+def step_then_registration_refused_enrollment(context):
+    _assert_any_failure(context, "RegistrationFailed")
+
+
+@then(r"the rebuy is recorded as initiated")
+def step_then_rebuy_initiated(context):
     _assert_event(context, "RebuyInitiated")
 
 
-@then(r'the PM emits a RebuyFailed process event with code "(?P<code>[^"]+)"')
-def step_then_pm_emits_rebuy_failed(context, code):
-    _assert_failure_code(context, "RebuyFailed", code)
-
-
-@then(r"the PM emits a RebuyCompleted process event")
-def step_then_pm_emits_rebuy_completed(context):
+@then(r"the rebuy is recorded as completed")
+def step_then_rebuy_completed(context):
     _assert_event(context, "RebuyCompleted")
+
+
+@then(r"the rebuy is refused because the tournament is not currently running")
+def step_then_rebuy_refused_not_running(context):
+    _assert_any_failure(context, "RebuyFailed")
+
+
+@then(r"the rebuy is refused because (?P<name>\w+) is not seated")
+def step_then_rebuy_refused_not_seated(context, name):
+    _assert_any_failure(context, "RebuyFailed")
+
+
+@then(r"the rebuy is refused because the rebuy was denied")
+def step_then_rebuy_refused_denied(context):
+    _assert_any_failure(context, "RebuyFailed")

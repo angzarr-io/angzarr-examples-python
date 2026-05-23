@@ -299,11 +299,8 @@ def step_when_complete_tournament(context, name, player):
     context.tournaments[name]["winner"] = player
 
 
-@when(
-    r'the hand at table "(?P<table>[^"]+)" is fast-forwarded with '
-    r'"(?P<winner>[^"]+)" winning the pot'
-)
-def step_when_fast_forward_hand(context, table, winner):
+@when(r'the hand at table "(?P<table>[^"]+)" is awarded to "(?P<winner>[^"]+)"')
+def step_when_hand_awarded_to(context, table, winner):
     """Skip betting; emit AwardPot on the hand aggregate directly.
 
     The hand aggregate's AwardPot handler produces PotAwarded +
@@ -480,8 +477,8 @@ def step_when_advance_blind_with_color_up(context, name):
         }
 
 
-@then(r'a ColorUpCompleted event is emitted on tournament "(?P<name>[^"]+)"')
-def step_then_color_up_emitted(context, name):
+@then(r'the color-up completes on tournament "(?P<name>[^"]+)"')
+def step_then_color_up_completes(context, name):
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "ColorUpCompleted"
     assert expected in urls, (
@@ -504,9 +501,7 @@ def _unpack_color_up_completed(context) -> tournament.ColorUpCompleted:
     )
 
 
-@then(
-    r"every active player's stack contains no chips of denomination " r"(?P<denom>\d+)"
-)
+@then(r"every active player's stack contains no chips of denomination (?P<denom>\d+)")
 def step_then_no_chips_of_denom(context, denom):
     """Verify the chip-race truly retired the given denomination.
 
@@ -524,9 +519,7 @@ def step_then_no_chips_of_denom(context, denom):
     )
 
 
-@then(
-    r"the sum of all active stacks equals total_chips_in_play before " r"the color-up"
-)
+@then(r"the total chips in play before and after the color-up are equal")
 def step_then_chip_conservation(context):
     """Verify the conservation invariant per the ColorUpCompleted proto:
     ``post_total == pre_total + chips_added_by_rescue - chips_removed_by_race``.
@@ -638,10 +631,8 @@ def step_when_trigger_balancing(context, name):
         context.tournaments[name]["last_balancing_move"] = move
 
 
-@then(
-    r"a PlayerMovedBetweenTables event is emitted on tournament " r'"(?P<name>[^"]+)"'
-)
-def step_then_player_moved_emitted(context, name):
+@then(r'a player is moved from one table to the other on tournament "(?P<name>[^"]+)"')
+def step_then_player_moved(context, name):
     urls = _last_event_type_urls(context)
     expected = _EXAMPLES_NS + "PlayerMovedBetweenTables"
     assert expected in urls, (
@@ -809,8 +800,8 @@ def step_when_enter_bubble(context):
         context.tables[table_name]["h4h_status"] = "WAITING"
 
 
-@then(r'a HandForHandStarted event is emitted on tournament "(?P<name>[^"]+)"')
-def step_then_h4h_started_emitted(context, name):
+@then(r'tournament "(?P<name>[^"]+)" begins hand-for-hand play')
+def step_then_h4h_begins(context, name):
     """Verify HandForHandStarted appeared in the tournament's event book.
 
     The bubble-play step issues several follow-up table commands after
@@ -830,8 +821,7 @@ def step_then_h4h_started_emitted(context, name):
     )
 
 
-@then(r'table "(?P<table>[^"]+)" status is "(?P<status>[^"]+)"')
-def step_then_table_h4h_status(context, table, status):
+def _assert_table_h4h_status(context, table, expected):
     """Verify the table's H4H status against the in-test bookkeeping.
 
     The bookkeeping mirrors the WAITING / COMPLETE transitions that the
@@ -839,18 +829,21 @@ def step_then_table_h4h_status(context, table, status):
       EnterTableHandForHand           → WAITING
       MarkTableHandForHandHandComplete → COMPLETE
       EndTableHandForHand             → "" (cleared)
-    The cluster scenario uses the lowercase forms ``hand_for_hand_waiting``
-    / ``hand_for_hand_complete``, which we map to the proto state.
     """
-    expected = {
-        "hand_for_hand_waiting": "WAITING",
-        "hand_for_hand_complete": "COMPLETE",
-    }.get(status)
-    assert expected is not None, f"Unknown H4H status {status!r}"
     actual = context.tables[table].get("h4h_status", "")
     assert actual == expected, (
         f"Table {table!r}: expected H4H status {expected!r}, got {actual!r}"
     )
+
+
+@then(r'table "(?P<table>[^"]+)" is waiting for the synchronised hand to complete')
+def step_then_table_h4h_waiting(context, table):
+    _assert_table_h4h_status(context, table, "WAITING")
+
+
+@then(r'table "(?P<table>[^"]+)" has finished its synchronised hand')
+def step_then_table_h4h_complete(context, table):
+    _assert_table_h4h_status(context, table, "COMPLETE")
 
 
 @when(r'a hand completes at table "(?P<table>[^"]+)"')
@@ -893,7 +886,7 @@ def step_when_hand_completes(context, table):
     context.tables[table]["h4h_status"] = "COMPLETE"
 
 
-@then(r'table "(?P<table>[^"]+)" cannot start a new hand')
+@then(r'table "(?P<table>[^"]+)" cannot start a new hand yet')
 def step_then_table_cannot_start(context, table):
     """Verify the table-aggregate StartHand guard rejects when the
     table is parked at H4H COMPLETE per TDA Rule 12.
@@ -921,10 +914,8 @@ def step_then_table_cannot_start(context, table):
     )
 
 
-@then(
-    r"a HandForHandRoundComplete event is emitted on tournament " r'"(?P<name>[^"]+)"'
-)
-def step_then_h4h_round_complete_emitted(context, name):
+@then(r'the synchronised hand-for-hand round completes on tournament "(?P<name>[^"]+)"')
+def step_then_h4h_round_complete(context, name):
     """Trigger the round-complete signal on the tournament and verify
     HandForHandRoundComplete in the response.
 
@@ -989,8 +980,8 @@ def step_then_both_can_start(context):
         context.tables[table_name]["h4h_status"] = "WAITING"
 
 
-@then(r'a HandForHandEnded event is emitted on tournament "(?P<name>[^"]+)"')
-def step_then_h4h_ended_emitted(context, name):
+@then(r'hand-for-hand play ends on tournament "(?P<name>[^"]+)"')
+def step_then_h4h_ends(context, name):
     """Verify the tournament aggregate emitted HandForHandEnded.
 
     The eliminate_player handler emits this alongside PlayerEliminated

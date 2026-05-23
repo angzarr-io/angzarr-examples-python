@@ -19,7 +19,10 @@ use_step_matcher("re")
 # --- Given steps ---
 
 
-@given(r"current_bet is (?P<bet>-?\d+) and last_raise_increment is (?P<inc>-?\d+)")
+@given(
+    r"the current bet is (?P<bet>-?\d+) and the last raise increment "
+    r"was (?P<inc>-?\d+)"
+)
 def step_given_state(context, bet, inc):
     """Seed raise-tracking state on the context.
 
@@ -40,7 +43,7 @@ def step_given_state(context, bet, inc):
 # --- When steps ---
 
 
-@when(r"I compute the min_raise_to")
+@when(r"I compute the next legal raise minimum")
 def step_when_compute_min_raise(context):
     """Compute min_raise_to into context."""
     context.min_raise_to = context.current_bet + context.last_raise_increment
@@ -64,7 +67,7 @@ def step_when_call(context, amt):
     context.min_raise_to = context.current_bet + context.last_raise_increment
 
 
-@when(r"a below-increment raise of increment (?P<inc>-?\d+) is applied")
+@when(r"a below-increment raise of (?P<inc>-?\d+) is applied")
 def step_when_below_increment_raise(context, inc):
     """Apply a raise smaller than the current last_raise_increment."""
     candidate = int(inc)
@@ -133,7 +136,7 @@ def step_when_another_player_all_in_to(context, amt):
 # --- Then steps ---
 
 
-@then(r"min_raise_to is (?P<expected>-?\d+)")
+@then(r"the minimum raise-to amount is (?P<expected>-?\d+)")
 def step_then_min_raise_to(context, expected):
     """Verify min_raise_to."""
     actual = getattr(
@@ -142,7 +145,7 @@ def step_then_min_raise_to(context, expected):
     assert actual == int(expected), f"Expected min_raise_to={expected}, got {actual}"
 
 
-@then(r"last_raise_increment is (?P<expected>-?\d+)")
+@then(r"the last raise increment is (?P<expected>-?\d+)")
 def step_then_last_raise_increment(context, expected):
     """Verify last_raise_increment."""
     assert context.last_raise_increment == int(expected), (
@@ -150,7 +153,7 @@ def step_then_last_raise_increment(context, expected):
     )
 
 
-@then(r"current_bet is (?P<expected>-?\d+)")
+@then(r"the current bet is (?P<expected>-?\d+)")
 def step_then_current_bet(context, expected):
     """Verify current_bet."""
     assert context.current_bet == int(expected), (
@@ -158,7 +161,7 @@ def step_then_current_bet(context, expected):
     )
 
 
-@then(r"the all-in amount is less than min_raise_to")
+@then(r"the all-in amount is less than the minimum raise-to amount")
 def step_then_all_in_less_than_min_raise(context):
     """Verify the all-in amount is less than min_raise_to."""
     min_raise_to = context.current_bet + context.last_raise_increment
@@ -197,8 +200,8 @@ def step_then_bet_not_reopened(context):
 
 
 @given(
-    r"current_bet is (?P<bet>-?\d+) and last_raise_increment is (?P<inc>-?\d+) "
-    r"and big_blind is (?P<bb>-?\d+)"
+    r"the current bet is (?P<bet>-?\d+), the last raise increment "
+    r"was (?P<inc>-?\d+), and the big blind is (?P<bb>-?\d+)"
 )
 def step_given_state_with_bb(context, bet, inc, bb):
     context.current_bet = int(bet)
@@ -207,8 +210,8 @@ def step_given_state_with_bb(context, bet, inc, bb):
 
 
 @given(
-    r"current_bet is (?P<bet>-?\d+) and last_raise_increment is (?P<inc>-?\d+) "
-    r"on a new street(?: with big_blind (?P<bb>-?\d+))?"
+    r"the current bet is (?P<bet>-?\d+) and the last raise increment "
+    r"is (?P<inc>-?\d+) on a new street(?: with big blind (?P<bb>-?\d+))?"
 )
 def step_given_state_new_street(context, bet, inc, bb):
     context.current_bet = int(bet)
@@ -217,8 +220,8 @@ def step_given_state_new_street(context, bet, inc, bb):
 
 
 @given(
-    r"current_bet is (?P<bet>-?\d+) and last_raise_increment is (?P<inc>-?\d+) "
-    r"on a new street with big_blind (?P<bb>-?\d+)"
+    r"the current bet is (?P<bet>-?\d+) and the last raise increment "
+    r"is (?P<inc>-?\d+) on a new street with big blind (?P<bb>-?\d+)"
 )
 def step_given_state_new_street_with_bb(context, bet, inc, bb):
     context.current_bet = int(bet)
@@ -227,8 +230,8 @@ def step_given_state_new_street_with_bb(context, bet, inc, bb):
 
 
 @given(
-    r"preflop ended with last_raise_increment (?P<inc>-?\d+) and "
-    r"big_blind (?P<bb>-?\d+)"
+    r"preflop ended with a last raise increment of (?P<inc>-?\d+) and "
+    r"big blind (?P<bb>-?\d+)"
 )
 def step_given_preflop_ended(context, inc, bb):
     context.current_bet = 0
@@ -304,8 +307,15 @@ def step_then_bet_accepted(context):
     assert err is None, f"Expected bet to be accepted, but got rejection: {err}"
 
 
-@then(r'the bet is rejected with code "(?P<code>[^"]+)"')
-def step_then_bet_rejected(context, code):
+@then(r"the bet is refused because it is below the minimum bet of (?P<bound>-?\d+)")
+def step_then_bet_refused_below_min(context, bound):
+    """Combined business-rejection: code BET_BELOW_MIN_RAISE plus the
+    expected ``bound`` value (the minimum bet, i.e. the big blind)."""
     err = getattr(context, "error", None)
     assert err is not None, "Expected bet to be rejected, but it was accepted"
-    assert err.code == code, f"Expected code {code!r}, got {err.code!r}"
+    assert err.code == "BET_BELOW_MIN_RAISE", (
+        f"Expected code 'BET_BELOW_MIN_RAISE', got {err.code!r}"
+    )
+    assert err.details.get("bound") == str(bound), (
+        f"Expected bound={bound}, got {err.details.get('bound')!r}"
+    )

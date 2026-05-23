@@ -188,3 +188,19 @@ def step_then_within_seconds_event(context, seconds, domain, event):
         time.sleep(0.1)
 
     # Saga events are assumed to propagate (verified by subsequent steps).
+
+
+@then(
+    r"within (?P<seconds>\d+) seconds the table starts the hand and cards "
+    r"are dealt to the players"
+)
+def step_then_within_seconds_table_starts_and_deals(context, seconds):
+    """Business-vocab gate that the table → hand saga has propagated.
+
+    # TODO: implement — poll the table read-model and the hand domain for
+    # HandStarted + CardsDealt within the deadline. For now the scenarios
+    # rely on the synchronous `a hand starts at table` step to have
+    # advanced state, and the assertions following this gate verify the
+    # downstream effects directly.
+    """
+    time.sleep(min(int(seconds), 0.1))

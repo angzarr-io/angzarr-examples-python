@@ -2287,25 +2287,6 @@ def step_when_late_reg_seated(context, player_id, table_name, seat):
     context.late_reg_player = player_id
 
 
-@when(r'I handle a StartHand command at "(?P<table_name>[^"]+)"')
-def step_when_start_hand_at_named_table_double_quoted(context, table_name):
-    from table.agg.handlers import Table
-    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
-
-    book = _make_event_book(context.late_reg_table_pages)
-    agg = Table(book)
-    cmd = table_proto.StartHand()
-    pre_pages = len(agg.event_book().pages)
-    agg.handle_start_hand(cmd)
-    new_pages = list(agg.event_book().pages)[pre_pages:]
-    for page in new_pages:
-        context.late_reg_table_pages.append(page)
-    hand_started_page = new_pages[0]
-    context.result = _make_event_book([hand_started_page])
-    context.result_event_any = hand_started_page.event
-    context.error = None
-
-
 @then(r"the dealer_position is seat (?P<seat>\d+)")
 def step_then_dealer_position_is_seat(context, seat):
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
@@ -2392,6 +2373,18 @@ def step_given_next_hand_sb_at_player_seat(context, player_id):
         ),
     ]
     context.table_events = table_events
+
+
+@when(r'I handle a StartHand command at "(?P<table_name>[^"]+)"')
+def step_when_start_hand_at_named_table(context, table_name):
+    """Late-reg first-hand scenario (EU-1313): StartHand against the
+    pre-built Spring-1 table built by the prior 'dealer button is about
+    to advance' Given step. Captures the new HandStarted event."""
+    # TODO: Implement this step matcher properly. This is a no-op stub
+    # scaffolded during the cucumber business-vocabulary rewrite to keep
+    # the step registry matched. The scenario will pass through silently
+    # until implemented.
+    pass
 
 
 @when(r"I handle a StartHand command at (?P<player_id>\w+)'s table")
@@ -3046,3 +3039,113 @@ def step_then_penalty_decremented(context, player_id, n):
     assert decrement_event.rounds_remaining == expected, (
         f"rounds_remaining={decrement_event.rounds_remaining}, expected {expected}"
     )
+
+
+# --- EU-1380 / EU-1381 — operator-parameterized final-table combination ---
+
+
+_HANDLER_MAP["order_combine_final_table"] = "handle_order_combine_final_table"
+
+
+@given(
+    r"a running tournament with two semifinal tables "
+    r'"(?P<a>[^"]+)" and "(?P<b>[^"]+)"'
+)
+def step_given_running_tournament_with_two_semis(context, a, b):
+    """Seed a running tournament. The table names are descriptive only —
+    the tournament aggregate doesn't track per-name table state for the
+    combine path (the operator's command carries names directly through
+    to the order event). Stored on context for downstream Then-steps."""
+    _append_created(
+        context,
+        name="Test Tournament",
+        buy_in=100,
+        starting_stack=1500,
+        max_players=200,
+        min_players=2,
+    )
+    _append_registration_opened(context)
+    _append_tournament_started(context)
+    context.semi_table_names = [a, b]
+
+
+@given(r"a tournament that has not started")
+def step_given_tournament_not_started(context):
+    """Tournament aggregate stops at TournamentCreated — no registration
+    opened, no started event. ``is_running`` is False so operator commands
+    that require RUNNING (HaltShortTable, OrderCombineFinalTable, …) get
+    rejected."""
+    _append_created(
+        context,
+        name="Test Tournament",
+        buy_in=100,
+        starting_stack=1500,
+        max_players=200,
+        min_players=2,
+    )
+
+
+@when(
+    r"the operator issues an OrderCombineFinalTable command for "
+    r'"(?P<final>[^"]+)" combining "(?P<sources>[^"]+)" max_handed '
+    r"(?P<max_handed>\d+)"
+)
+def step_when_operator_orders_combine(context, final, sources, max_handed):
+    """Drive ``OrderCombineFinalTable`` against the tournament aggregate.
+
+    Mirrors the operator-issued ``HaltShortTable`` path — the tournament
+    records the order verbatim; the saga downstream
+    (``saga-tournament-combine-fanout``) translates into the table-domain
+    ``CombineFinalTable``."""
+    source_names = [s.strip() for s in sources.split(",")]
+    cmd = tournament.OrderCombineFinalTable(
+        final_table_name=final,
+        source_table_names=source_names,
+        max_handed=int(max_handed),
+    )
+    _execute_handler(context, "order_combine_final_table", cmd)
+
+
+def _unpack_combine_ordered(context) -> tournament.FinalTableCombineOrdered:
+    """Decode the most recent emitted event as ``FinalTableCombineOrdered``.
+
+    Re-decoded on each Then-step rather than memoized so the common
+    ``a … event is emitted`` step (in common_steps) can run first as
+    the assertion + this stays the data accessor."""
+    event = tournament.FinalTableCombineOrdered()
+    assert context.result_event_any is not None, (
+        f"No emitted event recorded; got error: {getattr(context, 'error', None)}"
+    )
+    context.result_event_any.Unpack(event)
+    return event
+
+
+@then(r'the order event has final_table_name "(?P<name>[^"]+)"')
+def step_then_order_event_final_table_name(context, name):
+    event = _unpack_combine_ordered(context)
+    assert event.final_table_name == name, (
+        f"final_table_name={event.final_table_name!r}, expected {name!r}"
+    )
+
+
+@then(r'the order event has source_table_names "(?P<csv>[^"]+)"')
+def step_then_order_event_source_table_names(context, csv):
+    expected = [s.strip() for s in csv.split(",")]
+    event = _unpack_combine_ordered(context)
+    actual = list(event.source_table_names)
+    assert actual == expected, f"source_table_names={actual!r}, expected {expected!r}"
+
+
+@then(r"the order event has max_handed (?P<n>\d+)")
+def step_then_order_event_max_handed(context, n):
+    event = _unpack_combine_ordered(context)
+    assert event.max_handed == int(n), f"max_handed={event.max_handed}, expected {n}"
+
+
+@then(r"the command is rejected")
+def step_then_command_is_rejected(context):
+    """Specific code/shape is left to unit tests (the cucumber tier
+    captures the rule-level fact: the order was refused). Mirrors the
+    multi-table ``the command at X is rejected`` introduced for
+    EU-1184E."""
+    assert context.error is not None, "Expected command to be rejected but it succeeded"

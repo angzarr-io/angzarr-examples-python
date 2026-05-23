@@ -39,7 +39,7 @@ def _k8s_namespace() -> str:
 # ---------------------------------------------------------------------------
 
 
-@given(r"the poker cluster is reachable via gRPC")
+@given(r"the poker cluster is reachable")
 def step_given_cluster_reachable(context):
     """Confirm we have a CommandClient (set up in environment.before_all).
 
@@ -97,8 +97,8 @@ def _restart_coordinator(domain: str, namespace: str = "angzarr") -> None:
     )
 
 
-@when(r"the player coordinator is restarted")
-def step_when_player_coordinator_restarted(context):
+@when(r"the player service restarts")
+def step_when_player_service_restarts(context):
     _restart_coordinator("player")
 
 
@@ -153,9 +153,9 @@ def step_then_within_player_reachable(context, seconds, name):
 
 
 @then(
-    r"within (?P<seconds>\d+) seconds the player projection shows bankroll (?P<amount>\d+)"
+    r"within (?P<seconds>\d+) seconds the player display reports bankroll (?P<amount>\d+)"
 )
-def step_then_within_player_projection_bankroll(context, seconds, amount):
+def step_then_within_player_display_bankroll(context, seconds, amount):
     """Poll the only-tracked player's bankroll until it matches.
 
     The cluster-tier projector lag is the thing under test; we re-use the
@@ -202,8 +202,8 @@ _DEAL_CARDS_EVIDENCE = (
 )
 
 
-@then(r"the DealCards command was routed to the hand coordinator")
-def step_then_dealcards_routed_to_hand(context):
+@then(r"the deal-cards request was handled by the hand service")
+def step_then_deal_cards_handled_by_hand_service(context):
     """Verify across saga + hand-aggregate logs that DealCards landed.
 
     Coordinators log commands by gRPC path + correlation_id rather than by

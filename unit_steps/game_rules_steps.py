@@ -454,6 +454,9 @@ _CLASS_MAP = {
 
 @then(r"the rules class is (?P<cls>\w+)")
 def step_then_rules_class(context, cls):
+    # Retained for backwards-compatibility with any feature still using
+    # the implementation-leaking phrasing. The business-vocabulary
+    # rewrite asserts the variant name instead (see step_then_variant).
     expected = _CLASS_MAP[cls]
     assert isinstance(context.factory_rules, expected), (
         f"Expected {cls}, got {type(context.factory_rules).__name__}"
@@ -578,11 +581,31 @@ def step_then_max_raise_to(context, expected):
     )
 
 
-@then(r'the raise is rejected with code "(?P<code>[^"]+)"')
-def step_then_raise_rejected(context, code):
+@then(
+    r"the raise is rejected because (?P<got>-?\d+) exceeds the pot limit "
+    r"of (?P<bound>-?\d+)"
+)
+def step_then_raise_rejected_pot_limit(context, got, bound):
+    """Combined business-rejection assertion for PLO pot-limit excess.
+
+    Replaces the legacy three-line ``Then the raise is rejected with
+    code "EXCEEDS_POT_LIMIT" / And the rejection field "got" equals
+    "141" / And the rejection field "bound" equals "140"`` with a single
+    English sentence. The matcher still checks the rejection code and
+    both numeric fields so a regression in the underlying error stays
+    visible.
+    """
     err = getattr(context, "error", None)
     assert err is not None, "Expected raise to be rejected, but it was accepted"
-    assert err.code == code, f"Expected code {code!r}, got {err.code!r}"
+    assert err.code == "EXCEEDS_POT_LIMIT", (
+        f"Expected code 'EXCEEDS_POT_LIMIT', got {err.code!r}"
+    )
+    assert err.details.get("got") == str(got), (
+        f"Expected got={got}, got {err.details.get('got')!r}"
+    )
+    assert err.details.get("bound") == str(bound), (
+        f"Expected bound={bound}, got {err.details.get('bound')!r}"
+    )
 
 
 @then(r"hand (?P<a>\w+) score is greater than hand (?P<b>\w+) score")
@@ -615,6 +638,34 @@ def step_then_hand_score_greater(context, a, b):
 # evaluators. Variant selection reuses the existing ``Given <variant>
 # rules`` step which now also matches "Seven Card Stud", "Razz", and
 # "Seven Card Stud Hi/Lo 8b".
+
+
+@then(
+    r"the variant is a 7-card stud format with ante and bring-in and no "
+    r"community cards"
+)
+def step_then_stud_format_combined(context):
+    """Combined business-property assertion for EU-0750.
+
+    Replaces the legacy four-line block
+    ``initial_deal_count is 3 / total_card_count is 7 /
+    forced_bet_type is "ANTE_AND_BRINGIN" / has_community_cards is False``
+    with a single English sentence. The matcher still checks all four
+    underlying properties so a regression in any one of them surfaces.
+    """
+    assert context.rules.initial_deal_count == 3, (
+        f"Expected initial_deal_count=3, got {context.rules.initial_deal_count}"
+    )
+    assert context.rules.total_card_count == 7, (
+        f"Expected total_card_count=7, got {context.rules.total_card_count}"
+    )
+    assert context.rules.forced_bet_type == "ANTE_AND_BRINGIN", (
+        f"Expected forced_bet_type='ANTE_AND_BRINGIN', "
+        f"got {context.rules.forced_bet_type!r}"
+    )
+    assert context.rules.has_community_cards is False, (
+        f"Expected has_community_cards=False, got {context.rules.has_community_cards}"
+    )
 
 
 @then(r"the initial_deal_count is (?P<n>\d+)")
@@ -684,6 +735,29 @@ def step_then_dealt_is_up(context, flag):
     assert pt is not None, "Expected a phase transition; got None"
     assert pt.is_up_card is expected, (
         f"Expected is_up_card={expected}, got {pt.is_up_card}"
+    )
+
+
+@then(r"(?P<n>\d+) cards? (?:is|are) dealt face (?P<face>up|down) to each player")
+def step_then_stud_dealt_per_player_face(context, n, face):
+    """Combined business-property assertion for EU-0751.
+
+    Replaces the legacy two-line block ``per-player cards to deal is N
+    / dealt card is_up is True/False`` with a single English sentence
+    describing the deal.
+    """
+    expected_n = int(n)
+    expected_up = face == "up"
+    pt = context.next_result
+    assert pt is not None, "Expected a phase transition; got None"
+    assert pt.per_player_cards_to_deal == expected_n, (
+        f"Expected per_player_cards_to_deal={expected_n}, "
+        f"got {pt.per_player_cards_to_deal}"
+    )
+    # SHOWDOWN deals 0 cards; the face direction is irrelevant in that
+    # case (matches the legacy is_up=False expectation).
+    assert pt.is_up_card is expected_up, (
+        f"Expected is_up_card={expected_up} (face {face!r}), got {pt.is_up_card}"
     )
 
 
@@ -795,6 +869,19 @@ def step_then_razz_value(context, n):
     assert context.score == expected, (
         f"Expected razz value {expected}, got {context.score}"
     )
+
+
+@then(r"the hand is the wheel \(best possible razz hand\)")
+def step_then_razz_wheel(context):
+    """Combined business assertion for EU-0758.
+
+    Replaces the legacy two-line block ``the razz rank is "WHEEL" / the
+    razz rank value is 1`` with a single English sentence. WHEEL is the
+    A-2-3-4-5 low — the best possible razz hand — and its razz_value is
+    1 (lowest is best).
+    """
+    assert context.rank == "WHEEL", f"Expected razz rank WHEEL, got {context.rank!r}"
+    assert context.score == 1, f"Expected razz value 1, got {context.score}"
 
 
 # --- Multi-hand stud / razz / hilo comparisons -----------------------------

@@ -1,4 +1,13 @@
-"""Behave step definitions for projector tests."""
+"""Step definitions for the game-display projector tests.
+
+The step regexes match the business-language phrasing in
+``features/example/unit/projector.feature``: things like
+"When Alice registers" rather than "a PlayerRegistered event with
+display_name 'Alice'". Under the hood, each business action still
+synthesises the underlying protobuf event and feeds it through the
+production OutputProjector so the rendering itself is genuinely
+exercised.
+"""
 
 from datetime import datetime, timezone
 
@@ -29,7 +38,6 @@ def make_event_page(event_msg, time_str: str = None) -> types.EventPage:
     event_any = ProtoAny()
     event_any.Pack(event_msg, type_url_prefix="type.googleapis.com/")
 
-    created_at = None
     if time_str:
         h, m, s = map(int, time_str.split(":"))
         dt = datetime(2024, 1, 1, h, m, s, tzinfo=timezone.utc)
@@ -85,113 +93,136 @@ def parse_card(card_str: str):
     return make_card(rank, suit_map.get(suit_char, poker_types.SPADES))
 
 
-# --- Given steps ---
+# =============================================================================
+# Helpers shared by the new business-language steps
+# =============================================================================
 
 
-@given("an OutputProjector")
-def step_given_output_projector(context):
-    """Create OutputProjector instance."""
+def _make_projector(context, *, show_timestamps: bool = False) -> None:
+    """Create a fresh display/projector on the context."""
     context.output_lines = []
     context.projector = OutputProjector(
         output_fn=lambda text: context.output_lines.append(text),
-        show_timestamps=False,
+        show_timestamps=show_timestamps,
     )
 
 
-@given('an OutputProjector with player name "(?P<name>[^"]+)"')
-def step_given_projector_with_player(context, name):
-    """Create projector with a player name registered."""
-    context.output_lines = []
-    context.projector = OutputProjector(
-        output_fn=lambda text: context.output_lines.append(text),
-        show_timestamps=False,
-    )
+def _handle(context, event_msg, time_str: str | None = None) -> None:
+    """Feed a single event through the projector."""
+    page = make_event_page(event_msg, time_str)
+    context.projector.handle_event(page)
+
+
+# =============================================================================
+# Given steps — display setup
+# =============================================================================
+
+
+@given(r"the game display")
+def step_given_game_display(context):
+    """Create a fresh game display (OutputProjector)."""
+    _make_projector(context)
+
+
+@given(r"the game display knows (?P<name>\w+)")
+def step_given_display_knows_one(context, name):
+    """Create a display and pre-register one player under player-1."""
+    _make_projector(context)
     context.projector.set_player_name(b"player-1", name)
 
 
-@given('an OutputProjector with player names "(?P<name1>[^"]+)" and "(?P<name2>[^"]+)"')
-def step_given_projector_with_two_players(context, name1, name2):
-    """Create projector with two player names registered."""
-    context.output_lines = []
-    context.projector = OutputProjector(
-        output_fn=lambda text: context.output_lines.append(text),
-        show_timestamps=False,
-    )
+@given(r"the game display knows (?P<name1>\w+) and (?P<name2>\w+)")
+def step_given_display_knows_two(context, name1, name2):
+    """Create a display and pre-register two players (player-1, player-2)."""
+    _make_projector(context)
     context.projector.set_player_name(b"player-1", name1)
     context.projector.set_player_name(b"player-2", name2)
 
 
-@given("an OutputProjector with show_timestamps enabled")
-def step_given_projector_with_timestamps(context):
-    """Create projector with timestamps enabled."""
-    context.output_lines = []
-    context.projector = OutputProjector(
-        output_fn=lambda text: context.output_lines.append(text),
-        show_timestamps=True,
-    )
+@given(r"the game display with timestamps enabled")
+def step_given_display_with_timestamps(context):
+    """Game display with show_timestamps enabled."""
+    _make_projector(context, show_timestamps=True)
 
 
-@given("an OutputProjector with show_timestamps disabled")
-def step_given_projector_without_timestamps(context):
-    """Create projector with timestamps disabled."""
-    context.output_lines = []
-    context.projector = OutputProjector(
-        output_fn=lambda text: context.output_lines.append(text),
-        show_timestamps=False,
-    )
+@given(r"the game display with timestamps disabled")
+def step_given_display_without_timestamps(context):
+    """Game display with show_timestamps disabled."""
+    _make_projector(context, show_timestamps=False)
 
 
-@given('a PlayerRegistered event with display_name "(?P<name>[^"]+)"')
-def step_given_player_registered_with_name(context, name):
-    """Create a PlayerRegistered event with given name."""
-    context.event = player.PlayerRegistered(
+@given(r'player "(?P<player_id>[^"]+)" is registered as "(?P<name>[^"]+)"')
+def step_given_player_registered_as(context, player_id, name):
+    """Pre-register a player→name mapping in the display's cache."""
+    context.projector.set_player_name(uuid_for(player_id), name)
+
+
+# =============================================================================
+# When steps — player domain actions translating to events
+# =============================================================================
+
+
+@when(r"(?P<name>\w+) registers")
+def step_when_player_registers(context, name):
+    """Translate the registration into a PlayerRegistered event."""
+    event = player.PlayerRegistered(
         display_name=name,
-        email="test@example.com",
+        email=f"{name.lower()}@example.com",
         player_type=poker_types.HUMAN,
     )
+    _handle(context, event)
 
 
-@given(
-    "a FundsDeposited event with amount (?P<amount>\\d+) and new_balance (?P<balance>\\d+)"
+@when(
+    r"(?P<name>\w+) deposits (?P<amount>\d+) chips? bringing (?:her|his|their) "
+    r"balance to (?P<balance>\d+)"
 )
-def step_given_funds_deposited_with_balance(context, amount, balance):
-    """Create a FundsDeposited event with specific balance."""
-    context.event = player.FundsDeposited(
+def step_when_player_deposits(context, name, amount, balance):
+    """A deposit event with the resulting balance."""
+    event = player.FundsDeposited(
         amount=poker_types.Currency(amount=int(amount)),
         new_balance=poker_types.Currency(amount=int(balance)),
     )
+    _handle(context, event)
 
 
-@given(
-    "a FundsWithdrawn event with amount (?P<amount>\\d+) and new_balance (?P<balance>\\d+)"
+@when(
+    r"(?P<name>\w+) withdraws (?P<amount>\d+) chips? bringing (?:her|his|their) "
+    r"balance to (?P<balance>\d+)"
 )
-def step_given_funds_withdrawn_with_balance(context, amount, balance):
-    """Create a FundsWithdrawn event with specific balance."""
-    context.event = player.FundsWithdrawn(
+def step_when_player_withdraws(context, name, amount, balance):
+    """A withdrawal event with the resulting balance."""
+    event = player.FundsWithdrawn(
         amount=poker_types.Currency(amount=int(amount)),
         new_balance=poker_types.Currency(amount=int(balance)),
     )
+    _handle(context, event)
 
 
-@given("a FundsReserved event with amount (?P<amount>\\d+)")
-def step_given_funds_reserved_event(context, amount):
-    """Create a FundsReserved event."""
-    context.event = player.FundsReserved(
+@when(r"(?P<name>\w+) reserves (?P<amount>\d+) chips?")
+def step_when_player_reserves(context, name, amount):
+    """A reservation event."""
+    event = player.FundsReserved(
         amount=poker_types.Currency(amount=int(amount)),
         key=b"table-1",
     )
+    _handle(context, event)
 
 
-@given("a TableCreated event with:")
-def step_given_table_created_with_table(context):
-    """Create a TableCreated event from datatable."""
+# =============================================================================
+# When steps — table domain actions
+# =============================================================================
+
+
+@when(r"a table is created with:")
+def step_when_table_created(context):
+    """Translate the data table row into a TableCreated event."""
     row = {
         context.table.headings[i]: context.table[0][i]
         for i in range(len(context.table.headings))
     }
     variant = getattr(poker_types, row.get("game_variant", "TEXAS_HOLDEM"))
-
-    context.event = table.TableCreated(
+    event = table.TableCreated(
         table_name=row["table_name"],
         game_variant=variant,
         small_blind=int(row["small_blind"]),
@@ -201,216 +232,85 @@ def step_given_table_created_with_table(context):
         max_players=int(row.get("max_players", 9)),
         created_at=make_timestamp(),
     )
+    _handle(context, event)
 
 
-@given("a PlayerJoined event at seat (?P<seat>\\d+) with buy_in (?P<buy_in>\\d+)")
-def step_given_player_joined_buy_in(context, seat, buy_in):
-    """Create a PlayerJoined event with buy_in."""
-    context.event = table.PlayerJoined(
+@when(r"(?P<name>\w+) joins at seat (?P<seat>\d+) with a buy-in of (?P<buy_in>\d+)")
+def step_when_player_joins(context, name, seat, buy_in):
+    """A PlayerJoined event at the named seat."""
+    event = table.PlayerJoined(
         player_root=b"player-1",
         seat_position=int(seat),
         stack=int(buy_in),
         buy_in_amount=int(buy_in),
         joined_at=make_timestamp(),
     )
+    _handle(context, event)
 
 
-@given("a PlayerLeft event with chips_cashed_out (?P<amount>\\d+)")
-def step_given_player_left_cashed(context, amount):
-    """Create a PlayerLeft event with cashed out amount."""
-    context.event = table.PlayerLeft(
+@when(r"(?P<name>\w+) leaves cashing out (?P<amount>\d+) chips?")
+def step_when_player_leaves(context, name, amount):
+    """A PlayerLeft event with the cashed-out amount."""
+    event = table.PlayerLeft(
         player_root=b"player-1",
         chips_cashed_out=int(amount),
         left_at=make_timestamp(),
     )
+    _handle(context, event)
 
 
-# "a HandStarted event with:" step is defined in process_manager_steps.py
-# to avoid duplication
-
-
-@given(
-    'active players "(?P<player1>[^"]+)", "(?P<player2>[^"]+)", "(?P<player3>[^"]+)" at seats (?P<seats>.+)'
+@when(
+    r"hand (?P<num>\d+) starts with dealer at seat (?P<dealer>\d+) and "
+    r"blinds (?P<sb>\d+)/(?P<bb>\d+)"
 )
-def step_given_active_players_three(context, player1, player2, player3, seats):
-    """Add three active players from inline list."""
-    player_names = [player1, player2, player3]
-    seat_nums = [int(s.strip()) for s in seats.split(",")]
-
-    for i, (name, seat) in enumerate(zip(player_names, seat_nums)):
-        context.hand_started.active_players.append(
-            table.SeatSnapshot(
-                player_root=uuid_for(f"player-{i + 1}"),
-                position=seat,
-                stack=500,
-            )
-        )
-        context.projector.set_player_name(uuid_for(f"player-{i + 1}"), name)
-
-
-@given(
-    'active players "(?P<player1>[^"]+)" and "(?P<player2>[^"]+)" at seats (?P<seats>.+)'
-)
-def step_given_active_players_two(context, player1, player2, seats):
-    """Add two active players from inline list."""
-    player_names = [player1, player2]
-    seat_nums = [int(s.strip()) for s in seats.split(",")]
-
-    for i, (name, seat) in enumerate(zip(player_names, seat_nums)):
-        context.hand_started.active_players.append(
-            table.SeatSnapshot(
-                player_root=uuid_for(f"player-{i + 1}"),
-                position=seat,
-                stack=500,
-            )
-        )
-        context.projector.set_player_name(uuid_for(f"player-{i + 1}"), name)
-
-
-@given('a HandEnded event with winner "(?P<winner>[^"]+)" amount (?P<amount>\\d+)')
-def step_given_hand_ended_with_winner(context, winner, amount):
-    """Create a HandEnded event with winner."""
-    context.event = table.HandEnded(
+def step_when_hand_starts(context, num, dealer, sb, bb):
+    """Stage the HandStarted event; a follow-up active-players step adds players."""
+    context.hand_started = table.HandStarted(
         hand_root=b"hand-1",
-        ended_at=make_timestamp(),
+        hand_number=int(num),
+        dealer_position=int(dealer),
+        game_variant=poker_types.TEXAS_HOLDEM,
+        small_blind=int(sb),
+        big_blind=int(bb),
+        started_at=make_timestamp(),
     )
-    # Use results field which the renderer expects
-    context.event.results.append(
+
+
+@when(
+    r'the active players are "(?P<p1>\w+)", "(?P<p2>\w+)", "(?P<p3>\w+)" at seats '
+    r"(?P<seats>\d+(?:,\s*\d+){2})"
+)
+def step_when_active_players_three(context, p1, p2, p3, seats):
+    """Attach three active players and dispatch the pending HandStarted event."""
+    seat_nums = [int(s.strip()) for s in seats.split(",")]
+    for i, (name, seat) in enumerate(zip([p1, p2, p3], seat_nums)):
+        root = uuid_for(f"player-{i + 1}")
+        context.hand_started.active_players.append(
+            table.SeatSnapshot(player_root=root, position=seat, stack=500)
+        )
+        context.projector.set_player_name(root, name)
+    _handle(context, context.hand_started)
+
+
+@when(r"the hand ends with (?P<name>\w+) winning (?P<amount>\d+)")
+def step_when_hand_ends_with_winner(context, name, amount):
+    """Translate the end-of-hand into a HandEnded event with a single PotResult."""
+    event = table.HandEnded(hand_root=b"hand-1", ended_at=make_timestamp())
+    event.results.append(
         table.PotResult(
             winner_root=b"player-1",
             amount=int(amount),
             pot_type="main",
         )
     )
-    context.projector.set_player_name(b"player-1", winner)
+    context.projector.set_player_name(b"player-1", name)
+    _handle(context, event)
 
 
-@given('a CardsDealt event with player "(?P<player_name>[^"]+)" holding (?P<cards>.+)')
-def step_given_cards_dealt_for_player(context, player_name, cards):
-    """Create a CardsDealt event with player cards."""
-    event = hand.CardsDealt(
-        table_root=b"table-1",
-        hand_number=1,
-        game_variant=poker_types.TEXAS_HOLDEM,
-    )
-    card_list = [parse_card(c.strip()) for c in cards.split()]
-    event.player_cards.append(
-        hand.PlayerHoleCards(
-            player_root=b"player-1",
-            cards=card_list,
-        )
-    )
-    context.event = event
-    context.projector.set_player_name(b"player-1", player_name)
-
-
-@given(
-    'a BlindPosted event for "(?P<player>[^"]+)" type "(?P<blind_type>[^"]+)" amount (?P<amount>\\d+)'
-)
-def step_given_blind_posted_event(context, player, blind_type, amount):
-    """Create a BlindPosted event."""
-    context.event = hand.BlindPosted(
-        player_root=b"player-1",
-        blind_type=blind_type,
-        amount=int(amount),
-        pot_total=int(amount),
-        player_stack=500 - int(amount),
-    )
-
-
-@given('an ActionTaken event for "(?P<player>[^"]+)" action (?P<action>\\w+)')
-def step_given_action_taken_fold(context, player, action):
-    """Create an ActionTaken event for fold."""
-    action_enum = getattr(poker_types, action)
-    context.event = hand.ActionTaken(
-        player_root=b"player-1",
-        action=action_enum,
-        amount=0,
-        pot_total=0,
-        player_stack=500,
-    )
-
-
-@given(
-    'an ActionTaken event for "(?P<player>[^"]+)" action (?P<action>\\w+) amount (?P<amount>\\d+) pot_total (?P<pot>\\d+)'
-)
-def step_given_action_taken_with_amount(context, player, action, amount, pot):
-    """Create an ActionTaken event with amount."""
-    action_enum = getattr(poker_types, action)
-    context.event = hand.ActionTaken(
-        player_root=b"player-1",
-        action=action_enum,
-        amount=int(amount),
-        pot_total=int(pot),
-        player_stack=500 - int(amount),
-    )
-
-
-@given("a CommunityCardsDealt event for (?P<phase>\\w+) with cards (?P<cards>.+)")
-def step_given_community_cards_event(context, phase, cards):
-    """Create a CommunityCardsDealt event."""
-    phase_enum = getattr(poker_types, phase)
-    event = hand.CommunityCardsDealt(phase=phase_enum)
-    for card_str in cards.split():
-        event.cards.append(parse_card(card_str.strip()))
-    context.event = event
-
-
-@given("a CommunityCardsDealt event for (?P<phase>\\w+) with card (?P<card>\\w+)")
-def step_given_community_cards_single(context, phase, card):
-    """Create a CommunityCardsDealt event with single card."""
-    phase_enum = getattr(poker_types, phase)
-    event = hand.CommunityCardsDealt(phase=phase_enum)
-    event.cards.append(parse_card(card.strip()))
-    context.event = event
-
-
-@given("a ShowdownStarted event")
-def step_given_showdown_started(context):
-    """Create a ShowdownStarted event."""
-    context.event = hand.ShowdownStarted()
-
-
-@given(
-    'a CardsRevealed event for "(?P<player>[^"]+)" with cards (?P<cards>\\w+ \\w+) and ranking (?P<ranking>\\w+)'
-)
-def step_given_cards_revealed(context, player, cards, ranking):
-    """Create a CardsRevealed event."""
-    card_list = [parse_card(c.strip()) for c in cards.split()]
-    ranking_enum = getattr(poker_types, ranking, poker_types.HIGH_CARD)
-    context.event = hand.CardsRevealed(
-        player_root=b"player-1",
-        cards=card_list,
-        ranking=poker_types.HandRanking(rank_type=ranking_enum),
-        revealed_at=make_timestamp(),
-    )
-
-
-@given('a CardsMucked event for "(?P<player>[^"]+)"')
-def step_given_cards_mucked(context, player):
-    """Create a CardsMucked event."""
-    context.event = hand.CardsMucked(player_root=b"player-1")
-
-
-@given('a PotAwarded event with winner "(?P<winner>[^"]+)" amount (?P<amount>\\d+)')
-def step_given_pot_awarded_event(context, winner, amount):
-    """Create a PotAwarded event."""
-    event = hand.PotAwarded()
-    event.winners.append(
-        hand.PotWinner(
-            player_root=b"player-1",
-            amount=int(amount),
-            pot_type="main",
-        )
-    )
-    context.event = event
-
-
-@given("a HandComplete event with final stacks:")
-def step_given_hand_complete_with_stacks(context):
-    """Create a HandComplete event from datatable."""
+@when(r"the hand finishes with final stacks:")
+def step_when_hand_finishes_with_stacks(context):
+    """A HandComplete event populated from the data table's final stacks."""
     event = hand.HandComplete(table_root=b"table-1")
-
     for i, row in enumerate(context.table):
         row_dict = {
             context.table.headings[j]: row[j]
@@ -428,53 +328,251 @@ def step_given_hand_complete_with_stacks(context):
             )
         )
         context.projector.set_player_name(player_root, player_name)
-    context.event = event
+    _handle(context, event)
 
 
-@given(
-    'a PlayerTimedOut event for "(?P<player>[^"]+)" with default_action (?P<action>\\w+)'
-)
-def step_given_player_timed_out(context, player, action):
-    """Create a PlayerTimedOut event."""
-    action_enum = getattr(poker_types, action, poker_types.FOLD)
-    context.event = hand.PlayerTimedOut(
+# =============================================================================
+# When steps — hand domain actions
+# =============================================================================
+
+
+@when(r"(?P<name>\w+) is dealt (?P<cards>\w+ \w+)")
+def step_when_player_dealt(context, name, cards):
+    """A CardsDealt event with the named player's hole cards."""
+    event = hand.CardsDealt(
+        table_root=b"table-1",
+        hand_number=1,
+        game_variant=poker_types.TEXAS_HOLDEM,
+    )
+    card_list = [parse_card(c.strip()) for c in cards.split()]
+    event.player_cards.append(
+        hand.PlayerHoleCards(player_root=b"player-1", cards=card_list)
+    )
+    _handle(context, event)
+
+
+@when(r"(?P<name>\w+) posts the (?P<blind_type>small|big) blind of (?P<amount>\d+)")
+def step_when_player_posts_blind(context, name, blind_type, amount):
+    """A BlindPosted event."""
+    event = hand.BlindPosted(
         player_root=b"player-1",
-        default_action=action_enum,
+        blind_type=blind_type,
+        amount=int(amount),
+        pot_total=int(amount),
+        player_stack=500 - int(amount),
+    )
+    _handle(context, event)
+
+
+@when(r"(?P<name>\w+) folds")
+def step_when_player_folds(context, name):
+    """An ActionTaken event with action FOLD."""
+    event = hand.ActionTaken(
+        player_root=b"player-1",
+        action=poker_types.FOLD,
+        amount=0,
+        pot_total=0,
+        player_stack=500,
+    )
+    _handle(context, event)
+
+
+@when(r"(?P<name>\w+) calls (?P<amount>\d+) making the pot (?P<pot>\d+)")
+def step_when_player_calls(context, name, amount, pot):
+    """An ActionTaken event with action CALL."""
+    event = hand.ActionTaken(
+        player_root=b"player-1",
+        action=poker_types.CALL,
+        amount=int(amount),
+        pot_total=int(pot),
+        player_stack=500 - int(amount),
+    )
+    _handle(context, event)
+
+
+@when(r"(?P<name>\w+) raises to (?P<amount>\d+) making the pot (?P<pot>\d+)")
+def step_when_player_raises(context, name, amount, pot):
+    """An ActionTaken event with action RAISE."""
+    event = hand.ActionTaken(
+        player_root=b"player-1",
+        action=poker_types.RAISE,
+        amount=int(amount),
+        pot_total=int(pot),
+        player_stack=500 - int(amount),
+    )
+    _handle(context, event)
+
+
+@when(r"(?P<name>\w+) goes all-in for (?P<amount>\d+) making the pot (?P<pot>\d+)")
+def step_when_player_all_in(context, name, amount, pot):
+    """An ActionTaken event with action ALL_IN."""
+    event = hand.ActionTaken(
+        player_root=b"player-1",
+        action=poker_types.ALL_IN,
+        amount=int(amount),
+        pot_total=int(pot),
+        player_stack=500 - int(amount),
+    )
+    _handle(context, event)
+
+
+@when(r"the flop is dealt (?P<cards>\w+ \w+ \w+)")
+def step_when_flop_dealt(context, cards):
+    """A CommunityCardsDealt event for the FLOP phase."""
+    event = hand.CommunityCardsDealt(phase=poker_types.FLOP)
+    for card_str in cards.split():
+        event.cards.append(parse_card(card_str.strip()))
+    _handle(context, event)
+
+
+@when(r"the turn is dealt (?P<card>\w+)")
+def step_when_turn_dealt(context, card):
+    """A CommunityCardsDealt event for the TURN phase."""
+    event = hand.CommunityCardsDealt(phase=poker_types.TURN)
+    event.cards.append(parse_card(card.strip()))
+    _handle(context, event)
+
+
+@when(r"the showdown begins")
+def step_when_showdown_begins(context):
+    """A ShowdownStarted event."""
+    _handle(context, hand.ShowdownStarted())
+
+
+@when(r"(?P<name>\w+) reveals (?P<cards>\w+ \w+) with a (?P<ranking>\w+)")
+def step_when_player_reveals(context, name, cards, ranking):
+    """A CardsRevealed event with the named hand ranking."""
+    card_list = [parse_card(c.strip()) for c in cards.split()]
+    ranking_enum = getattr(poker_types, ranking.upper(), poker_types.HIGH_CARD)
+    event = hand.CardsRevealed(
+        player_root=b"player-1",
+        cards=card_list,
+        ranking=poker_types.HandRanking(rank_type=ranking_enum),
+        revealed_at=make_timestamp(),
+    )
+    _handle(context, event)
+
+
+@when(r"(?P<name>\w+) mucks (?:her|his|their) cards")
+def step_when_player_mucks(context, name):
+    """A CardsMucked event."""
+    _handle(context, hand.CardsMucked(player_root=b"player-1"))
+
+
+@when(r"(?P<name>\w+) wins a pot of (?P<amount>\d+)")
+def step_when_player_wins_pot(context, name, amount):
+    """A PotAwarded event with the named winner + amount."""
+    event = hand.PotAwarded()
+    event.winners.append(
+        hand.PotWinner(
+            player_root=b"player-1",
+            amount=int(amount),
+            pot_type="main",
+        )
+    )
+    _handle(context, event)
+
+
+@when(r"(?P<name>\w+) times out and is auto-folded")
+def step_when_player_times_out(context, name):
+    """A PlayerTimedOut event with default_action FOLD."""
+    event = hand.PlayerTimedOut(
+        player_root=b"player-1",
+        default_action=poker_types.FOLD,
         timed_out_at=make_timestamp(),
     )
+    _handle(context, event)
 
 
-@given('player "(?P<player_id>[^"]+)" is registered as "(?P<name>[^"]+)"')
-def step_given_player_registered_as(context, player_id, name):
-    """Register player with name."""
-    context.projector.set_player_name(uuid_for(player_id), name)
+# =============================================================================
+# When steps — card formatting and player resolution
+# =============================================================================
 
 
-@given("an event with created_at (?P<time>\\d+:\\d+:\\d+)")
-def step_given_event_with_time(context, time):
-    """Create a simple event with specific created_at timestamp."""
-    context.event = player.PlayerRegistered(
+@when(r"cards are shown for each suit:")
+def step_when_cards_shown_per_suit(context):
+    """Format one card per suit row."""
+    context.cards_output = ""
+    for row in context.table:
+        row_dict = {
+            context.table.headings[i]: row[i]
+            for i in range(len(context.table.headings))
+        }
+        rank = int(row_dict.get("rank", 2))
+        suit_name = row_dict.get("suit", "SPADES")
+        suit = getattr(poker_types, suit_name)
+        card = make_card(rank, suit)
+        context.cards_output += format_card(card) + " "
+    context.cards_output = context.cards_output.rstrip()
+
+
+@when(r'an event references "(?P<player_id>[^"]+)"')
+def step_when_event_references(context, player_id):
+    """Translate the reference into a PlayerJoined event (renders the player name)."""
+    player_root = uuid_for(player_id)
+    event = table.PlayerJoined(
+        player_root=player_root,
+        seat_position=1,
+        stack=500,
+        buy_in_amount=500,
+        joined_at=make_timestamp(),
+    )
+    event_book = types.EventBook(
+        cover=types.Cover(root=types.UUID(value=b"table-1"), domain="table"),
+        pages=[make_event_page(event)],
+    )
+    context.projector.handle_event_book(event_book)
+
+
+@when(r'an event references an unknown player "(?P<player_id>[^"]+)"')
+def step_when_event_references_unknown_player(context, player_id):
+    """A PlayerJoined event whose player_root was never registered."""
+    player_root = uuid_for(player_id)
+    event = table.PlayerJoined(
+        player_root=player_root,
+        seat_position=1,
+        stack=500,
+        buy_in_amount=500,
+        joined_at=make_timestamp(),
+    )
+    event_book = types.EventBook(
+        cover=types.Cover(root=types.UUID(value=b"table-1"), domain="table"),
+        pages=[make_event_page(event)],
+    )
+    context.projector.handle_event_book(event_book)
+
+
+# =============================================================================
+# When steps — timestamp + batch + unknown event
+# =============================================================================
+
+
+@when(r"an event happens at (?P<time>\d+:\d+:\d+)")
+def step_when_event_happens_at(context, time):
+    """A simple PlayerRegistered event with a specific created_at timestamp."""
+    event = player.PlayerRegistered(
         display_name="Test",
         email="test@example.com",
         player_type=poker_types.HUMAN,
     )
-    context.event_time = time
+    _handle(context, event, time_str=time)
 
 
-@given("an event with created_at")
-def step_given_event_with_created_at(context):
-    """Create a simple event with default timestamp."""
-    context.event = player.PlayerRegistered(
+@when(r"an event happens")
+def step_when_event_happens(context):
+    """A simple PlayerRegistered event with the default timestamp."""
+    event = player.PlayerRegistered(
         display_name="Test",
         email="test@example.com",
         player_type=poker_types.HUMAN,
     )
+    _handle(context, event)
 
 
-@given("an event book with PlayerJoined and BlindPosted events")
-def step_given_event_book_with_two_events(context):
-    """Create event book with two events."""
-    context.event_book = types.EventBook(
+@when(r"a batch of a PlayerJoined and a BlindPosted event is rendered")
+def step_when_batch_of_two_events(context):
+    """An event book carrying a PlayerJoined and a BlindPosted, processed as a batch."""
+    event_book = types.EventBook(
         cover=types.Cover(root=types.UUID(value=b"player-1"), domain="table"),
         pages=[
             make_event_page(
@@ -497,191 +595,142 @@ def step_given_event_book_with_two_events(context):
             ),
         ],
     )
+    context.projector.handle_event_book(event_book)
 
 
-@given('an event with unknown type_url "(?P<type_url>[^"]+)"')
-def step_given_unknown_event(context, type_url):
-    """Create an unknown event type."""
-    context.event_page_override = types.EventPage(
+@when(r"the display encounters an unfamiliar event")
+def step_when_unfamiliar_event(context):
+    """An event with an unknown type_url is fed to the projector."""
+    page = types.EventPage(
         header=types.PageHeader(sequence=0),
-        event=ProtoAny(type_url=type_url),
+        event=ProtoAny(
+            type_url="type.poker/angzarr_client.proto.examples.v1.UnknownEvent"
+        ),
         created_at=make_timestamp(),
     )
+    context.projector.handle_event(page)
 
 
-# --- When steps ---
+# =============================================================================
+# Then steps — display assertions
+# =============================================================================
 
 
-@when("the projector handles the event")
-def step_when_projector_handles_event(context):
-    """Handle the event with projector."""
-    if hasattr(context, "event_page_override"):
-        event_page = context.event_page_override
-    else:
-        time_str = getattr(context, "event_time", None)
-        event_page = make_event_page(context.event, time_str)
-
-    context.projector.handle_event(event_page)
-
-
-@when("the projector handles the event book")
-def step_when_handles_event_book(context):
-    """Handle event book."""
-    context.projector.handle_event_book(context.event_book)
-
-
-@when("formatting cards:")
-def step_when_formatting_cards(context):
-    """Format cards from datatable."""
-    context.cards_output = ""
-    for row in context.table:
-        row_dict = {
-            context.table.headings[i]: row[i]
-            for i in range(len(context.table.headings))
-        }
-        rank = int(row_dict.get("rank", 2))
-        suit_name = row_dict.get("suit", "SPADES")
-        suit = getattr(poker_types, suit_name)
-        card = make_card(rank, suit)
-        context.cards_output += format_card(card) + " "
-
-
-@when("formatting cards with rank 2 through 14")
-def step_when_formatting_ranks(context):
-    """Format all ranks."""
-    context.cards_output = ""
-    for rank in range(2, 15):
-        card = make_card(rank, poker_types.SPADES)
-        context.cards_output += format_card(card) + " "
-
-
-@when('an event references "(?P<player_id>[^"]+)"')
-def step_when_event_references(context, player_id):
-    """Handle event with player reference using PlayerJoined which renders player name."""
-    player_root = uuid_for(player_id)
-    context.event = table.PlayerJoined(
-        player_root=player_root,
-        seat_position=1,
-        stack=500,
-        buy_in_amount=500,
-        joined_at=make_timestamp(),
-    )
-    event_page = make_event_page(context.event)
-    event_book = types.EventBook(
-        cover=types.Cover(root=types.UUID(value=b"table-1"), domain="table"),
-        pages=[event_page],
-    )
-    context.projector.handle_event_book(event_book)
-
-
-@when('an event references unknown "(?P<player_id>[^"]+)"')
-def step_when_event_references_unknown(context, player_id):
-    """Handle event with unknown player reference using PlayerJoined."""
-    player_root = uuid_for(player_id)
-    context.event = table.PlayerJoined(
-        player_root=player_root,
-        seat_position=1,
-        stack=500,
-        buy_in_amount=500,
-        joined_at=make_timestamp(),
-    )
-    event_page = make_event_page(context.event)
-    event_book = types.EventBook(
-        cover=types.Cover(root=types.UUID(value=b"table-1"), domain="table"),
-        pages=[event_page],
-    )
-    context.projector.handle_event_book(event_book)
-
-
-# --- Then steps ---
-
-
-@then('the output contains "(?P<text>[^"]+)"')
-def step_then_output_contains(context, text):
-    """Verify output contains text."""
+@then(r'the display shows "(?P<text>[^"]+)"')
+def step_then_display_shows(context, text):
+    """Verify the display output contains the expected substring."""
     combined = "\n".join(context.output_lines)
-    # Also check cards_output for card formatting tests
     if hasattr(context, "cards_output"):
         combined += "\n" + context.cards_output
     assert text in combined, f"Expected '{text}' in:\n{combined}"
 
 
-@then('the output starts with "(?P<prefix>[^"]+)"')
-def step_then_output_starts_with(context, prefix):
-    """Verify output starts with prefix."""
-    if context.output_lines:
-        assert context.output_lines[0].startswith(prefix), (
-            f"Expected start '{prefix}' in:\n{context.output_lines[0]}"
-        )
-    else:
-        raise AssertionError("No output produced")
-
-
-@then('the output does not start with "(?P<prefix>[^"]+)"')
-def step_then_output_not_starts_with(context, prefix):
-    """Verify output does not start with prefix."""
-    if context.output_lines:
-        assert not context.output_lines[0].startswith(prefix)
-
-
-@then("both events are rendered in order")
-def step_then_both_events_rendered(context):
-    """Verify both events rendered."""
-    assert len(context.output_lines) == 2
-
-
-@then('the output uses "(?P<name>[^"]+)"')
-def step_then_output_uses_name(context, name):
-    """Verify output uses player name."""
-    combined = "\n".join(context.output_lines)
-    assert name in combined
-
-
-@then('the output uses "(?P<name>[^"]+)" prefix')
-def step_then_output_uses_name_prefix(context, name):
-    """Verify output uses player name prefix.
-
-    For 'Player_xyz789' prefix, we check for 'Player_' followed by hex chars
-    since the renderer uses hex representation of the player root.
-    """
-    combined = "\n".join(context.output_lines)
-    # Check for the Player_ prefix pattern (renderer uses hex)
-    if name.startswith("Player_"):
-        assert "Player_" in combined, f"Expected 'Player_' prefix in:\n{combined}"
-    else:
-        assert name in combined, f"Expected '{name}' in:\n{combined}"
-
-
-@then('the formatted output contains "(?P<text>[^"]+)" symbols')
-def step_then_output_contains_symbols(context, text):
-    """Verify formatted output contains symbols."""
-    assert text in context.cards_output or any(
-        s in context.cards_output for s in ["♠", "♥", "♦", "♣"]
+@then(r'the display line starts with "(?P<prefix>[^"]+)"')
+def step_then_display_line_starts_with(context, prefix):
+    """Verify the first display line starts with the expected prefix."""
+    assert context.output_lines, "No output produced"
+    assert context.output_lines[0].startswith(prefix), (
+        f"Expected start '{prefix}' in:\n{context.output_lines[0]}"
     )
 
 
-@then("ranks 2-9 display as digits")
-def step_then_ranks_2_9_display_as_digits(context):
-    """Verify ranks 2-9 are digits."""
-    for digit in "23456789":
-        assert digit in context.cards_output
+@then(r'the display line does not start with "(?P<prefix>[^"]+)"')
+def step_then_display_line_not_starts_with(context, prefix):
+    """Verify the first display line does NOT start with the prefix."""
+    if context.output_lines:
+        assert not context.output_lines[0].startswith(prefix), (
+            f"Did not expect start '{prefix}' in:\n{context.output_lines[0]}"
+        )
 
 
-@then('rank (?P<rank>\\d+) displays as "(?P<symbol>[^"]+)"')
-def step_then_rank_displays_as(context, rank, symbol):
-    """Verify rank display."""
-    assert symbol in context.cards_output
+@then(r"both events appear in the display in order")
+def step_then_both_events_in_order(context):
+    """Verify two lines were rendered."""
+    assert len(context.output_lines) == 2, (
+        f"Expected 2 output lines, got {len(context.output_lines)}:\n"
+        f"{context.output_lines}"
+    )
 
 
-@then("face cards display as letters")
-def step_then_face_cards_display_as_letters(context):
-    """Verify face cards are letters."""
-    for letter in "JQK":
-        assert letter in context.cards_output or "10" in context.cards_output
-
-
-@then("a warning is printed for unknown event")
-def step_then_warning_for_unknown_event(context):
-    """Verify warning printed."""
+@then(r'the display uses "(?P<name>[^"]+)"')
+def step_then_display_uses(context, name):
+    """Verify the display includes the named string (typically a player's display name)."""
     combined = "\n".join(context.output_lines)
-    assert "Unknown event type" in combined
+    assert name in combined, f"Expected '{name}' in:\n{combined}"
+
+
+@then(r'the display falls back to a short label starting with "(?P<prefix>[^"]+)"')
+def step_then_display_falls_back(context, prefix):
+    """Verify the unknown-player fallback label is used (typically Player_<hex>)."""
+    combined = "\n".join(context.output_lines)
+    # The renderer uses 'Player_' + hex; accept any 'Player_'-prefixed string.
+    if prefix.startswith("Player_"):
+        assert "Player_" in combined, f"Expected 'Player_' prefix in:\n{combined}"
+    else:
+        assert prefix in combined, f"Expected '{prefix}' in:\n{combined}"
+
+
+# =============================================================================
+# Then steps — card formatting
+# =============================================================================
+
+
+@then(r"ranks 2-9 display as digits")
+def step_then_ranks_2_9_display_as_digits(context):
+    """Verify every digit 2..9 appears in the formatted output."""
+    for digit in "23456789":
+        assert digit in context.cards_output, (
+            f"Expected '{digit}' in:\n{context.cards_output}"
+        )
+
+
+@then(r'rank (?P<rank>\d+) displays as "(?P<symbol>[^"]+)"')
+def step_then_rank_displays_as(context, rank, symbol):
+    """Verify a specific rank's symbol appears in the formatted output."""
+    if not hasattr(context, "cards_output"):
+        # The display.shows "X" path doesn't populate cards_output; fall back
+        # to the regular display assertions.
+        combined = "\n".join(context.output_lines)
+        assert symbol in combined, f"Expected '{symbol}' in:\n{combined}"
+        return
+    assert symbol in context.cards_output, (
+        f"Expected '{symbol}' in:\n{context.cards_output}"
+    )
+
+
+@then(r"a (?P<rank>\d+) displays as \"(?P<symbol>[^\"]+)\"")
+def step_then_a_rank_displays_as(context, rank, symbol):
+    """Render a single card and verify its rank symbol appears."""
+    rank_n = int(rank)
+    if not hasattr(context, "cards_output"):
+        context.cards_output = ""
+    card = make_card(rank_n, poker_types.SPADES)
+    context.cards_output += format_card(card) + " "
+    assert symbol in context.cards_output, (
+        f"Expected '{symbol}' in:\n{context.cards_output}"
+    )
+
+
+@then(r"a (?P<face>Jack|Queen|King) displays as \"(?P<symbol>[^\"]+)\"")
+def step_then_face_card_displays_as(context, face, symbol):
+    """Render a face card and verify its symbol."""
+    if not hasattr(context, "cards_output"):
+        context.cards_output = ""
+    rank = {"Jack": 11, "Queen": 12, "King": 13}[face]
+    card = make_card(rank, poker_types.SPADES)
+    context.cards_output += format_card(card) + " "
+    assert symbol in context.cards_output, (
+        f"Expected '{symbol}' in:\n{context.cards_output}"
+    )
+
+
+@then(r"an Ace displays as \"(?P<symbol>[^\"]+)\"")
+def step_then_ace_displays_as(context, symbol):
+    """Render an Ace and verify the symbol."""
+    if not hasattr(context, "cards_output"):
+        context.cards_output = ""
+    card = make_card(14, poker_types.SPADES)
+    context.cards_output += format_card(card) + " "
+    assert symbol in context.cards_output, (
+        f"Expected '{symbol}' in:\n{context.cards_output}"
+    )

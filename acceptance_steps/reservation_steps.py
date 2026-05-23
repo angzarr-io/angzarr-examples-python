@@ -174,8 +174,7 @@ def step_when_initiate_rebuy(context, player, tournament, table, seat):
     )
 
 
-@then(r"the reservation request was accepted")
-def step_then_reservation_request_accepted(context):
+def _assert_request_accepted(context):
     """Assert the reservation aggregate accepted the Initiate* — the
     Requested event was emitted (success path). PM behavior beyond this
     is observed by the next scenario step.
@@ -183,6 +182,21 @@ def step_then_reservation_request_accepted(context):
     assert context.command_succeeded, (
         f"Reservation Initiate* failed: {context.last_error}"
     )
+
+
+@then(r"the registration request was accepted")
+def step_then_registration_request_accepted(context):
+    _assert_request_accepted(context)
+
+
+@then(r"the buy-in request was accepted")
+def step_then_buy_in_request_accepted(context):
+    _assert_request_accepted(context)
+
+
+@then(r"the rebuy request was accepted")
+def step_then_rebuy_request_accepted(context):
+    _assert_request_accepted(context)
 
 
 @then(r"the reservation request was rejected")
@@ -225,53 +239,68 @@ def _send_player_command(context, player_name, cmd, type_name):
     context.players[player_name]["sequence"] = seq + 1
 
 
+def _bet_reservation_key(name: str, amount: int) -> bytes:
+    """Derive a stable per-(player, amount) reservation key for the
+    business-vocab steps that don't carry an explicit key. Tracks the
+    most-recent reserve so a follow-up confirm/release can target it.
+    """
+    return f"bet:{name}:{amount}".encode()
+
+
 @when(
-    r'player "(?P<name>[^"]+)" reserves (?P<amount>\d+) chips '
-    r'against key "(?P<key>[^"]+)"'
+    r'player "(?P<name>[^"]+)" reserves (?P<amount>\d+) chips for an '
+    r"upcoming bet"
 )
-def step_when_reserve_funds(context, name, amount, key):
+def step_when_reserve_funds_for_bet(context, name, amount):
     """Direct ReserveFunds — bypasses the PM, exercises the handler."""
+    amt = int(amount)
+    key = _bet_reservation_key(name, amt)
     cmd = player.ReserveFunds(
-        amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
-        key=key.encode(),
+        amount=poker_types.Currency(amount=amt, currency_code="CHIPS"),
+        key=key,
     )
     _send_player_command(
         context, name, cmd, "angzarr_client.proto.examples.v1.ReserveFunds"
     )
     if context.command_succeeded:
-        context.players[name]["reserved_funds"] += int(amount)
+        context.players[name]["reserved_funds"] += amt
+        context.players[name]["last_reservation_key"] = key
+        context.players[name]["last_reservation_amount"] = amt
 
 
-@when(r'player "(?P<name>[^"]+)" releases reserved funds for key "(?P<key>[^"]+)"')
-def step_when_release_funds(context, name, key):
+@when(r'player "(?P<name>[^"]+)" releases the reserved (?P<amount>\d+) chips')
+def step_when_release_reserved_chips(context, name, amount):
     """Direct ReleaseFunds — returns the reserved bucket to available."""
-    cmd = player.ReleaseFunds(key=key.encode())
+    amt = int(amount)
+    key = context.players[name].get(
+        "last_reservation_key", _bet_reservation_key(name, amt)
+    )
+    cmd = player.ReleaseFunds(key=key)
     _send_player_command(
         context, name, cmd, "angzarr_client.proto.examples.v1.ReleaseFunds"
     )
     if context.command_succeeded:
-        # Tracked release returns whatever was bucketed; in tests we set
-        # reserved=0 explicitly via the Then assertion.
-        pass
+        context.players[name]["reserved_funds"] -= amt
 
 
-@when(
-    r'player "(?P<name>[^"]+)" deducts (?P<amount>\d+) reserved chips '
-    r'against key "(?P<key>[^"]+)"'
-)
-def step_when_deduct_reserved_funds(context, name, amount, key):
+@when(r'player "(?P<name>[^"]+)" confirms the (?P<amount>\d+)-chip deduction')
+def step_when_confirm_chip_deduction(context, name, amount):
     """Direct DeductReservedFunds — settles a reserved amount (bankroll - amt)."""
+    amt = int(amount)
+    key = context.players[name].get(
+        "last_reservation_key", _bet_reservation_key(name, amt)
+    )
     cmd = player.DeductReservedFunds(
-        amount=poker_types.Currency(amount=int(amount), currency_code="CHIPS"),
-        key=key.encode(),
+        amount=poker_types.Currency(amount=amt, currency_code="CHIPS"),
+        key=key,
         reservation_id=new_uuid_bytes(),
     )
     _send_player_command(
         context, name, cmd, "angzarr_client.proto.examples.v1.DeductReservedFunds"
     )
     if context.command_succeeded:
-        context.players[name]["bankroll"] -= int(amount)
-        context.players[name]["reserved_funds"] -= int(amount)
+        context.players[name]["bankroll"] -= amt
+        context.players[name]["reserved_funds"] -= amt
 
 
 @when(r'player "(?P<name>[^"]+)" withdraws (?P<amount>\d+) chips')
