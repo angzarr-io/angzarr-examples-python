@@ -44,32 +44,6 @@ WIP_SCENARIOS: set[tuple[str, str]] = {
         "8-handed event combines 2 tables of 4 and 5 to a final table of 9 then 8",
     ),
     ("table.feature", "6-handed event combines at 7 remaining"),
-    ("cluster.feature", "A cross-domain request reaches the correct service"),
-    ("cluster.feature", "Cross-service saga propagates within realistic bound"),
-    ("cluster.feature", "Player display reflects a deposit within bound"),
-    ("cluster.feature", "Player state survives a service restart"),
-    ("cluster.feature", "Smoke end-to-end hand completes across services"),
-    (
-        "cluster_tournament.feature",
-        "Bubble triggers hand-for-hand play across all active tables",
-    ),
-    (
-        "cluster_tournament.feature",
-        "Color-up at level transition removes low-denom chips from every stack",
-    ),
-    (
-        "cluster_tournament.feature",
-        "Full-lifecycle complex tournament across every code path",
-    ),
-    (
-        "cluster_tournament.feature",
-        "Table balancing moves a player when one table is short",
-    ),
-    (
-        "cluster_tournament.feature",
-        "Three-player tournament with blind advance, rebuy, and eliminations",
-    ),
-    ("cluster_tournament.feature", "Two-player tournament completes after one hand"),
     (
         "hand.feature",
         "4-card flop - scramble all four, randomly select burn, remaining 3 = flop",
@@ -409,3 +383,45 @@ WIP_SCENARIOS: set[tuple[str, str]] = {
         "Late-reg player can be dealt the button on their first hand without missing the hand",
     ),
 }
+
+# Cluster acceptance scenarios — gRPC UNIMPLEMENTED because the deployed
+# angzarr-aggregate sidecar (pinned at b98e8de in the chart) predates the
+# aa8fc90 v1 proto move. Test client sends to angzarr.v1.CommandHandler;
+# sidecar exposes angzarr.CommandHandler. Skipped pending chart pin bump
+# to a digest that includes the v1 service paths.
+#
+# Postgres + RabbitMQ auth was also out of sync with the rotated
+# `angzarr-credentials` Secret; corrected in-cluster via
+# ALTER USER + rabbitmqctl change_password during this session. If
+# the cluster is torn down + re-`just up`'d, both will need re-aligning
+# until `seed-secrets` learns to either be idempotent on the values or
+# to update postgres/rabbitmq when rotated.
+_CLUSTER_ACCEPTANCE_PENDING_SIDECAR_BUMP: set[tuple[str, str]] = {
+    ("cluster.feature", "A cross-domain request reaches the correct service"),
+    ("cluster.feature", "Cross-service saga propagates within realistic bound"),
+    ("cluster.feature", "Player display reflects a deposit within bound"),
+    ("cluster.feature", "Player state survives a service restart"),
+    ("cluster.feature", "Smoke end-to-end hand completes across services"),
+    (
+        "cluster_tournament.feature",
+        "Bubble triggers hand-for-hand play across all active tables",
+    ),
+    (
+        "cluster_tournament.feature",
+        "Color-up at level transition removes low-denom chips from every stack",
+    ),
+    (
+        "cluster_tournament.feature",
+        "Full-lifecycle complex tournament across every code path",
+    ),
+    (
+        "cluster_tournament.feature",
+        "Table balancing moves a player when one table is short",
+    ),
+    (
+        "cluster_tournament.feature",
+        "Three-player tournament with blind advance, rebuy, and eliminations",
+    ),
+    ("cluster_tournament.feature", "Two-player tournament completes after one hand"),
+}
+WIP_SCENARIOS |= _CLUSTER_ACCEPTANCE_PENDING_SIDECAR_BUMP
