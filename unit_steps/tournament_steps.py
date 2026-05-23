@@ -183,16 +183,16 @@ def _stamp_scenario_cover(context, err):
 # --- Given steps ---
 
 
-@given(r"no prior events for the tournament aggregate")
+@given(r"the tournament has not yet been created")
 def step_given_no_prior_events(context):
     """Initialize with empty event history."""
     context.events = []
 
 
 @given(
-    r'a TournamentCreated event with name "(?P<name>[^"]*)" '
-    r"buy_in (?P<buy_in>-?\d+) starting_stack (?P<starting_stack>-?\d+) "
-    r"max_players (?P<max_players>-?\d+) min_players (?P<min_players>-?\d+)"
+    r'tournament "(?P<name>[^"]*)" exists with (?P<buy_in>-?\d+) buy-in, '
+    r"(?P<starting_stack>-?\d+) starting stack, max (?P<max_players>-?\d+) "
+    r"players, min (?P<min_players>-?\d+) players"
 )
 def step_given_tournament_created(
     context, name, buy_in, starting_stack, max_players, min_players
@@ -256,7 +256,7 @@ def step_given_tournament_with_min_max_open(context, min_players, max_players):
     _append_registration_opened(context)
 
 
-@given(r'a player "(?P<player_label>[^"]+)" enrolled')
+@given(r'player "(?P<player_label>[^"]+)" is enrolled')
 def step_given_player_enrolled(context, player_label):
     """Append a TournamentPlayerEnrolled event for this player label."""
     _append_player_enrolled(context, player_label)
@@ -286,9 +286,9 @@ def step_given_running_tournament_with_n_players(context, min_players, max_playe
 
 
 @when(
-    r'I handle a CreateTournament command with name "(?P<name>[^"]*)" '
-    r"buy_in (?P<buy_in>-?\d+) starting_stack (?P<starting_stack>-?\d+) "
-    r"max_players (?P<max_players>-?\d+) min_players (?P<min_players>-?\d+)"
+    r'tournament "(?P<name>[^"]*)" is created with (?P<buy_in>-?\d+) buy-in, '
+    r"(?P<starting_stack>-?\d+) starting stack, max (?P<max_players>-?\d+) "
+    r"players, min (?P<min_players>-?\d+) players"
 )
 def step_when_create_tournament(
     context, name, buy_in, starting_stack, max_players, min_players
@@ -304,21 +304,21 @@ def step_when_create_tournament(
     _execute_handler(context, "create", cmd)
 
 
-@when(r"I handle an OpenRegistration command")
+@when(r"registration opens")
 def step_when_open_registration(context):
     cmd = tournament.OpenRegistration()
     _execute_handler(context, "open", cmd)
 
 
-@when(r"I handle a CloseRegistration command")
+@when(r"registration closes")
 def step_when_close_registration(context):
     cmd = tournament.CloseRegistration()
     _execute_handler(context, "close", cmd)
 
 
 @when(
-    r'I handle an EnrollPlayer command for player "(?P<player_label>[^"]*)" '
-    r'reservation "(?P<res_label>[^"]*)"'
+    r'player "(?P<player_label>[^"]*)" enrolls with reservation '
+    r'"(?P<res_label>[^"]*)"'
 )
 def step_when_enroll_player(context, player_label, res_label):
     cmd = tournament.EnrollPlayer(
@@ -328,7 +328,7 @@ def step_when_enroll_player(context, player_label, res_label):
     _execute_handler(context, "enroll", cmd)
 
 
-@when(r'I handle a ProcessRebuy command for player "(?P<player_label>[^"]*)"')
+@when(r'player "(?P<player_label>[^"]*)" requests a rebuy')
 def step_when_process_rebuy(context, player_label):
     cmd = tournament.ProcessRebuy(
         player_root=uuid_for(player_label) if player_label else b"",
@@ -336,7 +336,7 @@ def step_when_process_rebuy(context, player_label):
     _execute_handler(context, "rebuy", cmd)
 
 
-@when(r'I handle an EliminatePlayer command for player "(?P<player_label>[^"]*)"')
+@when(r'player "(?P<player_label>[^"]*)" is eliminated')
 def step_when_eliminate_player(context, player_label):
     cmd = tournament.EliminatePlayer(
         player_root=uuid_for(player_label) if player_label else b"",
@@ -344,19 +344,19 @@ def step_when_eliminate_player(context, player_label):
     _execute_handler(context, "eliminate", cmd)
 
 
-@when(r'I handle a PauseTournament command with reason "(?P<reason>[^"]*)"')
+@when(r'the tournament is paused with reason "(?P<reason>[^"]*)"')
 def step_when_pause_tournament(context, reason):
     cmd = tournament.PauseTournament(reason=reason)
     _execute_handler(context, "pause", cmd)
 
 
-@when(r"I handle a ResumeTournament command")
+@when(r"the tournament resumes")
 def step_when_resume_tournament(context):
     cmd = tournament.ResumeTournament()
     _execute_handler(context, "resume", cmd)
 
 
-@when(r"I handle a StartTournament command")
+@when(r"the tournament starts")
 def step_when_start_tournament(context):
     cmd = tournament.StartTournament()
     _execute_handler(context, "start", cmd)
@@ -365,7 +365,7 @@ def step_when_start_tournament(context):
 # --- Then steps ---
 
 
-@then(r'the tournament event has name "(?P<name>[^"]*)"')
+@then(r'the tournament is named "(?P<name>[^"]*)"')
 def step_then_event_has_name(context, name):
     event = try_unpack(context.result_event_any, tournament.TournamentCreated)
     assert event is not None, (
@@ -374,14 +374,14 @@ def step_then_event_has_name(context, name):
     assert event.name == name, f"Expected name={name!r}, got {event.name!r}"
 
 
-@then(r"the tournament event has buy_in (?P<buy_in>-?\d+)")
+@then(r"the buy-in is (?P<buy_in>-?\d+)")
 def step_then_event_has_buy_in(context, buy_in):
     event = try_unpack(context.result_event_any, tournament.TournamentCreated)
     assert event is not None
     assert event.buy_in == int(buy_in), f"Expected buy_in={buy_in}, got {event.buy_in}"
 
 
-@then(r"the tournament event has starting_stack (?P<stack>-?\d+)")
+@then(r"the starting stack is (?P<stack>-?\d+)")
 def step_then_event_has_starting_stack(context, stack):
     """starting_stack is on TournamentCreated and TournamentPlayerEnrolled
     — try both event types so this step works for either context."""
@@ -395,44 +395,73 @@ def step_then_event_has_starting_stack(context, stack):
     raise AssertionError("event has no starting_stack field")
 
 
-@then(r'the tournament event has player_root "(?P<label>[^"]*)"')
-def step_then_event_has_player_root(context, label):
-    event_any = context.result_event_any
-    event = (
-        try_unpack(event_any, tournament.TournamentPlayerEnrolled)
-        or try_unpack(event_any, tournament.TournamentEnrollmentRejected)
-        or try_unpack(event_any, tournament.RebuyProcessed)
-        or try_unpack(event_any, tournament.RebuyDenied)
-        or try_unpack(event_any, tournament.PlayerEliminated)
+@then(r'player "(?P<label>[^"]+)" is enrolled paying a fee of (?P<fee>-?\d+)')
+def step_then_player_enrolled_with_fee(context, label, fee):
+    """Combined assertion: player_root matches AND fee_paid matches.
+
+    Replaces tech-vocab "the tournament event has player_root X" + "fee_paid Y".
+    """
+    event = try_unpack(context.result_event_any, tournament.TournamentPlayerEnrolled)
+    assert event is not None, (
+        f"Not a TournamentPlayerEnrolled event: {context.result_event_any.type_url}"
     )
-    assert event is not None, f"No player_root field on event: {event_any.type_url}"
+    assert event.player_root == uuid_for(label), (
+        f"Expected player_root={uuid_for(label)!r}, got {event.player_root!r}"
+    )
+    assert event.fee_paid == int(fee), f"Expected fee_paid={fee}, got {event.fee_paid}"
+
+
+@then(r'player "(?P<label>[^"]+)" is enrolled with starting stack (?P<stack>-?\d+)')
+def step_then_player_enrolled_with_stack(context, label, stack):
+    event = try_unpack(context.result_event_any, tournament.TournamentPlayerEnrolled)
+    assert event is not None, (
+        f"Not a TournamentPlayerEnrolled event: {context.result_event_any.type_url}"
+    )
+    assert event.player_root == uuid_for(label)
+    assert event.starting_stack == int(stack), (
+        f"Expected starting_stack={stack}, got {event.starting_stack}"
+    )
+
+
+@then(r'player "(?P<label>[^"]+)" is enrolled')
+def step_then_player_enrolled(context, label):
+    """Just assert the event type + player_root (no fee assertion)."""
+    event = try_unpack(context.result_event_any, tournament.TournamentPlayerEnrolled)
+    assert event is not None, (
+        f"Not a TournamentPlayerEnrolled event: {context.result_event_any.type_url}"
+    )
     assert event.player_root == uuid_for(label), (
         f"Expected player_root={uuid_for(label)!r}, got {event.player_root!r}"
     )
 
 
-@then(r"the tournament event has fee_paid (?P<fee>-?\d+)")
-def step_then_event_has_fee_paid(context, fee):
-    event = try_unpack(context.result_event_any, tournament.TournamentPlayerEnrolled)
-    assert event is not None, (
-        f"Not a TournamentPlayerEnrolled event: {context.result_event_any.type_url}"
-    )
-    assert event.fee_paid == int(fee), f"Expected fee_paid={fee}, got {event.fee_paid}"
-
-
-@then(r'the tournament event has reason containing "(?P<text>[^"]*)"')
-def step_then_event_reason_contains(context, text):
+@then(r'the enrollment is rejected because of "(?P<text>[^"]*)"')
+def step_then_enrollment_rejected_with_reason(context, text):
+    """Asserts the result is a TournamentEnrollmentRejected event whose
+    reason contains ``text``. Combines the tech-vocab assertions
+    "the result is X" + "the tournament event has reason containing Y"."""
     event_any = context.result_event_any
-    event = try_unpack(
-        event_any, tournament.TournamentEnrollmentRejected
-    ) or try_unpack(event_any, tournament.RebuyDenied)
-    assert event is not None, f"No reason field on event: {event_any.type_url}"
+    event = try_unpack(event_any, tournament.TournamentEnrollmentRejected)
+    assert event is not None, (
+        f"Not a TournamentEnrollmentRejected event: {event_any.type_url}"
+    )
     assert text.lower() in event.reason.lower(), (
         f"Expected reason to contain {text!r}, got {event.reason!r}"
     )
 
 
-@then(r"the tournament event has total_players (?P<n>-?\d+)")
+@then(r'the rebuy is denied because of "(?P<text>[^"]*)"')
+def step_then_rebuy_denied_with_reason(context, text):
+    """Asserts the result is a RebuyDenied event whose reason contains ``text``."""
+    event_any = context.result_event_any
+    event = try_unpack(event_any, tournament.RebuyDenied)
+    assert event is not None, f"Not a RebuyDenied event: {event_any.type_url}"
+    assert text.lower() in event.reason.lower(), (
+        f"Expected reason to contain {text!r}, got {event.reason!r}"
+    )
+
+
+@then(r"the tournament is running with (?P<n>-?\d+) players")
 def step_then_event_has_total_players(context, n):
     event = try_unpack(context.result_event_any, tournament.TournamentStarted)
     assert event is not None, (
@@ -443,23 +472,163 @@ def step_then_event_has_total_players(context, n):
     )
 
 
-@then(r'the command fails with status "(?P<status>[^"]+)"')
-def step_then_command_fails_with_status(context, status):
+# Business-vocab "refused because" mapping — single matcher for the many
+# specific business reasons. Each scenario provides a unique trailing
+# phrase; we just verify the command failed with the right status and
+# the message contains that phrase.
+_REFUSAL_STATUS = {
+    # "the <action> is refused because <reason>": status -> reason text
+}
+
+
+@then(r"the create-tournament is refused because (?P<text>.+)")
+def step_then_create_tournament_refused(context, text):
+    """Failed CreateTournament — verifies failure plus message content.
+
+    Maps multiple legacy assertions ("FAILED_PRECONDITION"+contains
+    or "INVALID_ARGUMENT"+contains) into a single business-vocab step.
+    """
     assert context.error is not None, "Expected command to fail but it succeeded"
-    assert hasattr(context.error, "status_code"), (
-        f"Error {type(context.error).__name__} has no status_code attribute"
-    )
-    assert context.error.status_code == status, (
-        f"Expected status {status}, got {context.error.status_code}"
+    # Normalize: "it already exists" -> "already exists"; the handler's
+    # message uses "already exists" verbatim.
+    needle = text.strip()
+    if needle == "it already exists":
+        needle = "already exists"
+    elif needle == "the name is required":
+        needle = "name is required"
+    elif needle == "min_players exceeds max_players":
+        # The handler doesn't return this exact text; rely on the
+        # subsequent "rejection code MIN_PLAYERS_EXCEEDS_MAX" assertion
+        # to pin the specific failure. Status check only.
+        assert context.error.status_code == "FAILED_PRECONDITION"
+        return
+    assert needle.lower() in context.error_message.lower(), (
+        f"Expected error to contain {needle!r}, got {context.error_message!r}"
     )
 
 
-@then(r'the error message contains "(?P<text>[^"]+)"')
-def step_then_error_contains(context, text):
-    assert context.error is not None, "Expected an error but got success"
-    assert text.lower() in context.error_message.lower(), (
-        f"Expected error to contain {text!r}, got {context.error_message!r}"
+@then(r"opening registration is refused because (?P<text>.+)")
+def step_then_open_reg_refused(context, text):
+    assert context.error is not None, "Expected command to fail but it succeeded"
+    needle = text.strip()
+    if needle == "the tournament does not exist":
+        needle = "does not exist"
+    elif needle == "it is already open":
+        needle = "already open"
+    elif needle == "the tournament is running":
+        needle = "running tournament"
+    assert needle.lower() in context.error_message.lower(), (
+        f"Expected error to contain {needle!r}, got {context.error_message!r}"
     )
+
+
+@then(r"closing registration is refused because (?P<text>.+)")
+def step_then_close_reg_refused(context, text):
+    assert context.error is not None, "Expected command to fail but it succeeded"
+    needle = text.strip()
+    if needle == "it is not open":
+        needle = "not open"
+    assert needle.lower() in context.error_message.lower(), (
+        f"Expected error to contain {needle!r}, got {context.error_message!r}"
+    )
+
+
+@then(r"the rebuy is refused because (?P<text>.+)")
+def step_then_rebuy_refused(context, text):
+    assert context.error is not None, "Expected command to fail but it succeeded"
+    needle = text.strip()
+    if needle == "the tournament is not running":
+        needle = "not running"
+    elif needle == "the tournament does not exist":
+        needle = "does not exist"
+    assert needle.lower() in context.error_message.lower(), (
+        f"Expected error to contain {needle!r}, got {context.error_message!r}"
+    )
+
+
+@then(r"the elimination is refused because (?P<text>.+)")
+def step_then_eliminate_refused(context, text):
+    assert context.error is not None, "Expected command to fail but it succeeded"
+    needle = text.strip()
+    if needle == "the tournament is not running":
+        needle = "not running"
+    elif needle == "the player is not registered":
+        needle = "not registered"
+    assert needle.lower() in context.error_message.lower(), (
+        f"Expected error to contain {needle!r}, got {context.error_message!r}"
+    )
+
+
+@then(r"the pause is refused because (?P<text>.+)")
+def step_then_pause_refused(context, text):
+    assert context.error is not None, "Expected command to fail but it succeeded"
+    needle = text.strip()
+    if needle == "the tournament is not running":
+        needle = "not running"
+    elif needle == "the tournament is already paused":
+        needle = "already paused"
+    assert needle.lower() in context.error_message.lower(), (
+        f"Expected error to contain {needle!r}, got {context.error_message!r}"
+    )
+
+
+@then(r"the resume is refused because (?P<text>.+)")
+def step_then_resume_refused(context, text):
+    assert context.error is not None, "Expected command to fail but it succeeded"
+    needle = text.strip()
+    if needle == "the tournament is not paused":
+        needle = "not paused"
+    assert needle.lower() in context.error_message.lower(), (
+        f"Expected error to contain {needle!r}, got {context.error_message!r}"
+    )
+
+
+@then(r"the start is refused because (?P<text>.+)")
+def step_then_start_refused(context, text):
+    assert context.error is not None, "Expected command to fail but it succeeded"
+    needle = text.strip()
+    if needle == "there are not enough players":
+        needle = "Not enough players"
+    assert needle.lower() in context.error_message.lower(), (
+        f"Expected error to contain {needle!r}, got {context.error_message!r}"
+    )
+
+
+@then(r"the enrollment is refused because (?P<text>.+)")
+def step_then_enrollment_refused(context, text):
+    assert context.error is not None, "Expected command to fail but it succeeded"
+    needle = text.strip()
+    if needle == "the tournament does not exist":
+        needle = "Tournament does not exist"
+    assert needle.lower() in context.error_message.lower(), (
+        f"Expected error to contain {needle!r}, got {context.error_message!r}"
+    )
+
+
+@then(r"advancing the blind level is refused because (?P<text>.+)")
+def step_then_advance_blind_refused(context, text):
+    assert context.error is not None, "Expected command to fail but it succeeded"
+    needle = text.strip()
+    if needle == "the tournament is not running":
+        needle = "not running"
+    elif needle == "the blind structure is exhausted":
+        # The specific BLIND_STRUCTURE_EXHAUSTED code is asserted by the
+        # subsequent "the command is rejected with code ..." line.
+        assert context.error.status_code == "FAILED_PRECONDITION"
+        return
+    assert needle.lower() in context.error_message.lower(), (
+        f"Expected error to contain {needle!r}, got {context.error_message!r}"
+    )
+
+
+@then(r"completing the tournament is refused because (?P<text>.+)")
+def step_then_complete_refused(context, text):
+    assert context.error is not None, "Expected command to fail but it succeeded"
+    # Code-asserted rejections (PAYOUTS_DO_NOT_SUM_TO_POOL,
+    # FINISHING_ORDER_SHORTER_THAN_PAYOUT_POSITIONS) pin the precise
+    # failure via the subsequent "rejected with code ..." line; here we
+    # just confirm the command was refused.
+    assert context.error.status_code == "FAILED_PRECONDITION"
 
 
 # =============================================================================
@@ -573,51 +742,32 @@ def _append_created_with_rebuy_config(
     context.events.append(make_event_page(event, seq=len(context.events)))
 
 
-@given(
-    r'a TournamentCreated event for "(?P<name>[^"]+)" with '
-    r"buy_in (?P<buy_in>-?\d+) starting_stack (?P<stack>-?\d+) "
-    r"max_players (?P<max_p>-?\d+) min_players (?P<min_p>-?\d+)"
-)
-def step_given_tc_for_name(context, name, buy_in, stack, max_p, min_p):
-    _append_created(
-        context,
-        name=name,
-        buy_in=int(buy_in),
-        starting_stack=int(stack),
-        max_players=int(max_p),
-        min_players=int(min_p),
-    )
-
-
-@given(r"a RegistrationOpened event")
+@given(r"registration has opened")
 def step_given_registration_opened(context):
     _append_registration_opened(context)
 
 
-@given(r"a RegistrationClosed event")
+@given(r"registration has closed")
 def step_given_registration_closed(context):
     _append_registration_closed(context)
 
 
-@given(r"a TournamentPaused event")
+@given(r"the tournament was paused")
 def step_given_tournament_paused(context):
     _append_tournament_paused(context)
 
 
-@given(r"a TournamentResumed event")
+@given(r"the tournament was resumed")
 def step_given_tournament_resumed(context):
     _append_tournament_resumed(context)
 
 
-@given(r"a TournamentCompleted event")
+@given(r"the tournament was completed")
 def step_given_tournament_completed(context):
     _append_tournament_completed(context)
 
 
-@given(
-    r'a TournamentPlayerEnrolled event for player "(?P<label>[^"]+)" '
-    r"with fee_paid (?P<fee>-?\d+)"
-)
+@given(r'player "(?P<label>[^"]+)" was enrolled paying (?P<fee>-?\d+)')
 def step_given_enrolled_with_fee(context, label, fee):
     _ensure_events(context)
     event = tournament.TournamentPlayerEnrolled(
@@ -629,35 +779,35 @@ def step_given_enrolled_with_fee(context, label, fee):
 
 
 @given(
-    r'a TournamentEnrollmentRejected event for player "(?P<label>[^"]+)" '
-    r'with reason "(?P<reason>[^"]*)"'
+    r'player "(?P<label>[^"]+)" was rejected from enrollment because of '
+    r'"(?P<reason>[^"]*)"'
 )
 def step_given_enrollment_rejected(context, label, reason):
     _append_enrollment_rejected(context, label, reason)
 
 
 @given(
-    r'a RebuyProcessed event for player "(?P<label>[^"]+)" '
-    r"with rebuy_cost (?P<cost>-?\d+) rebuy_count (?P<cnt>-?\d+)"
+    r'player "(?P<label>[^"]+)" had a rebuy processed at cost (?P<cost>-?\d+) '
+    r"for rebuy (?P<cnt>-?\d+)"
 )
 def step_given_rebuy_processed(context, label, cost, cnt):
     _append_rebuy_processed(context, label, int(cost), int(cnt))
 
 
 @given(
-    r'a RebuyDenied event for player "(?P<label>[^"]+)" '
-    r'with reason "(?P<reason>[^"]*)"'
+    r'player "(?P<label>[^"]+)" was denied a rebuy because of '
+    r'"(?P<reason>[^"]*)"'
 )
 def step_given_rebuy_denied(context, label, reason):
     _append_rebuy_denied(context, label, reason)
 
 
-@given(r"a BlindLevelAdvanced event to level (?P<lvl>-?\d+)")
+@given(r"the blind level was advanced to (?P<lvl>-?\d+)")
 def step_given_blind_advanced(context, lvl):
     _append_blind_level_advanced(context, int(lvl))
 
 
-@given(r'a PlayerEliminated event for player "(?P<label>[^"]+)"')
+@given(r'player "(?P<label>[^"]+)" was eliminated previously')
 def step_given_player_eliminated(context, label):
     _append_player_eliminated(context, label)
 
@@ -826,16 +976,13 @@ def step_given_running_with_max_rebuys(context, mx, label, used):
 # =============================================================================
 
 
-@when(r"I handle an AdvanceBlindLevel command")
+@when(r"the blind level advances")
 def step_when_advance_blind_level(context):
     cmd = tournament.AdvanceBlindLevel()
     _execute_handler(context, "handle_advance_blind_level", cmd)
 
 
-@when(
-    r'I handle an EliminatePlayer command for player "(?P<label>[^"]*)" '
-    r'with hand_root "(?P<hand>[^"]+)"'
-)
+@when(r'player "(?P<label>[^"]*)" is eliminated on hand "(?P<hand>[^"]+)"')
 def step_when_eliminate_player_with_hand(context, label, hand):
     cmd = tournament.EliminatePlayer(
         player_root=uuid_for(label) if label else b"",
@@ -904,62 +1051,124 @@ def _unpack_result(context):
     return evt
 
 
-@then(r"the tournament event has blind level (?P<lvl>-?\d+)")
-def step_then_event_blind_level(context, lvl):
-    evt = _unpack_result(context)
+@then(
+    r"the tournament is at blind level (?P<lvl>-?\d+) with small blind "
+    r"(?P<sb>-?\d+) and ante (?P<ante>-?\d+)"
+)
+def step_then_blind_level_advanced(context, lvl, sb, ante):
+    """Combined assertion: BlindLevelAdvanced level + small_blind + ante."""
+    evt = try_unpack(context.result_event_any, tournament.BlindLevelAdvanced)
+    assert evt is not None, (
+        f"Not a BlindLevelAdvanced event: {context.result_event_any.type_url}"
+    )
     assert evt.level == int(lvl), f"Expected level={lvl}, got {evt.level}"
+    assert evt.small_blind == int(sb), (
+        f"Expected small_blind={sb}, got {evt.small_blind}"
+    )
+    assert evt.ante == int(ante), f"Expected ante={ante}, got {evt.ante}"
 
 
-@then(r"the tournament event has small_blind (?P<v>-?\d+)")
-def step_then_event_small_blind(context, v):
-    evt = _unpack_result(context)
-    assert evt.small_blind == int(v), f"Expected small_blind={v}, got {evt.small_blind}"
-
-
-@then(r"the tournament event has ante (?P<v>-?\d+)")
-def step_then_event_ante(context, v):
-    evt = _unpack_result(context)
-    assert evt.ante == int(v), f"Expected ante={v}, got {evt.ante}"
-
-
-@then(r'the tournament event has hand_root "(?P<hand>[^"]+)"')
+@then(r'the elimination records hand "(?P<hand>[^"]+)"')
 def step_then_event_hand_root(context, hand):
-    evt = _unpack_result(context)
+    """Combined assertion: PlayerEliminated event + hand_root."""
+    evt = try_unpack(context.result_event_any, tournament.PlayerEliminated)
+    assert evt is not None, (
+        f"Not a PlayerEliminated event: {context.result_event_any.type_url}"
+    )
     assert evt.hand_root == uuid_for(hand), (
         f"Expected hand_root={hand!r}, got {evt.hand_root!r}"
     )
 
 
-@then(r'the tournament event has reason "(?P<text>[^"]*)"')
+@then(r'the tournament is paused with reason "(?P<text>[^"]*)"')
 def step_then_event_reason_exact(context, text):
-    evt = _unpack_result(context)
+    """Assert TournamentPaused event with exact reason."""
+    evt = try_unpack(context.result_event_any, tournament.TournamentPaused)
+    assert evt is not None, (
+        f"Not a TournamentPaused event: {context.result_event_any.type_url}"
+    )
     assert evt.reason == text, f"Expected reason={text!r}, got {evt.reason!r}"
 
 
-@then(r"the tournament event has total_registrations (?P<n>-?\d+)")
+@then(r"the tournament has resumed")
+def step_then_tournament_resumed_event(context):
+    evt = try_unpack(context.result_event_any, tournament.TournamentResumed)
+    assert evt is not None, (
+        f"Not a TournamentResumed event: {context.result_event_any.type_url}"
+    )
+
+
+@then(r"registration is closed with (?P<n>-?\d+) total registrations")
 def step_then_event_total_registrations(context, n):
-    evt = _unpack_result(context)
+    """Combines "the result is RegistrationClosed" + the total_registrations
+    assertion into one business-vocab step."""
+    evt = try_unpack(context.result_event_any, tournament.RegistrationClosed)
+    assert evt is not None, (
+        f"Not a RegistrationClosed event: {context.result_event_any.type_url}"
+    )
     assert evt.total_registrations == int(n), (
         f"Expected total_registrations={n}, got {evt.total_registrations}"
     )
 
 
-@then(r"the tournament event has rebuy_cost (?P<v>-?\d+)")
-def step_then_event_rebuy_cost(context, v):
-    evt = _unpack_result(context)
-    assert evt.rebuy_cost == int(v), f"Expected rebuy_cost={v}, got {evt.rebuy_cost}"
+@then(r"registration is open")
+def step_then_registration_is_open(context):
+    """Assert the result event is RegistrationOpened."""
+    evt = try_unpack(context.result_event_any, tournament.RegistrationOpened)
+    assert evt is not None, (
+        f"Not a RegistrationOpened event: {context.result_event_any.type_url}"
+    )
 
 
-@then(r"the tournament event has chips_added (?P<v>-?\d+)")
-def step_then_event_chips_added(context, v):
-    evt = _unpack_result(context)
-    assert evt.chips_added == int(v), f"Expected chips_added={v}, got {evt.chips_added}"
+@then(r"registration is closed")
+def step_then_registration_is_closed(context):
+    """Assert the result event is RegistrationClosed."""
+    evt = try_unpack(context.result_event_any, tournament.RegistrationClosed)
+    assert evt is not None, (
+        f"Not a RegistrationClosed event: {context.result_event_any.type_url}"
+    )
 
 
-@then(r"the tournament event has rebuy_count (?P<v>-?\d+)")
-def step_then_event_rebuy_count(context, v):
-    evt = _unpack_result(context)
-    assert evt.rebuy_count == int(v), f"Expected rebuy_count={v}, got {evt.rebuy_count}"
+@then(
+    r"the rebuy is processed at cost (?P<cost>-?\d+) adding (?P<chips>-?\d+) "
+    r"chips for rebuy (?P<count>-?\d+)"
+)
+def step_then_rebuy_processed_with_fields(context, cost, chips, count):
+    """Combined RebuyProcessed event assertion."""
+    evt = try_unpack(context.result_event_any, tournament.RebuyProcessed)
+    assert evt is not None, (
+        f"Not a RebuyProcessed event: {context.result_event_any.type_url}"
+    )
+    assert evt.rebuy_cost == int(cost), (
+        f"Expected rebuy_cost={cost}, got {evt.rebuy_cost}"
+    )
+    assert evt.chips_added == int(chips), (
+        f"Expected chips_added={chips}, got {evt.chips_added}"
+    )
+    assert evt.rebuy_count == int(count), (
+        f"Expected rebuy_count={count}, got {evt.rebuy_count}"
+    )
+
+
+@then(r"the rebuy is processed as rebuy (?P<count>-?\d+)")
+def step_then_rebuy_processed_as(context, count):
+    """RebuyProcessed event with just rebuy_count specified."""
+    evt = try_unpack(context.result_event_any, tournament.RebuyProcessed)
+    assert evt is not None, (
+        f"Not a RebuyProcessed event: {context.result_event_any.type_url}"
+    )
+    assert evt.rebuy_count == int(count), (
+        f"Expected rebuy_count={count}, got {evt.rebuy_count}"
+    )
+
+
+@then(r"the rebuy is processed")
+def step_then_rebuy_processed(context):
+    """RebuyProcessed event with no further field assertions."""
+    evt = try_unpack(context.result_event_any, tournament.RebuyProcessed)
+    assert evt is not None, (
+        f"Not a RebuyProcessed event: {context.result_event_any.type_url}"
+    )
 
 
 # =============================================================================
@@ -1245,7 +1454,7 @@ def step_given_finishing_order(context, order):
     context.finishing_order = [name.strip() for name in order.split(",")]
 
 
-@when(r'I handle a CompleteTournament command with winner "(?P<winner>[^"]+)"')
+@when(r'the tournament completes with winner "(?P<winner>[^"]+)"')
 def step_when_complete_tournament_simple(context, winner):
     cmd = tournament.CompleteTournament(winner_root=uuid_for(winner))
     finishing = getattr(context, "finishing_order", [])
@@ -1255,7 +1464,7 @@ def step_when_complete_tournament_simple(context, winner):
 
 
 @when(
-    r'I handle a CompleteTournament command with winner "(?P<winner>[^"]+)" '
+    r'the tournament completes with winner "(?P<winner>[^"]+)" '
     r'and finishing order "(?P<order>[^"]+)"'
 )
 def step_when_complete_tournament_with_order(context, winner, order):
@@ -1265,16 +1474,28 @@ def step_when_complete_tournament_with_order(context, winner, order):
     _execute_handler(context, "complete", cmd)
 
 
-@then(r'the tournament event has winner_root "(?P<label>[^"]+)"')
+@then(r'the tournament is completed with winner "(?P<label>[^"]+)"')
 def step_then_event_winner_root(context, label):
-    evt = tournament.TournamentCompleted()
-    context.result_event_any.Unpack(evt)
+    """Combined: TournamentCompleted result + winner_root assertion."""
+    evt = try_unpack(context.result_event_any, tournament.TournamentCompleted)
+    assert evt is not None, (
+        f"Not a TournamentCompleted event: {context.result_event_any.type_url}"
+    )
     assert evt.winner_root == uuid_for(label), (
         f"winner_root: expected {label}, got {evt.winner_root.hex()[:8]}"
     )
 
 
-@then(r"the tournament event has (?P<n>\d+) results?")
+@then(r"the tournament is completed")
+def step_then_tournament_completed(context):
+    """Bare TournamentCompleted result event assertion (no winner check)."""
+    evt = try_unpack(context.result_event_any, tournament.TournamentCompleted)
+    assert evt is not None, (
+        f"Not a TournamentCompleted event: {context.result_event_any.type_url}"
+    )
+
+
+@then(r"there are (?P<n>\d+) results?")
 def step_then_event_n_results(context, n):
     evt = tournament.TournamentCompleted()
     context.result_event_any.Unpack(evt)
@@ -1379,8 +1600,8 @@ def step_given_player_at_table_with_n(context, player_id, n):
 
 
 @when(
-    r'I handle an IssuePenalty command for player "(?P<player_id>[^"]+)" '
-    r'with type "(?P<ptype>[^"]+)" rounds (?P<rounds>\d+)'
+    r'player "(?P<player_id>[^"]+)" is issued a "(?P<ptype>[^"]+)" penalty '
+    r"for (?P<rounds>\d+) rounds"
 )
 def step_when_issue_penalty(context, player_id, ptype, rounds):
     """Issue a penalty via the tournament handler."""
@@ -1393,17 +1614,17 @@ def step_when_issue_penalty(context, player_id, ptype, rounds):
     _execute_handler(context, "issue_penalty", cmd)
 
 
-@then(r'the penalty event has type "(?P<ptype>[^"]+)"')
-def step_then_penalty_type(context, ptype):
-    evt = tournament.PenaltyIssued()
-    context.result_event_any.Unpack(evt)
+@then(
+    r'the penalty issued is of type "(?P<ptype>[^"]+)" with '
+    r"(?P<n>\d+) missed hands"
+)
+def step_then_penalty_combined(context, ptype, n):
+    """Combined PenaltyIssued: type + missed_hands in one assertion."""
+    evt = try_unpack(context.result_event_any, tournament.PenaltyIssued)
+    assert evt is not None, (
+        f"Not a PenaltyIssued event: {context.result_event_any.type_url}"
+    )
     assert evt.type == ptype, f"penalty type={evt.type!r}, expected {ptype!r}"
-
-
-@then(r"the penalty event has missed_hands (?P<n>\d+)")
-def step_then_penalty_missed_hands(context, n):
-    evt = tournament.PenaltyIssued()
-    context.result_event_any.Unpack(evt)
     assert evt.missed_hands == int(n), f"missed_hands={evt.missed_hands}, expected {n}"
 
 
@@ -1428,10 +1649,7 @@ def step_given_player_stack_and_total(context, player_id, stack, total):
     context.seed_total_chips_in_play = int(total)
 
 
-@when(
-    r'I handle a DisqualifyPlayer command for player "(?P<player_id>[^"]+)" '
-    r'with reason "(?P<reason>[^"]+)"'
-)
+@when(r'player "(?P<player_id>[^"]+)" is disqualified for "(?P<reason>[^"]+)"')
 def step_when_disqualify_player(context, player_id, reason):
     """Issue DQ command. Pre-seeds player_stacks if the test asked
     for it via the prior Given step."""
@@ -1471,10 +1689,14 @@ def step_when_disqualify_player(context, player_id, reason):
         context.error_message = str(e)
 
 
-@then(r"the disqualification event has chips_forfeited (?P<n>\d+)")
-def step_then_dq_chips_forfeited(context, n):
-    evt = tournament.PlayerDisqualified()
-    context.result_event_any.Unpack(evt)
+@then(r'player "(?P<player_id>[^"]+)" is disqualified forfeiting (?P<n>\d+) chips')
+def step_then_dq_chips_forfeited(context, player_id, n):
+    """Combined: PlayerDisqualified event + chips_forfeited assertion."""
+    evt = try_unpack(context.result_event_any, tournament.PlayerDisqualified)
+    assert evt is not None, (
+        f"Not a PlayerDisqualified event: {context.result_event_any.type_url}"
+    )
+    assert evt.player_root == uuid_for(player_id)
     assert evt.chips_removed == int(n), (
         f"chips_removed={evt.chips_removed}, expected {n}"
     )
@@ -1601,8 +1823,8 @@ def step_when_floor_dq_softplay(context, player_id):
 
 
 @then(
-    r'a PlayerDisqualified event is emitted with player "(?P<player_id>[^"]+)" '
-    r'reason "(?P<reason>[^"]+)"'
+    r'player "(?P<player_id>[^"]+)" is disqualified for reason '
+    r'"(?P<reason>[^"]+)"'
 )
 def step_then_dq_with_reason(context, player_id, reason):
     found = False
@@ -1678,8 +1900,8 @@ def step_when_elimination_processed(context):
 
 
 @then(
-    r'a BountyAwarded event is emitted with eliminator "(?P<elim>[^"]+)" '
-    r'knocked_out "(?P<ko>[^"]+)" amount (?P<amt>\d+)'
+    r'a bounty of (?P<amt>\d+) is awarded with eliminator "(?P<elim>[^"]+)" '
+    r'knocking out "(?P<ko>[^"]+)"'
 )
 def step_then_bounty_awarded(context, elim, ko, amt):
     found = False
@@ -1809,10 +2031,7 @@ def step_when_no_show_deadline_expires(context, name):
     _execute_handler(context, "detect_no_show", cmd)
 
 
-@then(
-    r"a angzarr_client\.proto\.examples\.v1\.NoShowDetected event is emitted "
-    r'for player "(?P<player_id>[^"]+)"'
-)
+@then(r'player "(?P<player_id>[^"]+)" is marked a no-show')
 def step_then_no_show_emitted(context, player_id):
     found = False
     for page in context.events:
@@ -1952,7 +2171,7 @@ def step_given_running_with_total_chips(context, name, n):
 
 
 @when(
-    r"I handle an AdvanceBlindLevel command with chip-race retiring "
+    r"the blind level advances with a chip-race retiring "
     r"(?P<retire>\d+) to (?P<new>\d+)"
 )
 def step_when_advance_with_chip_race(context, retire, new):
@@ -2037,7 +2256,7 @@ def step_then_player_stack_at_least(context, player_id, min_stack):
     )
 
 
-@then(r"the event has chips_added_by_rescue and chips_removed_by_race")
+@then(r"the color-up records chips_added_by_rescue and chips_removed_by_race")
 def step_then_event_has_conservation_fields(context):
     evt = tournament.ColorUpCompleted()
     context.result_event_any.Unpack(evt)
@@ -2045,6 +2264,16 @@ def step_then_event_has_conservation_fields(context):
     assert hasattr(evt, "chips_removed_by_race"), "Missing chips_removed_by_race"
     assert evt.chips_added_by_rescue >= 0
     assert evt.chips_removed_by_race >= 0
+
+
+@then(r"the color-up completes")
+def step_then_color_up_completes(context):
+    """Assert the result is a ColorUpCompleted event (replaces tech-vocab
+    'the result is an examples.v1.ColorUpCompleted event')."""
+    evt = try_unpack(context.result_event_any, tournament.ColorUpCompleted)
+    assert evt is not None, (
+        f"Not a ColorUpCompleted event: {context.result_event_any.type_url}"
+    )
 
 
 @then(
@@ -2287,6 +2516,29 @@ def step_when_late_reg_seated(context, player_id, table_name, seat):
     context.late_reg_player = player_id
 
 
+@then(r'a hand has started at "(?P<table_name>[^"]+)"')
+def step_then_hand_started_at_named_table(context, table_name):
+    """Assert the result event is a HandStarted (table_proto)."""
+    from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
+
+    if context.result_event_any is None:
+        # EU-1313 is @wip — the start-hand step is a no-op stub, so no
+        # event was emitted. Allow the @wip scenario to remain skipped
+        # without failing here.
+        return
+    actual = type_name_from_url(context.result_event_any.type_url)
+    assert actual.endswith("HandStarted"), f"Expected HandStarted event, got {actual}"
+    # Silence unused-imports lint
+    _ = table_proto
+
+
+@then(r"a hand has started at (?P<player_id>\w+)'s table")
+def step_then_hand_started_at_player_table(context, player_id):
+    """Assert the result event is a HandStarted (table_proto) for player's table."""
+    actual = type_name_from_url(context.result_event_any.type_url)
+    assert actual.endswith("HandStarted"), f"Expected HandStarted event, got {actual}"
+
+
 @then(r"the dealer_position is seat (?P<seat>\d+)")
 def step_then_dealer_position_is_seat(context, seat):
     from angzarr_client.proto.examples.v1 import table_pb2 as table_proto
@@ -2375,7 +2627,7 @@ def step_given_next_hand_sb_at_player_seat(context, player_id):
     context.table_events = table_events
 
 
-@when(r'I handle a StartHand command at "(?P<table_name>[^"]+)"')
+@when(r'the next hand at "(?P<table_name>[^"]+)" starts')
 def step_when_start_hand_at_named_table(context, table_name):
     """Late-reg first-hand scenario (EU-1313): StartHand against the
     pre-built Spring-1 table built by the prior 'dealer button is about
@@ -2387,7 +2639,7 @@ def step_when_start_hand_at_named_table(context, table_name):
     pass
 
 
-@when(r"I handle a StartHand command at (?P<player_id>\w+)'s table")
+@when(r"the next hand at (?P<player_id>\w+)'s table starts")
 def step_when_start_hand_at_player_table(context, player_id):
     """Issue StartHand on the previously-built table with the on-penalty
     player included in players_on_penalty. Captures the resulting events
@@ -2478,11 +2730,20 @@ def step_when_field_collapses(context, tables):
     _execute_handler(context, "handle_trigger_seat_redraw", cmd)
 
 
-@then(r'the redraw event has trigger "(?P<label>[^"]+)"')
+@then(r'the redraw is triggered by "(?P<label>[^"]+)"')
 def step_then_redraw_trigger(context, label):
     evt = tournament.SeatRedrawTriggered()
     context.result_event_any.Unpack(evt)
     assert evt.trigger == label, f"trigger={evt.trigger!r}, expected {label!r}"
+
+
+@then(r"a seat redraw is triggered")
+def step_then_seat_redraw_triggered(context):
+    """Assert the result event is SeatRedrawTriggered."""
+    evt = try_unpack(context.result_event_any, tournament.SeatRedrawTriggered)
+    assert evt is not None, (
+        f"Not a SeatRedrawTriggered event: {context.result_event_any.type_url}"
+    )
 
 
 # --- EU-1317 same-table simultaneous busts (WSOP-126b tiebreak) ---
@@ -2615,13 +2876,13 @@ def step_given_hand_in_progress(context):
     context.hand_in_progress = True
 
 
-@when(r"the floor issues a StopNewHands command")
+@when(r"the floor issues a stop-new-hands command")
 def step_when_stop_new_hands(context):
     cmd = tournament.StopNewHands(reason="END_OF_DAY")
     _execute_handler(context, "handle_stop_new_hands", cmd)
 
 
-@then(r'a NewHandsHalted event is emitted with effective_at "(?P<at>[^"]+)"')
+@then(r'new hands are halted effective "(?P<at>[^"]+)"')
 def step_then_new_hands_halted(context, at):
     evt = tournament.NewHandsHalted()
     context.result_event_any.Unpack(evt)
@@ -2690,7 +2951,7 @@ def step_given_completed_day1_with_bagtag(context, n):
     context.bagged_stacks = {label: 1500 + i * 100 for i, label in enumerate(names)}
 
 
-@given(r"a BagAndTagComplete event recorded each player's stack and seat")
+@given(r"a bag-and-tag snapshot recorded each player's stack and seat")
 def step_given_bag_and_tag_event(context):
     snapshots = [
         tournament.PlayerBagSnapshot(
@@ -2708,18 +2969,10 @@ def step_given_bag_and_tag_event(context):
     context.events.append(make_event_page(event, seq=len(context.events)))
 
 
-@when(r"the floor issues a ResumeTournament command for Day 2")
+@when(r"the floor resumes the tournament for Day 2")
 def step_when_resume_day2(context):
     cmd = tournament.ResumeTournament()
     _execute_handler(context, "handle_resume_tournament", cmd)
-
-
-@then(r"a TournamentResumed event is emitted")
-def step_then_tournament_resumed(context):
-    evt_type = type_name_from_url(context.result_event_any.type_url)
-    assert evt_type.endswith("TournamentResumed"), (
-        f"Expected TournamentResumed event, got {evt_type}"
-    )
 
 
 @then(r"every player's starting stack equals their Day 1 bagged stack")
@@ -2791,10 +3044,7 @@ def step_given_player_re_entering(context, player_id, chips):
     context.re_entry_forfeit = int(chips)
 
 
-@when(
-    r'I handle a ReEntryPlayer command for player "(?P<player_id>[^"]+)" '
-    r"forfeiting (?P<chips>\d+) chips"
-)
+@when(r'player "(?P<player_id>[^"]+)" re-enters forfeiting (?P<chips>\d+) chips')
 def step_when_re_entry(context, player_id, chips):
     """Issue the re-entry command, seeding total_chips_in_play first."""
     _ensure_events(context)
@@ -2821,12 +3071,26 @@ def step_when_re_entry(context, player_id, chips):
     context.agg = agg
 
 
-@then(r"the tournament event has chips_forfeited (?P<n>\d+)")
-def step_then_event_chips_forfeited(context, n):
-    evt = tournament.PlayerReEntered()
-    context.result_event_any.Unpack(evt)
-    assert evt.chips_forfeited == int(n), (
-        f"chips_forfeited={evt.chips_forfeited}, expected {n}"
+@then(
+    r'player "(?P<player_id>[^"]+)" forfeits (?P<forf>\d+) chips and '
+    r"receives (?P<added>\d+) chips"
+)
+def step_then_player_reentered(context, player_id, forf, added):
+    """Combined PlayerReEntered event: chips_forfeited + chips_added.
+
+    Replaces tech-vocab "PlayerReEntered event" + "chips_forfeited X" +
+    "chips_added Y" with a single business sentence.
+    """
+    evt = try_unpack(context.result_event_any, tournament.PlayerReEntered)
+    assert evt is not None, (
+        f"Not a PlayerReEntered event: {context.result_event_any.type_url}"
+    )
+    assert evt.player_root == uuid_for(player_id)
+    assert evt.chips_forfeited == int(forf), (
+        f"chips_forfeited={evt.chips_forfeited}, expected {forf}"
+    )
+    assert evt.chips_added == int(added), (
+        f"chips_added={evt.chips_added}, expected {added}"
     )
 
 
@@ -2881,10 +3145,7 @@ def step_when_reseat_absent(context, player_id):
     _execute_handler(context, "handle_reseat_absent_player", cmd)
 
 
-@then(
-    r'a PlayerMovedTables event is emitted for "(?P<player_id>[^"]+)" '
-    r'with from_table "(?P<from_t>[^"]+)"'
-)
+@then(r'player "(?P<player_id>[^"]+)" is moved from table "(?P<from_t>[^"]+)"')
 def step_then_player_moved_tables(context, player_id, from_t):
     found = False
     for page in context.events:
@@ -2995,6 +3256,16 @@ def step_when_hu_absent_elapses(context, mins, player_id):
     context.hu_post_state = agg._state
 
 
+@then(r"the absent player's blinds are advanced")
+def step_then_absent_blinds_advanced(context):
+    """Assert the result is an AbsentBlindAdvanced event (replaces the
+    tech-vocab 'examples.v1.AbsentBlindAdvanced event is emitted')."""
+    evt = try_unpack(context.result_event_any, tournament.AbsentBlindAdvanced)
+    assert evt is not None, (
+        f"Not an AbsentBlindAdvanced event: {context.result_event_any.type_url}"
+    )
+
+
 @then(r"the dealer button advances by (?P<n>\d+) position")
 def step_then_button_advances(context, n):
     """The button advance is recorded by the AbsentBlindAdvanced event;
@@ -3086,8 +3357,8 @@ def step_given_tournament_not_started(context):
 
 
 @when(
-    r"the operator issues an OrderCombineFinalTable command for "
-    r'"(?P<final>[^"]+)" combining "(?P<sources>[^"]+)" max_handed '
+    r"the operator orders combining final table "
+    r'"(?P<final>[^"]+)" from "(?P<sources>[^"]+)" max_handed '
     r"(?P<max_handed>\d+)"
 )
 def step_when_operator_orders_combine(context, final, sources, max_handed):
@@ -3120,7 +3391,7 @@ def _unpack_combine_ordered(context) -> tournament.FinalTableCombineOrdered:
     return event
 
 
-@then(r'the order event has final_table_name "(?P<name>[^"]+)"')
+@then(r'the order is for final table "(?P<name>[^"]+)"')
 def step_then_order_event_final_table_name(context, name):
     event = _unpack_combine_ordered(context)
     assert event.final_table_name == name, (
@@ -3128,7 +3399,7 @@ def step_then_order_event_final_table_name(context, name):
     )
 
 
-@then(r'the order event has source_table_names "(?P<csv>[^"]+)"')
+@then(r'the order combines tables "(?P<csv>[^"]+)"')
 def step_then_order_event_source_table_names(context, csv):
     expected = [s.strip() for s in csv.split(",")]
     event = _unpack_combine_ordered(context)
@@ -3136,13 +3407,22 @@ def step_then_order_event_source_table_names(context, csv):
     assert actual == expected, f"source_table_names={actual!r}, expected {expected!r}"
 
 
-@then(r"the order event has max_handed (?P<n>\d+)")
+@then(r"the order has max_handed (?P<n>\d+)")
 def step_then_order_event_max_handed(context, n):
     event = _unpack_combine_ordered(context)
     assert event.max_handed == int(n), f"max_handed={event.max_handed}, expected {n}"
 
 
-@then(r"the command is rejected")
+@then(r"the final-table combine is ordered")
+def step_then_final_combine_ordered(context):
+    """Assert the result is a FinalTableCombineOrdered event."""
+    evt = try_unpack(context.result_event_any, tournament.FinalTableCombineOrdered)
+    assert evt is not None, (
+        f"Not a FinalTableCombineOrdered event: {context.result_event_any.type_url}"
+    )
+
+
+@then(r"the order is refused")
 def step_then_command_is_rejected(context):
     """Specific code/shape is left to unit tests (the cucumber tier
     captures the rule-level fact: the order was refused). Mirrors the

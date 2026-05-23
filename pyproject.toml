@@ -89,6 +89,7 @@ also_copy = [
     "unit_environment.py",
     "acceptance_steps/",
     "acceptance_environment.py",
+    "wip_scenarios.py",
 ]
 pytest_add_cli_args_test_selection = [
     "--ignore=tests/integration",

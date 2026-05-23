@@ -30,13 +30,13 @@ test-pytest:
 # behave's --stage mechanism finds unit_environment.py + unit_steps/ at this
 # repo root via walk-up from the feature files — no symlinks needed.
 test-example-unit:
-    uv run behave --stage unit angzarr-project/features/example/unit/ --tags="~@wip"
+    uv run behave --stage unit angzarr-project/features/example/unit/
 
 # Acceptance-example cucumber: poker E2E via CommandClient (gRPC).
 # PLAYER_URL picks the coordinator; defaults to localhost:1310.
 # --stage acceptance resolves acceptance_environment.py + acceptance_steps/.
 test-example-acceptance:
-    PLAYER_URL="${PLAYER_URL:-}" uv run behave --stage acceptance angzarr-project/features/example/acceptance/ --tags="~@wip"
+    PLAYER_URL="${PLAYER_URL:-}" uv run behave --stage acceptance angzarr-project/features/example/acceptance/
 
 # Run all tests
 test: test-pytest test-example-unit test-example-acceptance
