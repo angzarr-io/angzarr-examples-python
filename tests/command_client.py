@@ -17,13 +17,15 @@ import uuid
 import grpc
 from google.protobuf.any_pb2 import Any as ProtoAny
 
-from angzarr_client.proto.angzarr import (
+from angzarr_client.proto.angzarr.v1.command_handler_pb2 import CommandResponse
+from angzarr_client.proto.angzarr.v1.command_handler_pb2_grpc import (
+    CommandHandlerCoordinatorServiceStub,
+)
+from angzarr_client.proto.angzarr.v1.types_pb2 import (
     UUID,
     CommandBook,
-    CommandHandlerCoordinatorServiceStub,
     CommandPage,
     CommandRequest,
-    CommandResponse,
     Cover,
     PageHeader,
     SyncMode,

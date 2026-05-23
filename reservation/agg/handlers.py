@@ -33,11 +33,11 @@ from angzarr_client import (
     now,
 )
 from angzarr_client.errors import CommandRejectedError
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import rebuy_pb2 as rebuy
-from angzarr_client.proto.examples import registration_pb2 as registration
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples.v1 import registration_pb2 as registration
 
 # Reuse the player aggregate's state model + appliers to compute
 # available_balance from a player event book during sync DECISION.
@@ -137,7 +137,9 @@ class Reservation:
             raise CommandRejectedError("table_root is required")
         amount = _amount(cmd.amount) if cmd.HasField("amount") else 0
         if amount <= 0:
-            raise CommandRejectedError.invalid_argument("amount must be positive")
+            raise CommandRejectedError.invalid_argument(
+                "AMOUNT_MUST_BE_POSITIVE", "amount must be positive"
+            )
 
         # Sync DECISION against player aggregate
         player_state = _player_state(self._query_client, cmd.player_root)

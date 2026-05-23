@@ -10,9 +10,9 @@ from typing import Any
 
 from google.protobuf.message import Message
 
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 from .proto_helpers import make_cover, make_event_page, uuid_for
 
@@ -88,9 +88,9 @@ class TableStateBuilder:
         self._max_buy_in = 1000
         self._small_blind = 5
         self._big_blind = 10
-        self._seats: dict[int, tuple[bytes, int]] = (
-            {}
-        )  # position -> (player_root, stack)
+        self._seats: dict[
+            int, tuple[bytes, int]
+        ] = {}  # position -> (player_root, stack)
         self._status = "waiting"
         self._hand_count = 0
 

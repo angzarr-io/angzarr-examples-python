@@ -9,9 +9,9 @@ code paths that construct a FundsReleased event from a rejected JoinTable.
 from .state import PlayerState
 
 from angzarr_client import now
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 
 # region rejected_handler

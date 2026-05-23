@@ -8,9 +8,7 @@ import time
 
 from behave import given, then, use_step_matcher, when
 
-from angzarr_client.proto.angzarr import (
-    SyncMode,
-)
+from angzarr_client.proto.angzarr.v1.types_pb2 import SyncMode
 
 use_step_matcher("re")
 
@@ -28,7 +26,7 @@ SYNC_MODE_MAP = {
 # Cascade error modes - import at function level if available
 CASCADE_ERROR_MODE_MAP = {}
 try:
-    from angzarr_client.proto.angzarr import CascadeErrorMode
+    from angzarr_client.proto.angzarr.v1.types_pb2 import CascadeErrorMode
 
     CASCADE_ERROR_MODE_MAP = {
         "FAIL_FAST": CascadeErrorMode.CASCADE_ERROR_FAIL_FAST,
@@ -188,9 +186,9 @@ def step_when_event_without_correlation(context, mode):
 @then(r"the command succeeds immediately")
 def step_then_command_succeeds_immediately(context):
     """Assert command succeeded quickly (ASYNC mode)."""
-    assert (
-        context.command_succeeded
-    ), f"Command failed: {getattr(context, 'last_error', 'unknown')}"
+    assert context.command_succeeded, (
+        f"Command failed: {getattr(context, 'last_error', 'unknown')}"
+    )
     if context.command_start_time and context.command_end_time:
         elapsed = context.command_end_time - context.command_start_time
         assert elapsed < 1.0, f"Command took {elapsed:.2f}s, expected < 1.0s for ASYNC"
@@ -199,9 +197,9 @@ def step_then_command_succeeds_immediately(context):
 @then(r"the command succeeds with (?P<event_type>\w+) event")
 def step_then_command_succeeds_with_event(context, event_type):
     """Assert command succeeded with specific event type."""
-    assert (
-        context.command_succeeded
-    ), f"Command failed: {getattr(context, 'last_error', 'unknown')}"
+    assert context.command_succeeded, (
+        f"Command failed: {getattr(context, 'last_error', 'unknown')}"
+    )
 
 
 @then(r"the command succeeds with (?P<event>\w+) only")
@@ -432,9 +430,9 @@ def step_then_commands_within_time(context, ms):
     """Assert all commands completed within time limit."""
     max_time = int(ms)
     for elapsed in getattr(context, "deposit_times", []):
-        assert (
-            elapsed < max_time
-        ), f"Command took {elapsed:.1f}ms, expected < {max_time}ms"
+        assert elapsed < max_time, (
+            f"Command took {elapsed:.1f}ms, expected < {max_time}ms"
+        )
 
 
 @then(r"total execution time is less than with SIMPLE mode")

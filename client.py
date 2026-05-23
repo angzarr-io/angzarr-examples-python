@@ -12,9 +12,8 @@ import grpc
 from google.protobuf import any_pb2
 from google.protobuf.message import Message
 
-from angzarr_client import DomainClient
-from angzarr_client.wrappers import CommandResponseW
-from angzarr_client.proto.angzarr.types_pb2 import (
+from angzarr_client import CommandResponse, DomainClient
+from angzarr_client.proto.angzarr.v1.types_pb2 import (
     CommandBook,
     CommandPage,
     Cover,
@@ -125,7 +124,7 @@ class GatewayClient:
         sequence: int = 0,
         sync_mode: int | None = None,
         edition: Edition | None = None,
-    ) -> CommandResponseW:
+    ) -> CommandResponse:
         """Execute a command against a domain aggregate.
 
         Args:
@@ -138,7 +137,7 @@ class GatewayClient:
             edition: Optional edition for what-if scenario branching.
 
         Returns:
-            CommandResponseW with execution result and events.
+            CommandResponse with execution result and events.
         """
         client = self._get_domain_client(domain)
 
@@ -171,4 +170,4 @@ class GatewayClient:
             sync_mode = SYNC_MODE_ASYNC
 
         response = client.execute_with_mode(cmd_book, sync_mode)
-        return CommandResponseW(response)
+        return CommandResponse(response)

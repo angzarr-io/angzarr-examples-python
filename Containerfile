@@ -49,7 +49,6 @@ COPY hand-flow ./hand-flow
 COPY prj-output ./prj-output
 COPY prj_training ./prj_training
 COPY poker ./poker
-COPY sagas ./sagas
 COPY tournament ./tournament
 COPY reservation ./reservation
 
@@ -204,6 +203,48 @@ ENV PATH=/app/.venv/bin:$PATH \
     PORT=50414
 EXPOSE 50414
 CMD ["python", "/app/hand/saga-player/main.py"]
+
+# tournament → table: PlayerMovedBetweenTables (tournament) → LeaveTable
+# + SeatPlayer (table). Performs the actual reseat after the tournament
+# aggregate decides on a balancing move (TDA Rule 14, EA-0012).
+FROM runtime-base AS saga-tournament-table
+COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
+COPY --from=source --chown=angzarr:angzarr /app/tournament /app/tournament
+COPY --from=source --chown=angzarr:angzarr /app/table /app/table
+COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
+ENV PATH=/app/.venv/bin:$PATH \
+    PORT=50415
+EXPOSE 50415
+CMD ["python", "/app/tournament/saga-table/main.py"]
+
+# tournament → table H4H fan-out: HandForHandStarted (tournament) →
+# EnterTableHandForHand on each table in event.active_table_roots
+# (TDA Rule 12, EA-0013). Source domain "tournament".
+FROM runtime-base AS saga-h4h-fanout
+COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
+COPY --from=source --chown=angzarr:angzarr /app/tournament /app/tournament
+COPY --from=source --chown=angzarr:angzarr /app/table /app/table
+COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
+ENV PATH=/app/.venv/bin:$PATH \
+    PORT=50416
+EXPOSE 50416
+CMD ["python", "/app/tournament/saga-h4h-fanout/main.py"]
+
+# table → tournament H4H per-table-completion routing:
+# TableHandForHandRoundComplete (table) → RecordTableHandComplete
+# (tournament) (TDA Rule 12, EA-0013). Source domain "table".
+FROM runtime-base AS saga-tournament-h4h
+COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
+COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
+COPY --from=source --chown=angzarr:angzarr /app/table /app/table
+COPY --from=source --chown=angzarr:angzarr /app/tournament /app/tournament
+COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
+ENV PATH=/app/.venv/bin:$PATH \
+    PORT=50417
+EXPOSE 50417
+CMD ["python", "/app/table/saga-tournament-h4h/main.py"]
 
 # ============================================================================
 # Projectors

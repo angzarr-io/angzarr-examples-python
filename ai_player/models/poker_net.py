@@ -140,9 +140,7 @@ class PokerNet(nn.Module):
                 # Apply temperature scaling and sample
                 scaled_logits = logits / temperature
                 scaled_probs = F.softmax(scaled_logits, dim=-1)
-                action = (
-                    torch.multinomial(scaled_probs, num_samples=1).squeeze(-1).item()
-                )
+                action = torch.multinomial(scaled_probs, num_samples=1).squeeze(-1).item()
             else:
                 # Greedy (argmax) for inference
                 action = torch.argmax(probs, dim=-1).item()
@@ -215,9 +213,7 @@ class PokerNet(nn.Module):
             "version": version or self._version,
             "config": {
                 "hidden_dim": self.features[0].out_features,
-                "num_layers": len(
-                    [m for m in self.features if isinstance(m, nn.Linear)]
-                ),
+                "num_layers": len([m for m in self.features if isinstance(m, nn.Linear)]),
             },
         }
 

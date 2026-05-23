@@ -8,8 +8,8 @@ import hashlib
 
 from behave import given, then, use_step_matcher, when
 
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import table_pb2 as table
 
 from common_steps import new_uuid_bytes, pack_command
 
@@ -68,7 +68,7 @@ def _create_table(
         max_players=max_players,
         action_timeout_seconds=30,
     )
-    packed = pack_command(cmd, "angzarr_client.proto.examples.CreateTable")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.v1.CreateTable")
     seq = context.tables[table_name]["sequence"]
 
     response = context.client.send_command("table", root, packed, sequence=seq)
@@ -92,7 +92,7 @@ def _join_table(context, player_name: str, table_name: str, seat: int, buy_in: i
         preferred_seat=seat,
         buy_in_amount=buy_in,
     )
-    packed = pack_command(cmd, "angzarr_client.proto.examples.JoinTable")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.v1.JoinTable")
     seq = context.tables[table_name]["sequence"]
 
     response = context.client.send_command("table", table_root, packed, sequence=seq)
@@ -115,7 +115,7 @@ def _start_hand(context, table_name: str, sync_mode=None, cascade_error_mode=Non
     """Start a hand at a table and update tracked state."""
     table_root = _table_root(context, table_name)
     cmd = table.StartHand()
-    packed = pack_command(cmd, "angzarr_client.proto.examples.StartHand")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.v1.StartHand")
     seq = context.tables[table_name]["sequence"]
 
     kwargs = {"sequence": seq}
@@ -312,7 +312,7 @@ def step_when_player_leaves_table(context, name, table_name):
     cmd = table.LeaveTable(
         player_root=player_root,
     )
-    packed = pack_command(cmd, "angzarr_client.proto.examples.LeaveTable")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.v1.LeaveTable")
     seq = context.tables[table_name]["sequence"]
 
     response = context.client.send_command("table", table_root, packed, sequence=seq)

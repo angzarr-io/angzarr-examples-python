@@ -4,14 +4,14 @@ Provides functions for packing/unpacking protobufs, creating event books,
 and other proto-related test utilities.
 """
 
-import hashlib
+import uuid as _uuid
 from typing import TypeVar
 
 from google.protobuf.any_pb2 import Any as AnyProto
 from google.protobuf.message import Message
 
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 T = TypeVar("T", bound=Message)
 
@@ -19,19 +19,34 @@ T = TypeVar("T", bound=Message)
 def uuid_for(seed: str) -> bytes:
     """Generate a deterministic 16-byte UUID from a seed string.
 
-    Args:
-        seed: String to hash into a UUID.
-
-    Returns:
-        16-byte deterministic UUID.
+    RFC 4122 UUID v5 with ``NAMESPACE_OID``. Cross-language byte-identical
+    to Rust's ``poker_tests::uuid_for(seed)`` so the same seed produces the
+    same 16 bytes in both Python and Rust tests — cucumber feature files
+    can assert literal hex values portably.
 
     Example:
         >>> player_id = uuid_for("player-alice")
         >>> len(player_id)
         16
     """
-    hash_bytes = hashlib.sha256(seed.encode()).digest()
-    return hash_bytes[:16]
+    return _uuid.uuid5(_uuid.NAMESPACE_OID, seed).bytes
+
+
+def generate_hand_root(table_root: bytes, hand_number: int) -> bytes:
+    """Generate a deterministic hand root from a table root + hand number.
+
+    UUID v5 with ``NAMESPACE_OID`` over ``table_root || hand_number_be_8``.
+    Mirrors Rust's ``poker_tests::generate_hand_root(table_root, n)``.
+    """
+    name_bytes = bytes(table_root) + int(hand_number).to_bytes(
+        8, byteorder="big", signed=True
+    )
+    # Python's stdlib ``uuid.uuid5`` requires ``name: str``. Construct the
+    # v5 UUID by hand from arbitrary bytes to match Rust's binary input.
+    import hashlib
+
+    digest = hashlib.sha1(_uuid.NAMESPACE_OID.bytes + name_bytes).digest()
+    return _uuid.UUID(bytes=digest[:16], version=5).bytes
 
 
 def currency(amount: int, code: str = "CHIPS") -> poker_types.Currency:

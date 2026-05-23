@@ -51,6 +51,7 @@ Event → action map (Initiate* land on ``reservation`` via separate RPC):
 from google.protobuf.any_pb2 import Any as ProtoAny
 
 from angzarr_client import (
+    Cover,
     Destinations,
     ProcessManagerResponse,
     applies,
@@ -58,14 +59,14 @@ from angzarr_client import (
     now,
     process_manager,
 )
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import buy_in_pb2 as buy_in
-from angzarr_client.proto.examples import orchestration_pb2 as orch
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker
-from angzarr_client.proto.examples import rebuy_pb2 as rebuy
-from angzarr_client.proto.examples import registration_pb2 as registration
-from angzarr_client.proto.examples import tournament_pb2 as tournament
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import buy_in_pb2 as buy_in
+from angzarr_client.proto.examples.v1 import orchestration_pb2 as orch
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker
+from angzarr_client.proto.examples.v1 import rebuy_pb2 as rebuy
+from angzarr_client.proto.examples.v1 import registration_pb2 as registration
+from angzarr_client.proto.examples.v1 import tournament_pb2 as tournament
 
 from state import (
     KIND_BUY_IN,
@@ -96,6 +97,11 @@ def _pack(msg) -> ProtoAny:
 def _command_book(
     domain: str, root: bytes, cmd, sequence: int = 0
 ) -> types.CommandBook:
+    # PM-emitted commands set ``sync_mode = SYNC_MODE_DECISION`` so the
+    # PM gets the accept/reject answer synchronously while projectors
+    # and sagas still run async. Honoured by the PM coordinator's
+    # per-command override path
+    # (`core/main/src/orchestration/process_manager/mod.rs`).
     return types.CommandBook(
         cover=types.Cover(
             domain=domain,
@@ -103,7 +109,10 @@ def _command_book(
         ),
         pages=[
             types.CommandPage(
-                header=types.PageHeader(sequence=sequence),
+                header=types.PageHeader(
+                    sequence=sequence,
+                    sync_mode=types.SYNC_MODE_DECISION,
+                ),
                 command=_pack(cmd),
             )
         ],
@@ -330,7 +339,7 @@ class ReservationPM:
         event: buy_in.BuyInRequested,
         state: ReservationPMState,
         destinations: Destinations,
-        source_cover: types.Cover = None,
+        source_cover: Cover | None = None,
     ) -> ProcessManagerResponse:
         """Reservation emitted BuyInRequested — reserve player funds and seat."""
         player_root = event.player_root or state.player_root
@@ -529,7 +538,7 @@ class ReservationPM:
         event: rebuy.RebuyRequested,
         state: ReservationPMState,
         destinations: Destinations,
-        source_cover: types.Cover = None,
+        source_cover: Cover | None = None,
     ) -> ProcessManagerResponse:
         """Reservation emitted RebuyRequested — look up fee, reserve, and process."""
         player_root = event.player_root or state.player_root
@@ -752,7 +761,7 @@ class ReservationPM:
         event: registration.RegistrationRequested,
         state: ReservationPMState,
         destinations: Destinations,
-        source_cover: types.Cover = None,
+        source_cover: Cover | None = None,
     ) -> ProcessManagerResponse:
         """Reservation emitted RegistrationRequested — look up entry fee and enroll."""
         player_root = event.player_root or state.player_root

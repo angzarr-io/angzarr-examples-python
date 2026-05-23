@@ -24,7 +24,7 @@ import structlog
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "angzarr"))
 
 from angzarr_client import Router, UpcasterGrpc, run_server, upcaster
-from angzarr_client.proto.angzarr import upcaster_pb2_grpc
+from angzarr_client.proto.angzarr.v1 import upcaster_pb2_grpc
 
 structlog.configure(
     processors=[

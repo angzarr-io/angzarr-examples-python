@@ -161,9 +161,7 @@ class ActionContextEncoder:
         # Calculate pot odds
         pot_odds = 0.0
         if request.pot_size > 0 and request.amount_to_call > 0:
-            pot_odds = request.amount_to_call / (
-                request.pot_size + request.amount_to_call
-            )
+            pot_odds = request.amount_to_call / (request.pot_size + request.amount_to_call)
 
         # Stack-to-pot ratio
         spr = 0.0
@@ -180,9 +178,7 @@ class ActionContextEncoder:
             spr / 10.0,  # Normalized SPR
             1.0 if request.amount_to_call == 0 else 0.0,  # Check available
             1.0 if request.amount_to_call > 0 else 0.0,  # Facing bet
-            (
-                1.0 if request.stack_size <= request.amount_to_call else 0.0
-            ),  # All-in required
+            (1.0 if request.stack_size <= request.amount_to_call else 0.0),  # All-in required
         ]
 
     def _encode_position(
@@ -252,11 +248,7 @@ class ActionContextEncoder:
                         # Use proto stats (from request) or fall back to DB
                         opp.vpip if opp.vpip > 0 else db_profile.get("vpip", 0.5),
                         opp.pfr if opp.pfr > 0 else db_profile.get("pfr", 0.2),
-                        (
-                            opp.aggression
-                            if opp.aggression > 0
-                            else db_profile.get("af", 1.0)
-                        ),
+                        (opp.aggression if opp.aggression > 0 else db_profile.get("af", 1.0)),
                         # Hands played (confidence indicator)
                         (
                             min(1.0, opp.hands_played / 100.0)

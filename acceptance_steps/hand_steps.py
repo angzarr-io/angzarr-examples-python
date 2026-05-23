@@ -8,8 +8,8 @@ import time
 
 from behave import given, then, use_step_matcher, when
 
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import hand_pb2 as hand
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
 
 from common_steps import new_uuid_bytes, pack_command
 
@@ -65,7 +65,7 @@ def _post_blind(context, player_name: str, blind_type: str, amount: int):
         blind_type=blind_type,
         amount=amount,
     )
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.PostBlind")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.v1.PostBlind")
     hs = _get_hand_state(context)
     hs["pot"] = hs.get("pot", 0) + amount
     # Update player stack
@@ -82,7 +82,7 @@ def _player_action(context, player_name: str, action_type, amount: int = 0):
         action=action_type,
         amount=amount,
     )
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.PlayerAction")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.v1.PlayerAction")
 
 
 def _update_stack(context, player_name: str, delta: int):
@@ -251,7 +251,7 @@ def step_when_player_discards(context, name, count, indices):
         player_root=player_root,
         card_indices=idx_list,
     )
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.RequestDraw")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.v1.RequestDraw")
 
 
 @when(r'"(?P<name>[^"]+)" stands pat')
@@ -264,7 +264,7 @@ def step_when_player_stands_pat(context, name):
         player_root=player_root,
         card_indices=[],
     )
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.RequestDraw")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.v1.RequestDraw")
 
 
 # ==========================================================================
@@ -408,13 +408,13 @@ def step_when_player_adds_chips(context, name, amount):
     player_root = _player_root(context, name)
     amt = int(amount)
 
-    from angzarr_client.proto.examples import table_pb2 as tbl
+    from angzarr_client.proto.examples.v1 import table_pb2 as tbl
 
     cmd = tbl.AddChips(
         player_root=player_root,
         amount=amt,
     )
-    packed = pack_command(cmd, "angzarr_client.proto.examples.AddChips")
+    packed = pack_command(cmd, "angzarr_client.proto.examples.v1.AddChips")
 
     try:
         if table_root:
@@ -836,7 +836,7 @@ def step_wait_for_cards_dealt(context, table):
     deadline = time.time() + 10
     while time.time() < deadline:
         probe = hand.RevealCards(player_root=b"\x00" * 16, muck=True)
-        packed = pack_command(probe, "angzarr_client.proto.examples.RevealCards")
+        packed = pack_command(probe, "angzarr_client.proto.examples.v1.RevealCards")
         try:
             context.client.send_command("hand", _hand_root(context), packed)
         except Exception as e:
@@ -855,19 +855,25 @@ def step_wait_for_cards_dealt(context, table):
 @when(r"the dealer deals the flop")
 def step_when_deal_flop(context):
     cmd = hand.DealCommunityCards(count=3)
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.DealCommunityCards")
+    _send_hand_command(
+        context, cmd, "angzarr_client.proto.examples.v1.DealCommunityCards"
+    )
 
 
 @when(r"the dealer deals the turn")
 def step_when_deal_turn(context):
     cmd = hand.DealCommunityCards(count=1)
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.DealCommunityCards")
+    _send_hand_command(
+        context, cmd, "angzarr_client.proto.examples.v1.DealCommunityCards"
+    )
 
 
 @when(r"the dealer deals the river")
 def step_when_deal_river(context):
     cmd = hand.DealCommunityCards(count=1)
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.DealCommunityCards")
+    _send_hand_command(
+        context, cmd, "angzarr_client.proto.examples.v1.DealCommunityCards"
+    )
 
 
 @when(r'"(?P<name>[^"]+)" reveals their cards')
@@ -875,7 +881,7 @@ def step_when_reveal_cards(context, name):
     from player_steps import _player_root
 
     cmd = hand.RevealCards(player_root=_player_root(context, name), muck=False)
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.RevealCards")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.v1.RevealCards")
 
 
 @when(r'"(?P<name>[^"]+)" mucks at showdown')
@@ -883,7 +889,7 @@ def step_when_muck_at_showdown(context, name):
     from player_steps import _player_root
 
     cmd = hand.RevealCards(player_root=_player_root(context, name), muck=True)
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.RevealCards")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.v1.RevealCards")
 
 
 @when(r'the pot is awarded to "(?P<name>[^"]+)" with amount (?P<amount>\d+)')
@@ -897,4 +903,4 @@ def step_when_award_pot(context, name, amount):
         pot_type="main",
     )
     cmd = hand.AwardPot(awards=[award])
-    _send_hand_command(context, cmd, "angzarr_client.proto.examples.AwardPot")
+    _send_hand_command(context, cmd, "angzarr_client.proto.examples.v1.AwardPot")

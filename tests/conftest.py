@@ -17,10 +17,10 @@ sys.path.insert(0, str(root / "hand-flow"))
 
 # Import testing utilities from angzarr_client.testing
 # Import proto modules for fixtures
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
+from angzarr_client.proto.examples.v1 import hand_pb2 as hand
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as poker_types
+from angzarr_client.proto.examples.v1 import table_pb2 as table
 from angzarr_client.testing import (
     ScenarioContext,
     make_command_book,

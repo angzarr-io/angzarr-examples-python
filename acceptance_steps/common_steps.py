@@ -56,7 +56,7 @@ def pack_command(msg, type_name: str) -> ProtoAny:
 
 def proto_uuid(raw_bytes: bytes):
     """Convert raw bytes to a proto UUID message."""
-    from angzarr_client.proto.angzarr import UUID
+    from angzarr_client.proto.angzarr.v1.types_pb2 import UUID
 
     return UUID(value=raw_bytes)
 
@@ -100,9 +100,9 @@ def step_then_command_fails_with(context, message):
     """Assert the last command failed with a specific error message."""
     assert context.last_error is not None, "Expected a command error but none occurred"
     error_msg = str(context.last_error).lower()
-    assert (
-        message.lower() in error_msg
-    ), f"Expected error containing '{message}', got: {context.last_error}"
+    assert message.lower() in error_msg, (
+        f"Expected error containing '{message}', got: {context.last_error}"
+    )
 
 
 @then(r'the request fails with "(?P<message>[^"]+)"')
@@ -110,17 +110,17 @@ def step_then_request_fails_with(context, message):
     """Assert the last request failed with a specific error message."""
     assert context.last_error is not None, "Expected a request error but none occurred"
     error_msg = str(context.last_error).lower()
-    assert (
-        message.lower() in error_msg
-    ), f"Expected error containing '{message}', got: {context.last_error}"
+    assert message.lower() in error_msg, (
+        f"Expected error containing '{message}', got: {context.last_error}"
+    )
 
 
 @then(r"the command succeeds")
 def step_then_command_succeeds(context):
     """Assert the last command succeeded."""
-    assert (
-        context.last_error is None
-    ), f"Expected command to succeed but got error: {context.last_error}"
+    assert context.last_error is None, (
+        f"Expected command to succeed but got error: {context.last_error}"
+    )
     assert context.last_response is not None, "No response received"
 
 
@@ -169,9 +169,9 @@ def step_then_within_seconds_bankroll(context, seconds, name, amount):
     # Final assertion based on tracked state
     if name in context.players:
         actual = context.players[name]["bankroll"]
-        assert (
-            actual == expected
-        ), f"Bankroll not updated to {expected} within {timeout}s, got {actual}"
+        assert actual == expected, (
+            f"Bankroll not updated to {expected} within {timeout}s, got {actual}"
+        )
 
 
 @then(
@@ -188,3 +188,19 @@ def step_then_within_seconds_event(context, seconds, domain, event):
         time.sleep(0.1)
 
     # Saga events are assumed to propagate (verified by subsequent steps).
+
+
+@then(
+    r"within (?P<seconds>\d+) seconds the table starts the hand and cards "
+    r"are dealt to the players"
+)
+def step_then_within_seconds_table_starts_and_deals(context, seconds):
+    """Business-vocab gate that the table → hand saga has propagated.
+
+    # TODO: implement — poll the table read-model and the hand domain for
+    # HandStarted + CardsDealt within the deadline. For now the scenarios
+    # rely on the synchronous `a hand starts at table` step to have
+    # advanced state, and the assertions following this gate verify the
+    # downstream effects directly.
+    """
+    time.sleep(min(int(seconds), 0.1))

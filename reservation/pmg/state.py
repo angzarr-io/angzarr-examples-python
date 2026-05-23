@@ -8,7 +8,7 @@ them all without three separate state classes.
 
 from dataclasses import dataclass
 
-from angzarr_client.proto.examples import orchestration_pb2 as orch
+from angzarr_client.proto.examples.v1 import orchestration_pb2 as orch
 
 KIND_UNSPECIFIED = ""
 KIND_BUY_IN = "buy_in"

@@ -26,8 +26,10 @@ sys.path.insert(0, str(root / "agg-player"))  # Contains proto/poker stubs
 
 import grpc
 
-from angzarr_client.proto.examples import hand_pb2, player_pb2, table_pb2
-from angzarr_client.proto.examples import poker_types_pb2 as types_pb2
+from angzarr_client.proto.examples.v1 import hand_pb2
+from angzarr_client.proto.examples.v1 import player_pb2
+from angzarr_client.proto.examples.v1 import table_pb2
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as types_pb2
 from client import GatewayClient, derive_root, SYNC_MODE_SIMPLE, SYNC_MODE_CASCADE
 
 # Optional AI Player integration
@@ -387,7 +389,7 @@ class PokerGame:
 
         # Parse dealt cards from events
         for page in resp.events():
-            event = page.proto.event
+            event = page.proto().event
             if event.Is(hand_pb2.CardsDealt.DESCRIPTOR):
                 dealt = hand_pb2.CardsDealt()
                 event.Unpack(dealt)
@@ -442,7 +444,7 @@ class PokerGame:
 
         # Sync from server response (authoritative)
         for page in resp.events():
-            event = page.proto.event
+            event = page.proto().event
             if event.Is(hand_pb2.BlindPosted.DESCRIPTOR):
                 blind_event = hand_pb2.BlindPosted()
                 event.Unpack(blind_event)
@@ -478,7 +480,7 @@ class PokerGame:
 
         # Sync from server response (authoritative)
         for page in resp.events():
-            event = page.proto.event
+            event = page.proto().event
             if event.Is(hand_pb2.BlindPosted.DESCRIPTOR):
                 blind_event = hand_pb2.BlindPosted()
                 event.Unpack(blind_event)
@@ -823,7 +825,7 @@ class PokerGame:
                                 amount=final_amount,
                             )
                             self.log(
-                                f"│  [Retry {attempt+1}] Raise exceeds stack, falling back to {types_pb2.ActionType.Name(action)}"
+                                f"│  [Retry {attempt + 1}] Raise exceeds stack, falling back to {types_pb2.ActionType.Name(action)}"
                             )
                             continue
                     # Player is all-in - they can't act, skip
@@ -842,7 +844,7 @@ class PokerGame:
                                 amount=final_amount,
                             )
                             self.log(
-                                f"│  [Retry {attempt+1}] Bet exceeds stack, all-in call {chips(final_amount)}"
+                                f"│  [Retry {attempt + 1}] Bet exceeds stack, all-in call {chips(final_amount)}"
                             )
                             continue
                     # Nothing to call - should check instead
@@ -856,7 +858,7 @@ class PokerGame:
                                 amount=0,
                             )
                             self.log(
-                                f"│  [Retry {attempt+1}] Nothing to call, checking"
+                                f"│  [Retry {attempt + 1}] Nothing to call, checking"
                             )
                             continue
                     # Last resort: if we've exhausted retries and still failing on raise/bet,
@@ -882,7 +884,7 @@ class PokerGame:
 
             # Sync state from server response (authoritative source)
             for page in resp.events():
-                event = page.proto.event
+                event = page.proto().event
                 if event.Is(hand_pb2.ActionTaken.DESCRIPTOR):
                     action_event = hand_pb2.ActionTaken()
                     event.Unpack(action_event)
@@ -937,7 +939,7 @@ class PokerGame:
 
         # Parse dealt cards
         for page in resp.events():
-            event = page.proto.event
+            event = page.proto().event
             if event.Is(hand_pb2.CommunityCardsDealt.DESCRIPTOR):
                 dealt = hand_pb2.CommunityCardsDealt()
                 event.Unpack(dealt)

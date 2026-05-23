@@ -20,7 +20,6 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "debugpy>=1.8.0",
-    "black>=24.0.0",
     "ruff>=0.4.0",
     "mypy>=1.10.0",
     "pytest-cov>=7.0.0",
@@ -48,16 +47,14 @@ markers = [
     "integration: requires a running sidecar container (see tests/integration/)",
 ]
 
-[tool.black]
-target-version = ["py311"]
-# Submodules have their own formatting rules + CI.
-extend-exclude = '''
-(
-    angzarr-client-python
-    | angzarr-project
-    | mutants
-)
-'''
+[tool.ruff.format]
+# Black-compatible defaults (line-length 88, double quotes, trailing
+# commas in multiline). Listed explicitly so the contract with the
+# previous black configuration is visible at the call site.
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
 [tool.mutmut]
 paths_to_mutate = [
@@ -65,6 +62,9 @@ paths_to_mutate = [
     "table/agg/handlers/table.py",
     "hand/agg/handlers/hand.py",
     "hand/agg/handlers/game_rules.py",
+    "hand/agg/raise_tracking.py",
+    "hand/agg/pot_distribution.py",
+    "hand/agg/substantial_action.py",
     "tournament/agg/handlers.py",
 ]
 # Copy sibling source files that tests/unit/test_*.py import alongside
@@ -76,14 +76,10 @@ also_copy = [
     "hand/",
     "tournament/",
     "tests/",
-    "sagas/",
+    "poker/",
     "hand-flow/",
-    "hand-flow-oo/",
     "prj-output/",
     "prj_training/",
-    "buy_in/",
-    "rebuy/",
-    "registration/",
     "reservation/",
     "angzarr-project/",
     # behave --stage unit/acceptance walks up from submodule features to
@@ -93,13 +89,28 @@ also_copy = [
     "unit_environment.py",
     "acceptance_steps/",
     "acceptance_environment.py",
+    "wip_scenarios.py",
 ]
 pytest_add_cli_args_test_selection = [
     "--ignore=tests/integration",
 ]
 
 [tool.ruff]
-extend-exclude = ["**/*_pb2.py", "**/*_pb2_grpc.py", "**/angzarr-core", "**/angzarr-core/**"]
+# Submodules (angzarr-client-python, angzarr-project) own their own
+# formatting + CI and must not be rewritten from this repo. mutants/ is
+# a per-run scratch tree mutmut generates. *_pb2*.py are generated.
+extend-exclude = [
+    "**/*_pb2.py",
+    "**/*_pb2_grpc.py",
+    "**/angzarr-core",
+    "**/angzarr-core/**",
+    "angzarr-client-python",
+    "angzarr-client-python/**",
+    "angzarr-project",
+    "angzarr-project/**",
+    "mutants",
+    "mutants/**",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # These files require sys.path manipulation before imports

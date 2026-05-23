@@ -6,7 +6,7 @@ issues ReserveFunds, and to validate tournament phase / capacity.
 
 from dataclasses import dataclass, field
 
-from angzarr_client.proto.examples import tournament_pb2 as tournament
+from angzarr_client.proto.examples.v1 import tournament_pb2 as tournament
 
 
 @dataclass
@@ -85,11 +85,11 @@ def tournament_state_rebuild(
 def tournament_state_from_event_book(event_book) -> TournamentStateHelper:
     state = TournamentStateHelper()
     _type_map = {
-        "angzarr_client.proto.examples.TournamentCreated": tournament.TournamentCreated,
-        "angzarr_client.proto.examples.RegistrationOpened": tournament.RegistrationOpened,
-        "angzarr_client.proto.examples.RegistrationClosed": tournament.RegistrationClosed,
-        "angzarr_client.proto.examples.TournamentStarted": tournament.TournamentStarted,
-        "angzarr_client.proto.examples.TournamentPlayerEnrolled": tournament.TournamentPlayerEnrolled,
+        "angzarr_client.proto.examples.v1.TournamentCreated": tournament.TournamentCreated,
+        "angzarr_client.proto.examples.v1.RegistrationOpened": tournament.RegistrationOpened,
+        "angzarr_client.proto.examples.v1.RegistrationClosed": tournament.RegistrationClosed,
+        "angzarr_client.proto.examples.v1.TournamentStarted": tournament.TournamentStarted,
+        "angzarr_client.proto.examples.v1.TournamentPlayerEnrolled": tournament.TournamentPlayerEnrolled,
     }
     for page in event_book.pages:
         if not page.HasField("event"):

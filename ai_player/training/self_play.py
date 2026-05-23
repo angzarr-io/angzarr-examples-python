@@ -196,14 +196,10 @@ class SelfPlayGame:
             "game_variant": 1,
             "phase": phase,
             "hole_cards": [
-                {"suit": c.suit, "rank": c.rank}
-                for c in (player.hole_cards or [])
-                if c is not None
+                {"suit": c.suit, "rank": c.rank} for c in (player.hole_cards or []) if c is not None
             ],
             "community_cards": [
-                {"suit": c.suit, "rank": c.rank}
-                for c in game.community
-                if c is not None
+                {"suit": c.suit, "rank": c.rank} for c in game.community if c is not None
             ],
             "pot_size": game.pot,
             "stack_size": player.stack,
@@ -211,9 +207,7 @@ class SelfPlayGame:
             "min_raise": min_raise_increment,
             "max_raise": player.stack + player.bet,
             "position": player.seat,
-            "players_remaining": len(
-                [p for p in game.players.values() if not p.folded]
-            ),
+            "players_remaining": len([p for p in game.players.values() if not p.folded]),
             "players_to_act": len(
                 [p for p in game.players.values() if not p.folded and not p.all_in]
             ),
@@ -273,9 +267,7 @@ class SelfPlayGame:
             "min_raise": min_raise_increment,  # Actual min raise, not just big blind
             "position": player.seat,
             "phase": phase,
-            "players_remaining": len(
-                [p for p in game.players.values() if not p.folded]
-            ),
+            "players_remaining": len([p for p in game.players.values() if not p.folded]),
             "players_to_act": len(
                 [p for p in game.players.values() if not p.folded and not p.all_in]
             ),
@@ -653,9 +645,7 @@ class SelfPlayTrainer:
         is a follow-up that belongs in the offline trainer, not in the play
         driver. Logged so the operator sees it at runtime.
         """
-        winner_agent = next(
-            (a for a in self._agents if a.model_id == winner_model_id), None
-        )
+        winner_agent = next((a for a in self._agents if a.model_id == winner_model_id), None)
         if winner_agent is None:
             logger.warning("winner_agent_not_found", model_id=winner_model_id)
             return
@@ -817,9 +807,7 @@ def main():
 
     args = parser.parse_args()
 
-    sidecar_addresses = [
-        a.strip() for a in args.sidecar_addresses.split(",") if a.strip()
-    ]
+    sidecar_addresses = [a.strip() for a in args.sidecar_addresses.split(",") if a.strip()]
 
     config = SelfPlayConfig(
         database_url=args.database_url,

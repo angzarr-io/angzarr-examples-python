@@ -23,13 +23,13 @@ import structlog
 root = Path(__file__).parent
 sys.path.insert(0, str(root))
 
-from angzarr_client.proto.angzarr.types_pb2 import (
+from angzarr_client.proto.angzarr.v1.types_pb2 import (
     Edition,
     DomainDivergence,
     SYNC_MODE_CASCADE,
 )
-from angzarr_client.proto.examples import hand_pb2
-from angzarr_client.proto.examples import poker_types_pb2 as types_pb2
+from angzarr_client.proto.examples.v1 import hand_pb2
+from angzarr_client.proto.examples.v1 import poker_types_pb2 as types_pb2
 from client import GatewayClient, derive_root
 
 logger = structlog.get_logger()

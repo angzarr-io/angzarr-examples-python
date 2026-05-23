@@ -13,7 +13,7 @@ owns only bankroll + per-key (table_root or tournament_root) reservations.
 
 from dataclasses import dataclass, field
 
-from angzarr_client.proto.examples import player_pb2 as player
+from angzarr_client.proto.examples.v1 import player_pb2 as player
 
 
 @dataclass
@@ -112,31 +112,31 @@ def build_state(state: PlayerState, events: list) -> PlayerState:
     from google.protobuf.any_pb2 import Any as AnyProto
 
     _appliers = {
-        "angzarr_client.proto.examples.PlayerRegistered": (
+        "angzarr_client.proto.examples.v1.PlayerRegistered": (
             player.PlayerRegistered,
             apply_registered,
         ),
-        "angzarr_client.proto.examples.FundsDeposited": (
+        "angzarr_client.proto.examples.v1.FundsDeposited": (
             player.FundsDeposited,
             apply_deposited,
         ),
-        "angzarr_client.proto.examples.FundsWithdrawn": (
+        "angzarr_client.proto.examples.v1.FundsWithdrawn": (
             player.FundsWithdrawn,
             apply_withdrawn,
         ),
-        "angzarr_client.proto.examples.FundsReserved": (
+        "angzarr_client.proto.examples.v1.FundsReserved": (
             player.FundsReserved,
             apply_reserved,
         ),
-        "angzarr_client.proto.examples.FundsReleased": (
+        "angzarr_client.proto.examples.v1.FundsReleased": (
             player.FundsReleased,
             apply_released,
         ),
-        "angzarr_client.proto.examples.FundsTransferred": (
+        "angzarr_client.proto.examples.v1.FundsTransferred": (
             player.FundsTransferred,
             apply_transferred,
         ),
-        "angzarr_client.proto.examples.FundsDeducted": (
+        "angzarr_client.proto.examples.v1.FundsDeducted": (
             player.FundsDeducted,
             apply_funds_deducted,
         ),

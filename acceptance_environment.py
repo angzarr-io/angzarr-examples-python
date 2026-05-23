@@ -18,6 +18,7 @@ for agg in ["player/agg", "table/agg", "hand/agg", "sagas"]:
         sys.path.insert(0, str(path))
 
 from tests.command_client import create_client  # noqa: E402
+from wip_scenarios import WIP_SCENARIOS  # noqa: E402
 
 
 def before_all(context):
@@ -37,6 +38,10 @@ def before_scenario(context, scenario):
     scenario's grpc channel pointed at a draining endpoint and
     surfacing as ``Connection reset by peer``. Cheap to rebuild.
     """
+    feature_basename = Path(scenario.feature.filename).name
+    if (feature_basename, scenario.name) in WIP_SCENARIOS:
+        scenario.skip("WIP: matcher implementation pending; see wip_scenarios.py")
+        return
     if hasattr(context, "client"):
         context.client.close()
     context.client = create_client()

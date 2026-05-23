@@ -12,11 +12,19 @@ from google.protobuf.any_pb2 import Any as ProtoAny
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from angzarr_client import Destinations, Router, SagaGrpc, handles, run_server, saga
-from angzarr_client.proto.angzarr import saga_pb2_grpc
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import table_pb2 as table
+from angzarr_client import (
+    Cover,
+    Destinations,
+    Router,
+    SagaGrpc,
+    handles,
+    run_server,
+    saga,
+)
+from angzarr_client.proto.angzarr.v1 import saga_pb2_grpc
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import table_pb2 as table
 
 structlog.configure(
     processors=[
@@ -47,7 +55,7 @@ class TablePlayerSaga:
         self,
         event: table.HandEnded,
         destinations: Destinations,
-        source_cover: types.Cover = None,
+        source_cover: Cover | None = None,
         source_seq: int = 0,
     ) -> list[types.CommandBook]:
         commands: list[types.CommandBook] = []
@@ -55,7 +63,7 @@ class TablePlayerSaga:
         for player_hex in event.stack_changes:
             player_root = bytes.fromhex(player_hex)
             release = player.ReleaseFunds(
-                table_root=event.hand_root,
+                key=event.hand_root,
             )
             commands.append(
                 types.CommandBook(

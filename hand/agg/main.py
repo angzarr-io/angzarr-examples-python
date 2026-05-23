@@ -16,7 +16,7 @@ from angzarr_client import (
     configure_logging,
     run_server,
 )
-from angzarr_client.proto.angzarr import command_handler_pb2_grpc
+from angzarr_client.proto.angzarr.v1 import command_handler_pb2_grpc
 
 from .handlers import Hand
 

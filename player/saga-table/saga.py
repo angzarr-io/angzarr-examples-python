@@ -10,10 +10,10 @@ Same pattern for SitIn/PlayerReturningToPlay → PlayerSatIn.
 
 from google.protobuf.any_pb2 import Any as ProtoAny
 
-from angzarr_client import Destinations, handles, now, saga
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import table_pb2 as table
+from angzarr_client import Cover, Destinations, handles, now, saga
+from angzarr_client.proto.angzarr.v1 import types_pb2 as types
+from angzarr_client.proto.examples.v1 import player_pb2 as player
+from angzarr_client.proto.examples.v1 import table_pb2 as table
 
 
 def _pack_fact(fact, table_root: bytes, external_id: str) -> types.EventBook:
@@ -52,10 +52,12 @@ class PlayerTableSaga:
         self,
         event: player.PlayerSittingOut,
         destinations: Destinations,
-        source_cover: types.Cover = None,
+        source_cover: Cover | None = None,
     ) -> types.EventBook:
         """Propagate PlayerSittingOut as PlayerSatOut fact to table."""
-        player_root = source_cover.root.value if source_cover is not None else b""
+        player_root = (
+            source_cover.proto().root.value if source_cover is not None else b""
+        )
         fact = table.PlayerSatOut(
             player_root=player_root,
             sat_out_at=event.sat_out_at or now(),
@@ -71,10 +73,12 @@ class PlayerTableSaga:
         self,
         event: player.PlayerReturningToPlay,
         destinations: Destinations,
-        source_cover: types.Cover = None,
+        source_cover: Cover | None = None,
     ) -> types.EventBook:
         """Propagate PlayerReturningToPlay as PlayerSatIn fact to table."""
-        player_root = source_cover.root.value if source_cover is not None else b""
+        player_root = (
+            source_cover.proto().root.value if source_cover is not None else b""
+        )
         fact = table.PlayerSatIn(
             player_root=player_root,
             sat_in_at=event.sat_in_at or now(),

@@ -45,9 +45,7 @@ class LiveOpponentStats:
     def aggression_factor(self) -> float:
         """Aggression factor: (bets + raises) / calls."""
         if self.calls == 0:
-            return (
-                float(self.bets + self.raises) if (self.bets + self.raises) > 0 else 0.0
-            )
+            return float(self.bets + self.raises) if (self.bets + self.raises) > 0 else 0.0
         return (self.bets + self.raises) / self.calls
 
     @property
@@ -196,9 +194,7 @@ class SessionState:
 
         # Update opponent stats
         if player_root not in self.opponent_stats:
-            self.opponent_stats[player_root] = LiveOpponentStats(
-                player_root=player_root
-            )
+            self.opponent_stats[player_root] = LiveOpponentStats(player_root=player_root)
 
         stats = self.opponent_stats[player_root]
 
