@@ -39,3 +39,9 @@ mutants/
 *.sqlite
 *.sqlite3
 data/
+
+# Model weights — fetched externally, never committed
+*.pt
+
+# Runtime logs
+*.log
