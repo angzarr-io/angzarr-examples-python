@@ -1,0 +1,223 @@
+"""Table aggregate unit steps (create / join / leave families).
+
+Drives the generated TableAggregate wiring through the FFI core: "exists" /
+"is seated" Givens seed a prior-events history the core folds to rebuild state;
+When steps dispatch a command; Then steps assert the emitted event or the coded
+rejection. Cross-component scenarios (tournament balancing, hand lifecycle,
+busts, reseating) are tagged @wip until their components are ported.
+"""
+
+from __future__ import annotations
+
+from behave import given, then, when
+
+from angzarr_poker._gen.io.angzarr.examples.v1 import poker_types_pb2 as pt
+from angzarr_poker._gen.io.angzarr.examples.v1 import table_pb2 as table
+from unit_steps._harness import uuid_for
+from unit_steps.common_steps import assert_rejected
+
+DOMAIN = "table"
+P = "io.angzarr.examples.v1."  # FQ prefix for table commands/events
+
+_VARIANTS = {
+    "Texas Hold'em": pt.TEXAS_HOLDEM,
+    "Five Card Draw": pt.FIVE_CARD_DRAW,
+    "Omaha": pt.OMAHA,
+}
+
+# Defaults for a seeded "a table exists" history (mirror the legacy fixtures).
+_DEF = dict(small_blind=5, big_blind=10, min_buy_in=200, max_buy_in=1000, max_players=9)
+
+
+def _seed_table(context, name, **overrides):
+    cfg = dict(_DEF, **overrides)
+    context.world.seed_event(
+        DOMAIN,
+        P + "TableCreated",
+        table.TableCreated(
+            table_name=name,
+            game_variant=pt.TEXAS_HOLDEM,
+            action_timeout_seconds=30,
+            **cfg,
+        ),
+    )
+
+
+def _seed_seat(context, pid, position, stack=500):
+    context.world.seed_event(
+        DOMAIN,
+        P + "PlayerJoined",
+        table.PlayerJoined(
+            player_root=uuid_for(pid),
+            seat_position=position,
+            buy_in_amount=stack,
+            stack=stack,
+        ),
+    )
+
+
+# --- Given: seed prior state ---
+
+
+@given("the table has not yet been created")
+def _given_uncreated(context):
+    pass  # fresh World — no prior history
+
+
+@given('a table "{name}" exists')
+def _given_table_exists(context, name):
+    _seed_table(context, name)
+
+
+@given('a table "{name}" exists with a minimum buy-in of {n:d}')
+def _given_table_min_buyin(context, name, n):
+    _seed_table(context, name, min_buy_in=n)
+
+
+@given('a table "{name}" exists with a maximum of {n:d} players')
+def _given_table_max_players(context, name, n):
+    _seed_table(context, name, max_players=n)
+
+
+@given('a table "{name}" exists with blinds {sb:d}/{bb:d}')
+def _given_table_blinds(context, name, sb, bb):
+    _seed_table(context, name, small_blind=sb, big_blind=bb)
+
+
+@given('player "{pid}" is seated at position {pos:d}')
+def _given_seated(context, pid, pos):
+    _seed_seat(context, pid, pos)
+
+
+@given('player "{pid}" is seated at position {pos:d} with a {stack:d}-chip stack')
+def _given_seated_stack(context, pid, pos, stack):
+    _seed_seat(context, pid, pos, stack)
+
+
+@given("the first hand at the table has begun")
+def _given_hand_begun(context):
+    context.world.seed_event(
+        DOMAIN,
+        P + "HandStarted",
+        table.HandStarted(hand_root=uuid_for("hand-1"), hand_number=1, dealer_position=0),
+    )
+
+
+# --- When: dispatch a command ---
+
+
+@when('a {variant} table named "{name}" is created with')
+def _when_create(context, variant, name):
+    row = context.table[0]
+    cmd = table.CreateTable(
+        table_name=name,
+        game_variant=_VARIANTS[variant],
+        small_blind=int(row["small_blind"]),
+        big_blind=int(row["big_blind"]),
+        min_buy_in=int(row["min_buy_in"]),
+        max_buy_in=int(row["max_buy_in"]),
+        max_players=int(row["max_players"]),
+    )
+    context.world.dispatch(DOMAIN, P + "CreateTable", cmd)
+
+
+@when('player "{pid}" joins the table at seat {seat:d} with a buy-in of {amt:d}')
+def _when_join_seat(context, pid, seat, amt):
+    cmd = table.JoinTable(player_root=uuid_for(pid), preferred_seat=seat, buy_in_amount=amt)
+    context.world.dispatch(DOMAIN, P + "JoinTable", cmd)
+
+
+@when('player "{pid}" joins the table at any available seat with a buy-in of {amt:d}')
+def _when_join_any(context, pid, amt):
+    cmd = table.JoinTable(player_root=uuid_for(pid), preferred_seat=-1, buy_in_amount=amt)
+    context.world.dispatch(DOMAIN, P + "JoinTable", cmd)
+
+
+@when('player "{pid}" leaves the table')
+def _when_leave(context, pid):
+    context.world.dispatch(DOMAIN, P + "LeaveTable", table.LeaveTable(player_root=uuid_for(pid)))
+
+
+# --- Then: assert emitted event or rejection ---
+
+
+@then('the table is named "{name}"')
+def _then_named(context, name):
+    ev = context.world.emitted(P + "TableCreated", table.TableCreated())
+    assert ev.table_name == name, f"table_name = {ev.table_name!r}, want {name!r}"
+
+
+@then("the table is configured as a {variant} game")
+def _then_variant(context, variant):
+    ev = context.world.emitted(P + "TableCreated", table.TableCreated())
+    assert ev.game_variant == _VARIANTS[variant], f"variant = {ev.game_variant}"
+
+
+@then("the blinds are {sb:d}/{bb:d}")
+def _then_blinds(context, sb, bb):
+    ev = context.world.emitted(P + "TableCreated", table.TableCreated())
+    assert (ev.small_blind, ev.big_blind) == (sb, bb)
+
+
+@then("the create-table is refused because the table already exists")
+def _then_create_dup(context):
+    assert_rejected(context, "TABLE_EXISTS")
+
+
+@then('player "{pid}" is seated at position {pos:d} with a {stack:d}-chip stack')
+def _then_seated_stack(context, pid, pos, stack):
+    ev = context.world.emitted(P + "PlayerJoined", table.PlayerJoined())
+    assert ev.seat_position == pos, f"seat = {ev.seat_position}, want {pos}"
+    assert ev.stack == stack, f"stack = {ev.stack}, want {stack}"
+
+
+@then('player "{pid}" is seated at position {pos:d}')
+def _then_seated(context, pid, pos):
+    ev = context.world.emitted(P + "PlayerJoined", table.PlayerJoined())
+    assert ev.seat_position == pos, f"seat = {ev.seat_position}, want {pos}"
+
+
+@then("the join is refused because seat {seat:d} is already occupied")
+def _then_join_occupied(context, seat):
+    assert_rejected(context, "SEAT_OCCUPIED")
+
+
+@then("the join is refused because the player is already seated")
+def _then_join_dup(context):
+    assert_rejected(context, "PLAYER_ALREADY_SEATED")
+
+
+@then("the join is refused because the buy-in of {n:d} is below the table minimum of {m:d}")
+def _then_join_below_min(context, n, m):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+@then("the join is refused because the buy-in of {n:d} is above the table maximum of {m:d}")
+def _then_join_above_max(context, n, m):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+@then("the join is refused because the table is full")
+def _then_join_full(context):
+    assert_rejected(context, "TABLE_FULL")
+
+
+@then("the join is refused because the table does not exist")
+def _then_join_no_table(context):
+    assert_rejected(context, "TABLE_NOT_FOUND")
+
+
+@then('player "{pid}" cashes out {n:d} chips')
+def _then_cashes_out(context, pid, n):
+    ev = context.world.emitted(P + "PlayerLeft", table.PlayerLeft())
+    assert ev.chips_cashed_out == n, f"cashed_out = {ev.chips_cashed_out}, want {n}"
+
+
+@then("the leave is refused because a hand is in progress")
+def _then_leave_in_hand(context):
+    assert_rejected(context, "HAND_IN_PROGRESS")
+
+
+@then("the leave is refused because the player is not seated")
+def _then_leave_not_seated(context):
+    assert_rejected(context, "PLAYER_NOT_SEATED")

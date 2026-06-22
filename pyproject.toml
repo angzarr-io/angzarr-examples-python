@@ -6,9 +6,18 @@ requires-python = ">=3.11"
 # Dependencies
 dependencies = [
     "angzarr-client>=0.5.0",
-    "protobuf>=5.0.0",
+    # The FFI router binding the poker components dispatch through. It is not a
+    # published package (cdylib packaging deferred); consumed as an editable path
+    # source below. Its cdylib is located at runtime via ANGZARR_ROUTER_LIB.
+    "angzarr-router-ffi",
+    # Must be the 7.x runtime the protocolbuffers/python v35.1 gencode targets
+    # (the generated _gen embeds a runtime-version check) and that the FFI binding
+    # pins — see proto-gen / framework byte-identity.
+    "protobuf>=7.35.1,<8",
     "grpcio>=1.60.0",
-    "grpcio-tools>=1.60.0",
+    # grpcio-tools removed: codegen is done by buf (remote protocolbuffers/python
+    # + grpc/python plugins), not local protoc, and grpcio-tools caps
+    # protobuf<7 which conflicts with the v35.1 gencode runtime (protobuf 7.x).
     "grpcio-health-checking>=1.60.0",
     "structlog>=24.0.0",
     "behave>=1.3.3",
@@ -26,11 +35,14 @@ dev = [
     "pytest-cov>=7.0.0",
     "pytest-timeout>=2.3.0",
     "mutmut>=3.2.0",
-    "protoletariat>=3.0.0",
+    # protoletariat is a gen-time tool only and pins protobuf<6 (incompatible
+    # with the v35.1 gencode runtime, protobuf 7.x). Run it isolated via
+    # `uvx --from protoletariat protol` in proto-gen rather than as a project dep.
 ]
 
 [tool.uv.sources]
 angzarr-client = { path = "angzarr-client-python", editable = true }
+angzarr-router-ffi = { path = "../../angzarr-router/main/bindings/python", editable = true }
 
 [build-system]
 requires = ["hatchling"]

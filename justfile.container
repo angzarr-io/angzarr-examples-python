@@ -12,10 +12,19 @@ default:
 # self-contained under angzarr_poker._gen (never shadows stdlib `io`). Wiring
 # (*_angzarr.py) is regenerated each run; ported business logic lives in the
 # committed, skip-if-exists *_angzarr_handler.py scaffolds.
+#
+# google/* is NOT generated: it comes from the protobuf runtime + the installed
+# googleapis-common-protos (the standard-over-rolling precedent). The FFI binding
+# this package imports does the same, so a locally-generated google/api/*.proto
+# would collide with googleapis-common-protos in the global descriptor pool
+# ("duplicate file name google/api/http.proto"). Exclude it from both the buf
+# generate and the protol image; the framework pb2's `from google.api import ...`
+# then resolves to the installed package.
 proto-gen:
-    buf generate
+    buf generate --exclude-path angzarr-project/proto/google
     buf build angzarr-project/proto -o .gen-image.binpb
-    protol --create-package --in-place --python-out src/angzarr_poker/_gen raw .gen-image.binpb
+    uvx --from protoletariat protol --create-package --in-place --python-out src/angzarr_poker/_gen \
+        --exclude-imports-glob 'google/*' raw .gen-image.binpb
     rm -f .gen-image.binpb
 
 # Generate AI Player protos (runs buf inside ai_player/). Generated files are
@@ -31,12 +40,15 @@ install *FLAGS: proto-gen ai-proto
 test-pytest:
     uv run pytest -v
 
-# Unit-example cucumber: poker handler logic, direct invocation, no infra.
-# Feature files live in angzarr-project/features/example/unit/ (submodule).
-# behave's --stage mechanism finds unit_environment.py + unit_steps/ at this
-# repo root via walk-up from the feature files — no symlinks needed.
+# Unit-example cucumber: poker business rules driven through the generated FFI
+# dispatch wiring (in-process router, no infra). Feature files live in
+# angzarr-project/features/example/{poker,framework}/ (submodule; the legacy
+# unit/ tree was reorganized in the split-poker reframe). behave's --stage
+# mechanism finds unit_environment.py + unit_steps/ at this repo root via walk-up
+# from the feature files — no symlinks needed. The binding's cdylib is resolved
+# via ANGZARR_ROUTER_LIB or the in-repo build dir.
 test-example-unit:
-    uv run behave --stage unit angzarr-project/features/example/unit/ --tags="~@wip"
+    uv run behave --stage unit angzarr-project/features/example/poker angzarr-project/features/example/framework --tags="~@wip"
 
 # Acceptance-example cucumber: poker E2E via CommandClient (gRPC).
 # PLAYER_URL picks the coordinator; defaults to localhost:1310.
