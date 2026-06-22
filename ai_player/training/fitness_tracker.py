@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from prj_training.schema import TournamentResult
+from ai_player.training.schema import TournamentResult
 
 logger = structlog.get_logger()
 

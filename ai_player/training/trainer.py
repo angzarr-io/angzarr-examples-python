@@ -23,7 +23,7 @@ from ai_player.models.poker_net import PokerNet
 
 # Add parent directory to allow importing prj_training
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from prj_training.schema import TrainingState
+from ai_player.training.schema import TrainingState
 
 if TYPE_CHECKING:
     pass
