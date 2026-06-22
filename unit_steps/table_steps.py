@@ -221,3 +221,100 @@ def _then_leave_in_hand(context):
 @then("the leave is refused because the player is not seated")
 def _then_leave_not_seated(context):
     assert_rejected(context, "PLAYER_NOT_SEATED")
+
+
+# --- hand lifecycle: start / end ---
+
+_HAND_ROOT = uuid_for("hand-1")  # the root _given_hand_begun seeds
+
+
+@given("hand {n:d} was played with the dealer at seat {seat:d} and has ended")
+def _given_hand_played(context, n, seat):
+    root = uuid_for(f"hand-{n}")
+    context.world.seed_event(
+        DOMAIN,
+        P + "HandStarted",
+        table.HandStarted(hand_root=root, hand_number=n, dealer_position=seat),
+    )
+    context.world.seed_event(DOMAIN, P + "HandEnded", table.HandEnded(hand_root=root))
+
+
+@when("the next hand at the table begins")
+@when("the first hand at the table begins")
+def _when_start_hand(context):
+    context.world.dispatch(DOMAIN, P + "StartHand", table.StartHand())
+
+
+@when('the hand ends with "{pid}" winning {amt:d}')
+def _when_end_hand_winner(context, pid, amt):
+    cmd = table.EndHand(
+        hand_root=_HAND_ROOT,
+        results=[table.PotResult(winner_root=uuid_for(pid), amount=amt)],
+    )
+    context.world.dispatch(DOMAIN, P + "EndHand", cmd)
+
+
+@when("the hand ends with the following results")
+def _when_end_hand_results(context):
+    cmd = table.EndHand(hand_root=_HAND_ROOT)
+    for row in context.table:
+        cmd.results.add(winner_root=uuid_for(row["player"]), amount=int(row["change"]))
+    context.world.dispatch(DOMAIN, P + "EndHand", cmd)
+
+
+@then("the table is on hand number {n:d} with {p:d} active players")
+def _then_hand_number_active(context, n, p):
+    ev = context.world.emitted(P + "HandStarted", table.HandStarted())
+    assert ev.hand_number == n, f"hand_number = {ev.hand_number}, want {n}"
+    assert len(ev.active_players) == p, f"active = {len(ev.active_players)}, want {p}"
+
+
+@then("the table is on hand number {n:d}")
+def _then_hand_number(context, n):
+    ev = context.world.emitted(P + "HandStarted", table.HandStarted())
+    assert ev.hand_number == n, f"hand_number = {ev.hand_number}, want {n}"
+
+
+@then("the dealer is at seat {seat:d}")
+def _then_dealer_seat(context, seat):
+    ev = context.world.emitted(P + "HandStarted", table.HandStarted())
+    assert ev.dealer_position == seat, f"dealer = {ev.dealer_position}, want {seat}"
+
+
+@then("the start-hand is refused because there are not enough players")
+def _then_start_few(context):
+    assert_rejected(context, "NOT_ENOUGH_PLAYERS")
+
+
+@then("the start-hand is refused because a hand is already in progress")
+def _then_start_in_progress(context):
+    assert_rejected(context, "HAND_IN_PROGRESS")
+
+
+@then("the start-hand is refused because the table does not exist")
+def _then_start_no_table(context):
+    assert_rejected(context, "TABLE_NOT_FOUND")
+
+
+@then('player "{pid}"\'s stack change is {delta}')
+def _then_stack_change(context, pid, delta):
+    ev = context.world.emitted(P + "HandEnded", table.HandEnded())
+    key = uuid_for(pid).hex()
+    assert ev.stack_changes.get(key) == int(delta), (
+        f"stack change for {pid} = {ev.stack_changes.get(key)}, want {delta}"
+    )
+
+
+@then("the end-hand is refused because no hand is in progress")
+def _then_end_no_hand(context):
+    assert_rejected(context, "NO_HAND_IN_PROGRESS")
+
+
+@then("the end-hand is refused because the hand identity does not match")
+def _then_end_mismatch(context):
+    assert_rejected(context, "HAND_ROOT_MISMATCH")
+
+
+@then("the end-hand is refused because the table does not exist")
+def _then_end_no_table(context):
+    assert_rejected(context, "TABLE_NOT_FOUND")

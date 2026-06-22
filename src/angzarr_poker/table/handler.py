@@ -240,7 +240,14 @@ class TableAggregate:
         hand_root_input = f"angzarr.poker.hand.{state.table_id}.{hand_number}"
         hand_root = hashlib.sha256(hand_root_input.encode()).digest()[:16]
 
-        dealer_position = _next_dealer_position(state)
+        if state.hand_count == 0:
+            # WSOP Rule 85: on the first hand the button is deterministic — the
+            # seat with the first chip stack to the dealer's right (counter-
+            # clockwise), i.e. the highest-numbered occupied seat. Later hands
+            # advance the button to the next occupied seat.
+            dealer_position = max(s.position for s in active_seats)
+        else:
+            dealer_position = _next_dealer_position(state)
 
         active_positions = sorted(s.position for s in active_seats)
         dealer_idx = 0
