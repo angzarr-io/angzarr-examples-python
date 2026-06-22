@@ -1,0 +1,20 @@
+# v2: angzarr-cli generated harness from the example protos.
+# protobuf-python emits the message types; the angzarr python emitter emits
+# the dispatch wiring (*_angzarr.py) for messages carrying component options.
+version: v2
+managed:
+  enabled: true
+  disable:
+    - file_option: go_package
+      path: google
+  override:
+    - file_option: go_package_prefix
+      value: examples/v2/gen
+inputs:
+  - directory: angzarr-project/proto
+plugins:
+  - remote: buf.build/protocolbuffers/python:v28.3
+    out: v2
+  - local: ["/home/babbitt/workspace/angzarr/angzarr-cli/main/angzarr", "codegen", "python"]
+    out: v2
+    opt: paths=source_relative
