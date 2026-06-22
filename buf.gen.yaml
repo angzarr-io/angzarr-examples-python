@@ -6,3 +6,9 @@ plugins:
     out: proto
   - remote: buf.build/grpc/python:v1.68.1
     out: proto
+  # angzarr emitter: emits *_angzarr.py dispatch wiring next to the pb2 types
+  # for messages carrying component options. Same standard out (proto/, gitignored)
+  # — no separate v2/ tree. `angzarr` is on PATH in the dev/build image.
+  - local: ["angzarr", "codegen", "python"]
+    out: proto
+    opt: paths=source_relative
