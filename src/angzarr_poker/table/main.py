@@ -1,61 +1,88 @@
-"""Table bounded context service entrypoint.
+"""Table bounded-context service entrypoint.
 
-The baseline (``table/agg/main.py``) wired the Table aggregate into a gRPC
-``CommandHandlerService`` via the hand-written ``Router``/``CommandHandlerGrpc``
-helpers and ``run_server``. The new harness uses the angzarr-cli generated seam
-over the shared ``angzarr_router_ffi`` core: a process builds an in-process
-:class:`angzarr_router_ffi.Router`, registers the aggregate dispatch generated
-from ``table.proto`` (``register_table_aggregate``), and drives it via
-``router.dispatch(contextual_command)``. The core owns folding, sequence
-stamping, and the coded-error round trip.
+Transport model: **Python owns the executable and the gRPC server; the
+angzarr_router_ffi core does the dispatch.** A command arrives over gRPC as a
+``ContextualCommand``; the servicer hands it to the in-process FFI
+``Router.dispatch`` (a C-ABI cdylib), which rebuilds state (snapshot or replay),
+stamps sequences, and **calls back into the Python business logic**
+(``TableAggregate``) before returning a ``BusinessResponse``. There is one GIL,
+re-acquired for the callback — not an additional one.
 
-``build_router`` is the reusable bootstrap (also handy for tests); ``main`` is
-the process entrypoint.
+We reuse angzarr-client's ``run_server`` bootstrap (health, reflection, port).
+The servicer below mirrors ``angzarr_client.router.server.CommandHandlerGrpc``
+but maps the FFI's ``CodedError`` onto the proper gRPC status (the stock adapter
+predates the FFI core and would collapse rejections to INTERNAL).
 """
 
 from __future__ import annotations
 
-import angzarr_router_ffi as _az
+import grpc
+import structlog
 
+import angzarr_router_ffi as _az
+from angzarr_client import configure_logging
+from angzarr_client.server import run_server
+
+from angzarr_poker._gen.io.angzarr.v1 import command_handler_pb2_grpc
 from angzarr_poker._gen.io.angzarr.examples.v1.table_aggregate_angzarr import (
     register_table_aggregate,
 )
 from angzarr_poker.table.handler import TableAggregate
 
-# Domain this aggregate owns (matches the generated AggregateDispatch domain).
 DOMAIN = "table"
+DEFAULT_PORT = "50402"
+
+# GrpcCode integers (3=INVALID_ARGUMENT, 5=NOT_FOUND, 9=FAILED_PRECONDITION,
+# 13=INTERNAL, ...) are the canonical gRPC status numbers; map by value.
+_STATUS_BY_CODE = {status.value[0]: status for status in grpc.StatusCode}
+
+
+def _grpc_status(code: int) -> grpc.StatusCode:
+    return _STATUS_BY_CODE.get(int(code), grpc.StatusCode.INTERNAL)
+
+
+class CommandHandlerServicer(command_handler_pb2_grpc.CommandHandlerServiceServicer):
+    """gRPC adapter over the FFI router. ``Handle``/``HandleSync`` both run one
+    ``ContextualCommand`` through ``Router.dispatch`` and translate a business
+    ``CodedError`` into its carried gRPC status."""
+
+    def __init__(self, router: _az.Router) -> None:
+        self._router = router
+
+    def Handle(self, request, context):  # noqa: N802 — gRPC method name
+        return self._dispatch(request, context)
+
+    def HandleSync(self, request, context):  # noqa: N802 — gRPC method name
+        return self._dispatch(request, context)
+
+    def _dispatch(self, request, context):
+        try:
+            return self._router.dispatch(request)
+        except _az.CodedError as exc:
+            context.abort(_grpc_status(exc.grpc), exc.message)
+        except Exception as exc:  # noqa: BLE001 — last-resort guard
+            context.abort(grpc.StatusCode.INTERNAL, str(exc))
 
 
 def build_router() -> _az.Router:
-    """Construct a router with the Table aggregate registered.
-
-    The caller owns the returned router and is responsible for ``close()``
-    (or use it as a context manager)."""
+    """An FFI router with the Table aggregate registered. Caller owns close()."""
     router = _az.Router()
     register_table_aggregate(router, TableAggregate())
     return router
 
 
 def main() -> None:
-    """Process entrypoint: build the router and hold it open to serve
-    dispatches. The generated seam is registered against the shared router-ffi
-    core; commands arrive as ``ContextualCommand`` and are run via
-    ``router.dispatch(...)``."""
-    with build_router() as router:  # noqa: F841 — held open for the service lifetime
-        # The FFI router is driven in-process via ``router.dispatch(...)``; the
-        # surrounding service shell (transport, lifecycle) lives outside this
-        # generated-seam port. Keep the registered router alive for as long as
-        # the service should accept commands.
-        _serve_forever(router)
-
-
-def _serve_forever(router: _az.Router) -> None:
-    """Block, keeping the registered router alive. Replace with the deployment's
-    transport loop (the FFI core exposes synchronous ``dispatch``; it carries no
-    server of its own)."""
-    import threading
-
-    threading.Event().wait()
+    configure_logging()
+    logger = structlog.get_logger()
+    with build_router() as router:
+        run_server(
+            command_handler_pb2_grpc.add_CommandHandlerServiceServicer_to_server,
+            CommandHandlerServicer(router),
+            service_name="table-agg",
+            domain=DOMAIN,
+            default_port=DEFAULT_PORT,
+            logger=logger,
+        )
 
 
 if __name__ == "__main__":
