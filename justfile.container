@@ -7,10 +7,16 @@ set shell := ["bash", "-c"]
 default:
     @just --list
 
-# Generate poker domain protos from buf registry
+# Generate message types + angzarr dispatch wiring into src/angzarr_poker/_gen,
+# then protoletariat rewrites the buf pb2/grpc imports to relative so the tree is
+# self-contained under angzarr_poker._gen (never shadows stdlib `io`). Wiring
+# (*_angzarr.py) is regenerated each run; ported business logic lives in the
+# committed, skip-if-exists *_angzarr_handler.py scaffolds.
 proto-gen:
     buf generate
-    find poker/proto -name "*.py" -exec sed -i 's/from poker import/from poker.proto.poker import/g' {} \;
+    buf build angzarr-project/proto -o .gen-image.binpb
+    protol --create-package --in-place --python-out src/angzarr_poker/_gen raw .gen-image.binpb
+    rm -f .gen-image.binpb
 
 # Generate AI Player protos (runs buf inside ai_player/). Generated files are
 # gitignored; regenerate here whenever the ai_sidecar.proto contract changes.

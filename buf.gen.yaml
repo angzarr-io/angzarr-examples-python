@@ -1,14 +1,16 @@
+# Generates the message types (pb2/grpc) + the angzarr dispatch wiring into the
+# package's gitignored _gen/ tree. The angzarr emitter writes relative imports;
+# protoletariat (proto-gen recipe) rewrites the buf pb2/grpc imports the same way
+# so the whole tree is self-contained under angzarr_poker._gen — never shadowing
+# stdlib `io`. Regenerated freely; ported logic lives in committed *_handler.py.
 version: v2
 inputs:
   - directory: angzarr-project/proto
 plugins:
   - remote: buf.build/protocolbuffers/python:v28.3
-    out: proto
+    out: src/angzarr_poker/_gen
   - remote: buf.build/grpc/python:v1.68.1
-    out: proto
-  # angzarr emitter: emits *_angzarr.py dispatch wiring next to the pb2 types
-  # for messages carrying component options. Same standard out (proto/, gitignored)
-  # — no separate v2/ tree. `angzarr` is on PATH in the dev/build image.
+    out: src/angzarr_poker/_gen
   - local: ["angzarr", "codegen", "python"]
-    out: proto
+    out: src/angzarr_poker/_gen
     opt: paths=source_relative
