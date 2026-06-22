@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from io.angzarr.v1 import options_pb2 as io_dot_angzarr_dot_v1_dot_options__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\'io/angzarr/examples/v1/components.proto\x12\x16io.angzarr.examples.v1\x1a\x1bio/angzarr/v1/options.proto\"F\n\rTableHandSaga:5\xa2\xbb\x18\x31\x08\x02\x12\x05table\x1a\x04hand* io.angzarr.examples.v1.DealCards\"$\n\rHandTableSaga:\x13\xa2\xbb\x18\x0f\x08\x02\x12\x04hand\x1a\x05table\"&\n\x0eHandPlayerSaga:\x14\xa2\xbb\x18\x10\x08\x02\x12\x04hand\x1a\x06player\"(\n\x0fTablePlayerSaga:\x15\xa2\xbb\x18\x11\x08\x02\x12\x05table\x1a\x06player\"(\n\x0fPlayerTableSaga:\x15\xa2\xbb\x18\x11\x08\x02\x12\x06player\x1a\x05tableB\xdb\x01\n\x1a\x63om.io.angzarr.examples.v1B\x0f\x43omponentsProtoP\x01Z1examples/v2/gen/io/angzarr/examples/v1;examplesv1\xa2\x02\x03IAE\xaa\x02\x16Io.Angzarr.Examples.V1\xca\x02\x16Io\\Angzarr\\Examples\\V1\xe2\x02\"Io\\Angzarr\\Examples\\V1\\GPBMetadata\xea\x02\x19Io::Angzarr::Examples::V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\'io/angzarr/examples/v1/components.proto\x12\x16io.angzarr.examples.v1\x1a\x1bio/angzarr/v1/options.proto\"F\n\rTableHandSaga:5\xa2\xbb\x18\x31\x08\x02\x12\x05table\x1a\x04hand* io.angzarr.examples.v1.DealCards\"$\n\rHandTableSaga:\x13\xa2\xbb\x18\x0f\x08\x02\x12\x04hand\x1a\x05table\"&\n\x0eHandPlayerSaga:\x14\xa2\xbb\x18\x10\x08\x02\x12\x04hand\x1a\x06player\"(\n\x0fTablePlayerSaga:\x15\xa2\xbb\x18\x11\x08\x02\x12\x05table\x1a\x06player\"(\n\x0fPlayerTableSaga:\x15\xa2\xbb\x18\x11\x08\x02\x12\x06player\x1a\x05table\"1\n\x10OutputProjection:\x1d\xa2\xbb\x18\x19\x08\x04\x12\x04hand\"\x0fOutputProjectorB\xdb\x01\n\x1a\x63om.io.angzarr.examples.v1B\x0f\x43omponentsProtoP\x01Z1examples/v2/gen/io/angzarr/examples/v1;examplesv1\xa2\x02\x03IAE\xaa\x02\x16Io.Angzarr.Examples.V1\xca\x02\x16Io\\Angzarr\\Examples\\V1\xe2\x02\"Io\\Angzarr\\Examples\\V1\\GPBMetadata\xea\x02\x19Io::Angzarr::Examples::V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -43,6 +43,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_TABLEPLAYERSAGA']._serialized_options = b'\242\273\030\021\010\002\022\005table\032\006player'
   _globals['_PLAYERTABLESAGA']._loaded_options = None
   _globals['_PLAYERTABLESAGA']._serialized_options = b'\242\273\030\021\010\002\022\006player\032\005table'
+  _globals['_OUTPUTPROJECTION']._loaded_options = None
+  _globals['_OUTPUTPROJECTION']._serialized_options = b'\242\273\030\031\010\004\022\004hand\"\017OutputProjector'
   _globals['_TABLEHANDSAGA']._serialized_start=96
   _globals['_TABLEHANDSAGA']._serialized_end=166
   _globals['_HANDTABLESAGA']._serialized_start=168
@@ -53,4 +55,6 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_TABLEPLAYERSAGA']._serialized_end=286
   _globals['_PLAYERTABLESAGA']._serialized_start=288
   _globals['_PLAYERTABLESAGA']._serialized_end=328
+  _globals['_OUTPUTPROJECTION']._serialized_start=330
+  _globals['_OUTPUTPROJECTION']._serialized_end=379
 # @@protoc_insertion_point(module_scope)
