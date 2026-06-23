@@ -21,6 +21,7 @@ import hashlib
 from typing import Optional
 
 import angzarr_router_ffi as _az
+from angzarr_poker._gen.io.angzarr.v1 import saga_pb2 as _saga
 from angzarr_poker._gen.io.angzarr.v1 import types_pb2 as _t
 
 # The framework's canonical Any type-URL prefix is a bare "/" (not the
@@ -63,11 +64,16 @@ class World:
         from angzarr_poker._gen.io.angzarr.examples.v1.table_aggregate_angzarr import (
             register_table_aggregate,
         )
+        from angzarr_poker._gen.io.angzarr.examples.v1.table_hand_saga_angzarr import (
+            register_table_hand_saga,
+        )
         from angzarr_poker.hand.handler import HandAggregate
+        from angzarr_poker.sagas.table_hand import TableHandSaga
         from angzarr_poker.table.handler import TableAggregate
 
         register_table_aggregate(self.router, TableAggregate())
         register_hand_aggregate(self.router, HandAggregate())
+        register_table_hand_saga(self.router, TableHandSaga())
 
     # --- state seeding (prior events the core folds) ---
 
@@ -103,6 +109,35 @@ class World:
             self.resp = self.router.dispatch(cc)
         except _az.CodedError as exc:
             self.err = exc
+
+    # --- saga dispatch (stateless event -> commands/events) ---
+
+    def dispatch_saga(self, input_domain: str, fq: str, event_msg, dest_sequences=None) -> None:
+        """Run one source event through a registered saga. Captures the
+        SagaResponse in ``resp`` or the rejection in ``err``."""
+        self.resp = None
+        self.err = None
+        req = _saga.SagaHandleRequest()
+        req.source.cover.domain = input_domain
+        page = req.source.pages.add()
+        page.event.type_url = type_url(fq)
+        page.event.value = event_msg.SerializeToString()
+        for domain, seq in (dest_sequences or {}).items():
+            req.destination_sequences[domain] = seq
+        try:
+            self.resp = self.router.dispatch_saga(req)
+        except _az.CodedError as exc:
+            self.err = exc
+
+    def emitted_commands(self):
+        """(domain, fq, command_page) for every command the last saga emitted."""
+        out = []
+        if self.resp is None:
+            return out
+        for book in self.resp.commands:
+            for page in book.pages:
+                out.append((book.cover.domain, fq_from_url(page.command.type_url), page.command))
+        return out
 
     # --- emitted-event accessors ---
 
