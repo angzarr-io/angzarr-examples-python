@@ -108,7 +108,7 @@ def _given_hand_begun(context):
 # --- When: dispatch a command ---
 
 
-@when('a {variant} table named "{name}" is created with')
+@when('a {variant} table named "{name}" is created with:')
 def _when_create(context, variant, name):
     row = context.table[0]
     cmd = table.CreateTable(
@@ -269,7 +269,7 @@ def _when_end_hand_winner(context, pid, amt):
     context.world.dispatch(DOMAIN, P + "EndHand", cmd)
 
 
-@when("the hand ends with the following results")
+@when("the hand ends with the following results:")
 def _when_end_hand_results(context):
     cmd = table.EndHand(hand_root=_HAND_ROOT)
     for row in context.table:

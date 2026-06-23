@@ -57,12 +57,17 @@ class World:
 
     def _register_components(self) -> None:
         """Register every ported component handler. Extend as components land."""
+        from angzarr_poker._gen.io.angzarr.examples.v1.hand_aggregate_angzarr import (
+            register_hand_aggregate,
+        )
         from angzarr_poker._gen.io.angzarr.examples.v1.table_aggregate_angzarr import (
             register_table_aggregate,
         )
+        from angzarr_poker.hand.handler import HandAggregate
         from angzarr_poker.table.handler import TableAggregate
 
         register_table_aggregate(self.router, TableAggregate())
+        register_hand_aggregate(self.router, HandAggregate())
 
     # --- state seeding (prior events the core folds) ---
 
