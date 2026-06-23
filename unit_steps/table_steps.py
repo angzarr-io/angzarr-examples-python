@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from behave import given, then, when
 
+from angzarr_poker._gen.io.angzarr.examples.v1 import buy_in_pb2 as buy_in
 from angzarr_poker._gen.io.angzarr.examples.v1 import poker_types_pb2 as pt
+from angzarr_poker._gen.io.angzarr.examples.v1 import rebuy_pb2 as rebuy
 from angzarr_poker._gen.io.angzarr.examples.v1 import table_pb2 as table
 from unit_steps._harness import uuid_for
 from unit_steps.common_steps import assert_rejected
@@ -164,16 +166,29 @@ def _then_create_dup(context):
     assert_rejected(context, "TABLE_EXISTS")
 
 
+def _seat_result(context):
+    """The seat-grant event from the last dispatch, whether it came from join
+    (PlayerJoined) or the PM-orchestrated path (PlayerSeated) — both carry
+    seat_position + stack."""
+    for page in context.world.emitted_pages():
+        fq = page.event.type_url.rsplit("/", 1)[-1]
+        if fq == P + "PlayerJoined":
+            return table.PlayerJoined.FromString(page.event.value)
+        if fq == P + "PlayerSeated":
+            return buy_in.PlayerSeated.FromString(page.event.value)
+    raise AssertionError(f"no seat event; got {context.world.emitted_fqs()}")
+
+
 @then('player "{pid}" is seated at position {pos:d} with a {stack:d}-chip stack')
 def _then_seated_stack(context, pid, pos, stack):
-    ev = context.world.emitted(P + "PlayerJoined", table.PlayerJoined())
+    ev = _seat_result(context)
     assert ev.seat_position == pos, f"seat = {ev.seat_position}, want {pos}"
     assert ev.stack == stack, f"stack = {ev.stack}, want {stack}"
 
 
 @then('player "{pid}" is seated at position {pos:d}')
 def _then_seated(context, pid, pos):
-    ev = context.world.emitted(P + "PlayerJoined", table.PlayerJoined())
+    ev = _seat_result(context)
     assert ev.seat_position == pos, f"seat = {ev.seat_position}, want {pos}"
 
 
@@ -318,3 +333,118 @@ def _then_end_mismatch(context):
 @then("the end-hand is refused because the table does not exist")
 def _then_end_no_table(context):
     assert_rejected(context, "TABLE_NOT_FOUND")
+
+
+# --- PM-orchestrated seating / rebuy ---
+#
+# SeatPlayer is the process-manager path: a seating FAILURE is an emitted
+# SeatingRejected EVENT (so the PM can compensate), not a coded rejection — only
+# a nonexistent table is a hard coded rejection. AddRebuyChips rejects with coded
+# errors like a normal command.
+
+
+def _assert_seating_rejected(context, reason_keyword=None):
+    fqs = context.world.emitted_fqs()
+    assert P + "SeatingRejected" in fqs, f"expected SeatingRejected event; got {fqs}"
+    if reason_keyword is not None:
+        ev = context.world.emitted(P + "SeatingRejected", buy_in.SeatingRejected())
+        assert reason_keyword.lower() in ev.reason.lower(), (
+            f"SeatingRejected reason = {ev.reason!r}, want keyword {reason_keyword!r}"
+        )
+
+
+@when('player "{pid}" is seated at position {seat:d} with reservation "{res}" for {amt:d} chips')
+def _when_seat_player(context, pid, seat, res, amt):
+    cmd = buy_in.SeatPlayer(
+        player_root=uuid_for(pid), reservation_id=uuid_for(res), seat=seat, amount=amt
+    )
+    context.world.dispatch(DOMAIN, P + "SeatPlayer", cmd)
+
+
+@when('player "{pid}" is seated at any available seat with reservation "{res}" for {amt:d} chips')
+def _when_seat_player_any(context, pid, res, amt):
+    cmd = buy_in.SeatPlayer(
+        player_root=uuid_for(pid), reservation_id=uuid_for(res), seat=-1, amount=amt
+    )
+    context.world.dispatch(DOMAIN, P + "SeatPlayer", cmd)
+
+
+@then("the seating is rejected because the amount is below the table minimum")
+def _then_seat_below_min(context):
+    _assert_seating_rejected(context, "at least")
+
+
+@then("the seating is rejected because the amount is above the table maximum")
+def _then_seat_above_max(context):
+    _assert_seating_rejected(context, "maximum")
+
+
+@then("the seating is rejected because the seat is already occupied")
+def _then_seat_occupied(context):
+    _assert_seating_rejected(context, "occupied")
+
+
+@then("the seating is rejected because the player is already seated")
+def _then_seat_dup(context):
+    _assert_seating_rejected(context, "already seated")
+
+
+@then("the seating is rejected because the table is full")
+def _then_seat_full(context):
+    _assert_seating_rejected(context, "full")
+
+
+@then("the seating is rejected because a player identity is required")
+def _then_seat_no_player(context):
+    _assert_seating_rejected(context, "player_root")
+
+
+@then("the seating is rejected because the seat is out of range")
+def _then_seat_out_of_range(context):
+    _assert_seating_rejected(context, "Invalid seat")
+
+
+@then("the seat-player is refused because the table does not exist")
+def _then_seat_no_table(context):
+    assert_rejected(context, "TABLE_NOT_FOUND")
+
+
+@when('player "{pid}" re-buys {amt:d} chips with reservation "{res}" at seat {seat:d}')
+def _when_rebuy(context, pid, amt, res, seat):
+    cmd = rebuy.AddRebuyChips(
+        player_root=uuid_for(pid), reservation_id=uuid_for(res), seat=seat, amount=amt
+    )
+    context.world.dispatch(DOMAIN, P + "AddRebuyChips", cmd)
+
+
+@then('player "{pid}" at seat {seat:d} has a stack of {total:d} after adding {amt:d} chips')
+def _then_rebuy_added(context, pid, seat, total, amt):
+    ev = context.world.emitted(P + "RebuyChipsAdded", rebuy.RebuyChipsAdded())
+    assert ev.seat == seat, f"seat = {ev.seat}, want {seat}"
+    assert ev.amount == amt, f"amount = {ev.amount}, want {amt}"
+    assert ev.new_stack == total, f"new_stack = {ev.new_stack}, want {total}"
+
+
+@then("the re-buy is refused because the player is not seated")
+def _then_rebuy_not_seated(context):
+    assert_rejected(context, "PLAYER_NOT_SEATED")
+
+
+@then("the re-buy is refused because the seat does not match the player's seat")
+def _then_rebuy_seat_mismatch(context):
+    assert_rejected(context, "SEAT_MISMATCH")
+
+
+@then("the re-buy is refused because the amount must be positive")
+def _then_rebuy_amount(context):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+@then("the re-buy is refused because the table does not exist")
+def _then_rebuy_no_table(context):
+    assert_rejected(context, "TABLE_NOT_FOUND")
+
+
+@then("the re-buy is refused because a player identity is required")
+def _then_rebuy_no_player(context):
+    assert_rejected(context, "INVALID_ARGUMENT")
