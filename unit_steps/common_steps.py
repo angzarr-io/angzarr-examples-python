@@ -9,6 +9,31 @@ from __future__ import annotations
 
 from typing import Optional
 
+from behave import then
+from google.protobuf import symbol_database as _symbol_database
+
+_SYM = _symbol_database.Default()
+
+
+def decode_only_emitted(context):
+    """Decode the single event the last command emitted, resolving its type from
+    the descriptor pool (no per-type registry needed)."""
+    fqs = context.world.emitted_fqs()
+    assert fqs, "expected one emitted event, got none"
+    full_name = fqs[0]
+    return context.world.emitted(full_name, _SYM.GetSymbol(full_name)())
+
+
+@then("the {what} is timestamped")
+def _then_timestamped(context, what):
+    """Generic across every component event: the emitted event carries a set
+    ``*_at`` timestamp. Works for any single-event outcome."""
+    ev = decode_only_emitted(context)
+    at_fields = [f.name for f in ev.DESCRIPTOR.fields if f.name.endswith("_at")]
+    assert any(
+        ev.HasField(n) and getattr(ev, n).seconds > 0 for n in at_fields
+    ), f"no timestamp set on {ev.DESCRIPTOR.name} (checked {at_fields})"
+
 
 def assert_accepted(context) -> None:
     """The last command was accepted (no coded rejection)."""

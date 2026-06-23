@@ -62,6 +62,12 @@ class World:
         from angzarr_poker._gen.io.angzarr.examples.v1.hand_aggregate_angzarr import (
             register_hand_aggregate,
         )
+        from angzarr_poker._gen.io.angzarr.examples.v1.player_aggregate_angzarr import (
+            register_player_aggregate,
+        )
+        from angzarr_poker._gen.io.angzarr.examples.v1.reservation_aggregate_angzarr import (
+            register_reservation_aggregate,
+        )
         from angzarr_poker._gen.io.angzarr.examples.v1.table_aggregate_angzarr import (
             register_table_aggregate,
         )
@@ -75,13 +81,17 @@ class World:
             register_table_hand_saga,
         )
         from angzarr_poker.hand.handler import HandAggregate
+        from angzarr_poker.player.handler import PlayerAggregate
         from angzarr_poker.process_managers.hand_flow import HandFlowProcessManager
         from angzarr_poker.projectors.output import OutputProjector
+        from angzarr_poker.reservation.handler import ReservationAggregate
         from angzarr_poker.sagas.table_hand import TableHandSaga
         from angzarr_poker.table.handler import TableAggregate
 
         register_table_aggregate(self.router, TableAggregate())
         register_hand_aggregate(self.router, HandAggregate())
+        register_player_aggregate(self.router, PlayerAggregate())
+        register_reservation_aggregate(self.router, ReservationAggregate())
         register_table_hand_saga(self.router, TableHandSaga())
         # Held so steps can fold the PM's emitted own-events through its applier.
         self.hand_flow_pm = HandFlowProcessManager()
