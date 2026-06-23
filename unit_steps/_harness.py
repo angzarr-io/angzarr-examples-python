@@ -21,6 +21,7 @@ import hashlib
 from typing import Optional
 
 import angzarr_router_ffi as _az
+from angzarr_poker._gen.io.angzarr.v1 import process_manager_pb2 as _pm
 from angzarr_poker._gen.io.angzarr.v1 import saga_pb2 as _saga
 from angzarr_poker._gen.io.angzarr.v1 import types_pb2 as _t
 
@@ -64,16 +65,31 @@ class World:
         from angzarr_poker._gen.io.angzarr.examples.v1.table_aggregate_angzarr import (
             register_table_aggregate,
         )
+        from angzarr_poker._gen.io.angzarr.examples.v1.hand_flow_process_manager_angzarr import (
+            register_hand_flow_process_manager,
+        )
+        from angzarr_poker._gen.io.angzarr.examples.v1.output_projector_angzarr import (
+            register_output_projector,
+        )
         from angzarr_poker._gen.io.angzarr.examples.v1.table_hand_saga_angzarr import (
             register_table_hand_saga,
         )
         from angzarr_poker.hand.handler import HandAggregate
+        from angzarr_poker.process_managers.hand_flow import HandFlowProcessManager
+        from angzarr_poker.projectors.output import OutputProjector
         from angzarr_poker.sagas.table_hand import TableHandSaga
         from angzarr_poker.table.handler import TableAggregate
 
         register_table_aggregate(self.router, TableAggregate())
         register_hand_aggregate(self.router, HandAggregate())
         register_table_hand_saga(self.router, TableHandSaga())
+        # Held so steps can fold the PM's emitted own-events through its applier.
+        self.hand_flow_pm = HandFlowProcessManager()
+        register_hand_flow_process_manager(self.router, self.hand_flow_pm)
+        # Held so steps can read the rendered display sink (presentation lives on
+        # the projector, not in the projection proto).
+        self.output_projector = OutputProjector()
+        register_output_projector(self.router, self.output_projector)
 
     # --- state seeding (prior events the core folds) ---
 
@@ -128,6 +144,61 @@ class World:
             self.resp = self.router.dispatch_saga(req)
         except _az.CodedError as exc:
             self.err = exc
+
+    # --- process-manager dispatch (stateful trigger -> process_events/commands) ---
+
+    def dispatch_process_manager(
+        self, input_domain: str, fq: str, event_msg, dest_sequences=None
+    ) -> None:
+        """Run one trigger event through a registered PM. Captures the
+        ProcessManagerHandleResponse in ``resp`` or the rejection in ``err``."""
+        self.resp = None
+        self.err = None
+        req = _pm.ProcessManagerHandleRequest()
+        req.trigger.cover.domain = input_domain
+        page = req.trigger.pages.add()
+        page.event.type_url = type_url(fq)
+        page.event.value = event_msg.SerializeToString()
+        for domain, seq in (dest_sequences or {}).items():
+            req.destination_sequences[domain] = seq
+        try:
+            self.resp = self.router.dispatch_process_manager(req)
+        except _az.CodedError as exc:
+            self.err = exc
+
+    def process_event(self, fq: str, message):
+        """Decode the first emitted process-event of type ``fq`` from the PM's
+        response (the PM's own event-sourced output)."""
+        for book in self.resp.process_events:
+            for page in book.pages:
+                if fq_from_url(page.event.type_url) == fq:
+                    message.ParseFromString(page.event.value)
+                    return message
+        raise AssertionError(f"no emitted {fq} process-event")
+
+    # --- projector dispatch (fold an event book -> Projection) ---
+
+    def dispatch_projector(self, domain: str, events) -> None:
+        """Fold ``events`` (list of (fq, message)) through the registered
+        projector. Captures the Projection in ``resp``."""
+        self.resp = None
+        self.err = None
+        book = _t.EventBook()
+        book.cover.domain = domain
+        for seq, (fq, msg) in enumerate(events):
+            page = book.pages.add()
+            page.header.sequence = seq
+            page.event.type_url = type_url(fq)
+            page.event.value = msg.SerializeToString()
+        try:
+            self.resp = self.router.dispatch_projector(book)
+        except _az.CodedError as exc:
+            self.err = exc
+
+    def projection(self, message):
+        """Decode the projection payload from the last dispatch_projector."""
+        message.ParseFromString(self.resp.projection.value)
+        return message
 
     def emitted_commands(self):
         """(domain, fq, command_page) for every command the last saga emitted."""
