@@ -113,7 +113,9 @@ def run_server(
             address=address,
         )
     else:
-        print(f"Server started: {service_name} ({domain}) on {address} ({transport_type})")
+        print(
+            f"Server started: {service_name} ({domain}) on {address} ({transport_type})"
+        )
 
     server.start()
     server.wait_for_termination()
