@@ -438,11 +438,11 @@ fmt-fix:
 
 # Lock submodules read-only (filesystem enforcement).
 submodules-lock:
-    chmod -R a-w angzarr-project angzarr-client-python
+    chmod -R a-w angzarr-project
 
 # Unlock submodules for manual edits. Remember to `submodules-lock` after.
 submodules-unlock:
-    chmod -R u+w angzarr-project angzarr-client-python
+    chmod -R u+w angzarr-project
 
 # Bump angzarr-project to latest on its tracking branch.
 bump-angzarr-project:
@@ -450,10 +450,3 @@ bump-angzarr-project:
     git submodule update --remote --merge angzarr-project
     git add angzarr-project
     chmod -R a-w angzarr-project
-
-# Bump angzarr-client-python to latest on its tracking branch.
-bump-angzarr-client-python:
-    chmod -R u+w angzarr-client-python
-    git submodule update --remote --merge angzarr-client-python
-    git add angzarr-client-python
-    chmod -R a-w angzarr-client-python

@@ -8,41 +8,10 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "angzarr-client"
-source = { editable = "angzarr-client-python" }
-dependencies = [
-    { name = "googleapis-common-protos" },
-    { name = "grpcio" },
-    { name = "grpcio-health-checking" },
-    { name = "protobuf" },
-    { name = "structlog" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
-    { name = "googleapis-common-protos", specifier = ">=1.62.0" },
-    { name = "grpcio", specifier = ">=1.60.0" },
-    { name = "grpcio-health-checking", specifier = ">=1.60.0" },
-    { name = "grpcio-tools", marker = "extra == 'dev'", specifier = ">=1.60.0" },
-    { name = "mutmut", marker = "extra == 'dev'", specifier = ">=2.5.0" },
-    { name = "protobuf", specifier = ">=5.29.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
-    { name = "pytest-bdd", marker = "extra == 'dev'", specifier = ">=7.0.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
-    { name = "sqlalchemy", marker = "extra == 'dev'", specifier = ">=2.0.0" },
-    { name = "structlog", specifier = ">=24.0.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "angzarr-poker"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "angzarr-client" },
     { name = "angzarr-router-ffi" },
     { name = "behave" },
     { name = "grpcio" },
@@ -67,8 +36,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "angzarr-client", editable = "angzarr-client-python" },
-    { name = "angzarr-router-ffi", editable = "../../angzarr-router/main/bindings/python" },
+    { name = "angzarr-router-ffi", editable = "vendor/angzarr-router-ffi" },
     { name = "behave", specifier = ">=1.3.3" },
     { name = "grpcio", specifier = ">=1.60.0" },
     { name = "grpcio-health-checking", specifier = ">=1.60.0" },
@@ -93,7 +61,7 @@ dev = [
 [[package]]
 name = "angzarr-router-ffi"
 version = "0.0.0"
-source = { editable = "../../angzarr-router/main/bindings/python" }
+source = { editable = "vendor/angzarr-router-ffi" }
 dependencies = [
     { name = "cffi" },
     { name = "googleapis-common-protos" },

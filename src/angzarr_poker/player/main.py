@@ -1,11 +1,11 @@
-"""Table bounded-context service entrypoint.
+"""Player bounded-context service entrypoint.
 
 Transport model: **Python owns the executable and the gRPC server; the
 angzarr_router_ffi core does the dispatch.** A command arrives over gRPC as a
 ``ContextualCommand``; the servicer hands it to the in-process FFI
 ``Router.dispatch`` (a C-ABI cdylib), which rebuilds state (snapshot or replay),
 stamps sequences, and **calls back into the Python business logic**
-(``TableAggregate``) before returning a ``BusinessResponse``. There is one GIL,
+(``PlayerAggregate``) before returning a ``BusinessResponse``. There is one GIL,
 re-acquired for the callback — not an additional one.
 
 The bootstrap is the example's own ``_runtime.server.run_server`` (health, port).
@@ -23,13 +23,13 @@ import angzarr_router_ffi as _az
 from angzarr_poker._runtime.server import configure_logging, run_server
 
 from angzarr_poker._gen.io.angzarr.v1 import command_handler_pb2_grpc
-from angzarr_poker._gen.io.angzarr.examples.v1.table_aggregate_angzarr import (
-    register_table_aggregate,
+from angzarr_poker._gen.io.angzarr.examples.v1.player_aggregate_angzarr import (
+    register_player_aggregate,
 )
-from angzarr_poker.table.handler import TableAggregate
+from angzarr_poker.player.handler import PlayerAggregate
 
-DOMAIN = "table"
-DEFAULT_PORT = "50402"
+DOMAIN = "player"
+DEFAULT_PORT = "50401"
 
 # GrpcCode integers (3=INVALID_ARGUMENT, 5=NOT_FOUND, 9=FAILED_PRECONDITION,
 # 13=INTERNAL, ...) are the canonical gRPC status numbers; map by value.
@@ -64,9 +64,9 @@ class CommandHandlerServicer(command_handler_pb2_grpc.CommandHandlerServiceServi
 
 
 def build_router() -> _az.Router:
-    """An FFI router with the Table aggregate registered. Caller owns close()."""
+    """An FFI router with the Player aggregate registered. Caller owns close()."""
     router = _az.Router()
-    register_table_aggregate(router, TableAggregate())
+    register_player_aggregate(router, PlayerAggregate())
     return router
 
 
@@ -77,7 +77,7 @@ def main() -> None:
         run_server(
             command_handler_pb2_grpc.add_CommandHandlerServiceServicer_to_server,
             CommandHandlerServicer(router),
-            service_name="table-agg",
+            service_name="player-agg",
             domain=DOMAIN,
             default_port=DEFAULT_PORT,
             logger=logger,

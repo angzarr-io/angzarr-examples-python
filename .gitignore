@@ -50,3 +50,4 @@ data/
 
 # buf descriptor image (proto-gen temp)
 *.binpb
+vendor/
