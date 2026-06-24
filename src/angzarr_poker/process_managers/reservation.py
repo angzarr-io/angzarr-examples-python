@@ -171,6 +171,42 @@ class ReservationProcessManager:
                 reservation_id, failed, self.apply_buy_in_failed, []
             )
 
+        # Look-before-leap: if the table's seating has been observed (folded from
+        # table.PlayerSeated), refuse a buy-in at an already-occupied seat or once
+        # the table is full — before asking the table to seat. Both checks are
+        # conditional on the relevant fact being observed; an unseeded read model
+        # skips them and the table aggregate stays the authority.
+        if event.seat >= 0 and event.seat in state.occupied_seats:
+            failed = _buy_in.BuyInFailed(
+                player_root=player_root,
+                table_root=table_root,
+                reservation_id=reservation_id,
+                failure=_orch.OrchestrationFailure(
+                    code="SEAT_TAKEN",
+                    message="the requested seat is already occupied",
+                    failed_at_phase="SEATING",
+                ),
+            )
+            return self._response_with_own_event(
+                reservation_id, failed, self.apply_buy_in_failed, []
+            )
+        if state.table_max_players and (
+            len(state.occupied_seats) >= state.table_max_players
+        ):
+            failed = _buy_in.BuyInFailed(
+                player_root=player_root,
+                table_root=table_root,
+                reservation_id=reservation_id,
+                failure=_orch.OrchestrationFailure(
+                    code="TABLE_FULL",
+                    message="the table is full",
+                    failed_at_phase="SEATING",
+                ),
+            )
+            return self._response_with_own_event(
+                reservation_id, failed, self.apply_buy_in_failed, []
+            )
+
         reserve_cmd = _player.ReserveFunds(amount=_currency(amount), key=table_root)
         seat_cmd = _buy_in.SeatPlayer(
             player_root=player_root,
@@ -294,6 +330,44 @@ class ReservationProcessManager:
         tournament_root = event.tournament_root
         table_root = event.table_root
         fee = event.fee.amount if event.HasField("fee") else 0
+
+        # Look-before-leap: when the tournament's status has been observed (folded
+        # from tournament.TournamentStarted/Paused/Resumed), the rebuy window is
+        # open only while the tournament is RUNNING; and the player must be seated
+        # at a table (folded from table.PlayerSeated). Refuse before asking the
+        # tournament to process the rebuy. Both checks gate on the status having
+        # been observed; an unseeded read model skips them entirely.
+        if state.tournament_status:
+            if state.tournament_status != (
+                _tournament.TournamentStatus.TOURNAMENT_RUNNING
+            ):
+                failed = _rebuy.RebuyFailed(
+                    player_root=player_root,
+                    tournament_root=tournament_root,
+                    reservation_id=reservation_id,
+                    failure=_orch.OrchestrationFailure(
+                        code="REBUY_WINDOW_CLOSED",
+                        message="the tournament is not currently running",
+                        failed_at_phase="APPROVING",
+                    ),
+                )
+                return self._response_with_own_event(
+                    reservation_id, failed, self.apply_rebuy_failed, []
+                )
+            if not state.player_seated:
+                failed = _rebuy.RebuyFailed(
+                    player_root=player_root,
+                    tournament_root=tournament_root,
+                    reservation_id=reservation_id,
+                    failure=_orch.OrchestrationFailure(
+                        code="PLAYER_NOT_SEATED",
+                        message="the player is not seated at a table",
+                        failed_at_phase="APPROVING",
+                    ),
+                )
+                return self._response_with_own_event(
+                    reservation_id, failed, self.apply_rebuy_failed, []
+                )
 
         reserve_cmd = _player.ReserveFunds(amount=_currency(fee), key=table_root)
         process_cmd = _tournament.ProcessRebuy(
@@ -434,6 +508,33 @@ class ReservationProcessManager:
         reservation_id = event.reservation_id
         tournament_root = event.tournament_root
         fee = event.fee.amount if event.HasField("fee") else 0
+
+        # Look-before-leap: when the tournament's registration state has been
+        # observed (folded from tournament.RegistrationOpened/Closed +
+        # TournamentCreated capacity + TournamentPlayerEnrolled), refuse a
+        # registration that is closed or at capacity before asking the tournament
+        # to enroll. Unobserved state skips the check; the tournament aggregate
+        # stays the authority.
+        full = state.tournament_max_players and (
+            state.tournament_enrolled_count >= state.tournament_max_players
+        )
+        closed = state.tournament_registration_observed and not (
+            state.tournament_registration_open
+        )
+        if full or closed:
+            failed = _registration.RegistrationFailed(
+                player_root=player_root,
+                tournament_root=tournament_root,
+                reservation_id=reservation_id,
+                failure=_orch.OrchestrationFailure(
+                    code="REGISTRATION_CLOSED",
+                    message="tournament registration is closed",
+                    failed_at_phase="ENROLLING",
+                ),
+            )
+            return self._response_with_own_event(
+                reservation_id, failed, self.apply_registration_failed, []
+            )
 
         # Registration reserves against the tournament_root (no table yet).
         reserve_cmd = _player.ReserveFunds(amount=_currency(fee), key=tournament_root)
@@ -644,6 +745,70 @@ class ReservationProcessManager:
     ) -> None:
         state.table_min_buy_in = event.min_buy_in
         state.table_max_buy_in = event.max_buy_in
+        state.table_max_players = event.max_players
+
+    def apply_player_seated(
+        self,
+        state: _reservation.ReservationProcessManagerState,
+        event: _buy_in.PlayerSeated,
+    ) -> None:
+        # Track which seats are occupied at the table (and that this player is now
+        # seated) so a later buy-in for a taken seat / at a full table is refused
+        # and a rebuy for a seated player is allowed. Idempotent on the seat.
+        if event.seat_position not in state.occupied_seats:
+            state.occupied_seats.append(event.seat_position)
+        state.player_seated = True
+
+    def apply_tournament_created(
+        self,
+        state: _reservation.ReservationProcessManagerState,
+        event: _tournament.TournamentCreated,
+    ) -> None:
+        state.tournament_max_players = event.max_players
+
+    def apply_registration_opened(
+        self,
+        state: _reservation.ReservationProcessManagerState,
+        event: _tournament.RegistrationOpened,
+    ) -> None:
+        state.tournament_registration_open = True
+        state.tournament_registration_observed = True
+
+    def apply_registration_closed(
+        self,
+        state: _reservation.ReservationProcessManagerState,
+        event: _tournament.RegistrationClosed,
+    ) -> None:
+        state.tournament_registration_open = False
+        state.tournament_registration_observed = True
+
+    def apply_tournament_player_enrolled(
+        self,
+        state: _reservation.ReservationProcessManagerState,
+        event: _tournament.TournamentPlayerEnrolled,
+    ) -> None:
+        state.tournament_enrolled_count += 1
+
+    def apply_tournament_started(
+        self,
+        state: _reservation.ReservationProcessManagerState,
+        event: _tournament.TournamentStarted,
+    ) -> None:
+        state.tournament_status = _tournament.TournamentStatus.TOURNAMENT_RUNNING
+
+    def apply_tournament_paused(
+        self,
+        state: _reservation.ReservationProcessManagerState,
+        event: _tournament.TournamentPaused,
+    ) -> None:
+        state.tournament_status = _tournament.TournamentStatus.TOURNAMENT_PAUSED
+
+    def apply_tournament_resumed(
+        self,
+        state: _reservation.ReservationProcessManagerState,
+        event: _tournament.TournamentResumed,
+    ) -> None:
+        state.tournament_status = _tournament.TournamentStatus.TOURNAMENT_RUNNING
 
 
 _: ReservationProcessManagerHandler = ReservationProcessManager()
