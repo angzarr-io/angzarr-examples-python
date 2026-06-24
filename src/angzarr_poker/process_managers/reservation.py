@@ -736,6 +736,16 @@ class ReservationProcessManager:
     # Cross-domain appliers — fold OTHER domains' events into the
     # orchestrator's read model (applies:true on a foreign-domain event), so a
     # look-before-leap decision can be made without a synchronous read.
+    #
+    # NOTE: these fold table/tournament events the OWNING aggregates also fold
+    # (e.g. RegistrationOpened here vs. the tournament aggregate's own applier).
+    # That is not duplication to eliminate: each component owns its state shape
+    # and rebuilds independently, so the applier METHOD must stay per-component
+    # (the PM keeps only the flags it decides against; the aggregate keeps the
+    # full model). The only shareable seam is a derived value computed
+    # identically on both sides — if the tournament aggregate later folds the
+    # same event into a matching flag, extract a pure projection helper both call
+    # (e.g. registration_open(event)) rather than coupling the two appliers.
     # ------------------------------------------------------------------ #
 
     def apply_table_created(

@@ -144,6 +144,13 @@ class World:
         page.event.value = event_msg.SerializeToString()
         book.next_sequence = len(book.pages)
 
+    def prior_pages(self, domain: str, root: bytes = b""):
+        """The seeded prior event pages for ``(domain, root)`` (empty if none).
+        Lets a step collect facts an aggregate already holds — e.g. the seated
+        players a final-table combine gathers from its breaking source tables."""
+        book = self._prior.get((domain, root.hex()))
+        return list(book.pages) if book is not None else []
+
     # --- dispatch + outcome ---
 
     def dispatch(self, domain: str, fq: str, cmd_msg, root: bytes = b"") -> None:

@@ -529,6 +529,39 @@ class TableAggregate:
             del state.seats[:]
             state.seats.extend(remaining)
 
+    # --- RP-9 / WSOP Rule 68 final-table combination ---
+
+    def combine_final_table(
+        self, cmd: _table.CombineFinalTable, state: _table.TableState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        # Issued to the FINAL table (which the combine establishes). The caller
+        # collected the active set from the breaking tables; the final table
+        # redraws them into positions 0..N-1 (RP-9 random redraw — deterministic
+        # order here for replay) and records the tables it broke.
+        seated = [
+            _table.SeatSnapshot(position=i, player_root=p.player_root, stack=p.stack)
+            for i, p in enumerate(cmd.active_players)
+        ]
+        return _book(
+            _table.FinalTableCombined(
+                final_table_root=_root(cmd.final_table_name),
+                source_table_roots=[_root(n) for n in cmd.source_table_names],
+                active_players=seated,
+                max_handed=cmd.max_handed,
+                combined_at=_now(),
+            )
+        )
+
+    def apply_final_table_combined(
+        self, state: _table.TableState, event: _table.FinalTableCombined
+    ) -> None:
+        state.table_id = f"table_{event.final_table_root.hex()}"
+        state.max_players = event.max_handed
+        state.status = "waiting"
+        del state.seats[:]
+        for snap in event.active_players:
+            _add_seat(state, snap.position, snap.player_root, snap.stack)
+
     # --- Rule 11D halt/resume execution (coordinator-issued) ---
 
     def halt_for_balancing(

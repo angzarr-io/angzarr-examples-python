@@ -139,3 +139,89 @@ def _then_start_refused(context, name):
 @then('no hand starts at "{name}"')
 def _then_no_hand(context, name):
     assert (P + "HandStarted") not in context.world.emitted_fqs()
+
+
+# --- Rule 11A balancing (source-table BB-next decision, EU-1180) ---
+
+
+@when('the coordinator balances tables from "{src}" to "{dst}"')
+def _when_balance(context, src, dst):
+    """Issue BalanceTables to the SOURCE table (cover.root = source). The table
+    picks its BB-next player locally and emits BalancingMoveDecided; the
+    destination seat is chosen downstream by the saga that views both tables."""
+    context.world.dispatch(
+        "table",
+        P + "BalanceTables",
+        table.BalanceTables(source_table_name=src, destination_table_name=dst),
+        root=uuid_for(src),
+    )
+
+
+@then('the moved player is "{pid}"')
+def _then_moved_player(context, pid):
+    ev = context.world.emitted(P + "BalancingMoveDecided", table.BalancingMoveDecided())
+    assert ev.player_root == uuid_for(pid), (
+        f"moved player_root = {ev.player_root.hex()}, want {uuid_for(pid).hex()} ({pid})"
+    )
+
+
+@then('the move\'s destination table is "{name}"')
+def _then_move_destination(context, name):
+    ev = context.world.emitted(P + "BalancingMoveDecided", table.BalancingMoveDecided())
+    assert ev.destination_table_root == uuid_for(name), (
+        f"destination_table_root = {ev.destination_table_root.hex()}, "
+        f"want {uuid_for(name).hex()} ({name})"
+    )
+
+
+# --- RP-9 / WSOP Rule 68 final-table combination (EU-1181) ---
+
+
+@when('the coordinator combines "{sources}" into final table "{final}"')
+def _when_combine(context, sources, final):
+    """Gather the seated players from each breaking source table (the caller's
+    job, per the proto contract) and issue CombineFinalTable to the new final
+    table, which seats them and emits FinalTableCombined."""
+    active = []
+    for name in sources.split(","):
+        for page in context.world.prior_pages("table", uuid_for(name.strip())):
+            if page.event.type_url.rsplit("/", 1)[-1] == P + "PlayerJoined":
+                joined = table.PlayerJoined.FromString(page.event.value)
+                active.append(
+                    table.SeatSnapshot(
+                        position=joined.seat_position,
+                        player_root=joined.player_root,
+                        stack=joined.stack,
+                    )
+                )
+    context.combine_sources = [s.strip() for s in sources.split(",")]
+    context.combine_active = active
+    cmd = table.CombineFinalTable(
+        final_table_name=final,
+        source_table_names=context.combine_sources,
+        max_handed=len(active),
+        active_players=active,
+    )
+    context.world.dispatch("table", P + "CombineFinalTable", cmd, root=uuid_for(final))
+
+
+@then("the final table has {n:d} active players")
+def _then_final_count(context, n):
+    ev = context.world.emitted(P + "FinalTableCombined", table.FinalTableCombined())
+    assert len(ev.active_players) == n, f"final seats = {len(ev.active_players)}, want {n}"
+
+
+@then('every original player has been reseated at "{final}"')
+def _then_all_reseated(context, final):
+    ev = context.world.emitted(P + "FinalTableCombined", table.FinalTableCombined())
+    seated = {s.player_root for s in ev.active_players}
+    expected = {s.player_root for s in context.combine_active}
+    assert seated == expected, f"reseated {len(seated)} players, want {len(expected)} originals"
+
+
+@then('"{name}" is broken')
+def _then_table_broken(context, name):
+    ev = context.world.emitted(P + "FinalTableCombined", table.FinalTableCombined())
+    assert uuid_for(name) in ev.source_table_roots, (
+        f"{name} not recorded among combined source tables"
+    )

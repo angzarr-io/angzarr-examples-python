@@ -9,7 +9,7 @@ busts, reseating) are tagged @wip until their components are ported.
 
 from __future__ import annotations
 
-from behave import given, then, when
+from behave import given, then, use_step_matcher, when
 
 from angzarr_poker._gen.io.angzarr.examples.v1 import buy_in_pb2 as buy_in
 from angzarr_poker._gen.io.angzarr.examples.v1 import poker_types_pb2 as pt
@@ -31,6 +31,22 @@ _VARIANTS = {
 _DEF = dict(small_blind=5, big_blind=10, min_buy_in=200, max_buy_in=1000, max_players=9)
 
 
+def _table_root(context) -> bytes:
+    """The root of the table the un-named "the table" steps act on. Each table is
+    a distinct aggregate keyed by ``uuid_for(name)``; the most recently named
+    table is current, so single-table scenarios need no name in the When/Then and
+    multi-table scenarios (Source/Dest) switch by naming the next table. Defaults
+    to b"" for scenarios that never name a table (e.g. create-on-empty)."""
+    return getattr(context, "current_table_root", b"")
+
+
+def _use_table(context, name) -> bytes:
+    """Make ``name`` the current table and return its root."""
+    root = uuid_for(name)
+    context.current_table_root = root
+    return root
+
+
 def _seed_table(context, name, **overrides):
     cfg = dict(_DEF, **overrides)
     context.world.seed_event(
@@ -42,6 +58,7 @@ def _seed_table(context, name, **overrides):
             action_timeout_seconds=30,
             **cfg,
         ),
+        root=_use_table(context, name),
     )
 
 
@@ -55,6 +72,7 @@ def _seed_seat(context, pid, position, stack=500):
             buy_in_amount=stack,
             stack=stack,
         ),
+        root=_table_root(context),
     )
 
 
@@ -96,12 +114,48 @@ def _given_seated_stack(context, pid, pos, stack):
     _seed_seat(context, pid, pos, stack)
 
 
+# Regex matcher (scoped) so this tolerates the column-alignment whitespace some
+# multi-table scenarios put between the player name and "is" (e.g.
+# 'player "Ivy"   is seated at position 3 of "Semi-2"').
+use_step_matcher("re")
+
+
+@given(r'player "(?P<pid>[^"]+)"\s+is seated at position (?P<pos>\d+) of "(?P<name>[^"]+)"')
+def _given_seated_of(context, pid, pos, name):
+    """Seat at a named table (multi-table scenarios): switch the current table to
+    ``name`` and seed there, so a later Source/Dest aggregate is addressed by its
+    own root rather than colliding with the previously-named table."""
+    _use_table(context, name)
+    _seed_seat(context, pid, int(pos))
+
+
+use_step_matcher("parse")
+
+
+@given("the {which} table has the dealer button at seat {seat:d}")
+def _given_button(context, which, seat):
+    """Seed the current table's dealer position (a played-then-ended hand leaves
+    ``dealer_position`` set with the table idle). ``which`` ("source"/"the") is
+    descriptive only — the button lands on the current table."""
+    hand = uuid_for("button-hand")
+    context.world.seed_event(
+        DOMAIN,
+        P + "HandStarted",
+        table.HandStarted(hand_root=hand, hand_number=1, dealer_position=seat),
+        root=_table_root(context),
+    )
+    context.world.seed_event(
+        DOMAIN, P + "HandEnded", table.HandEnded(hand_root=hand), root=_table_root(context)
+    )
+
+
 @given("the first hand at the table has begun")
 def _given_hand_begun(context):
     context.world.seed_event(
         DOMAIN,
         P + "HandStarted",
         table.HandStarted(hand_root=uuid_for("hand-1"), hand_number=1, dealer_position=0),
+        root=_table_root(context),
     )
 
 
@@ -120,24 +174,32 @@ def _when_create(context, variant, name):
         max_buy_in=int(row["max_buy_in"]),
         max_players=int(row["max_players"]),
     )
-    context.world.dispatch(DOMAIN, P + "CreateTable", cmd)
+    # Table identity is the aggregate root, not the display name. A create that
+    # follows an "a table exists" Given targets that already-established root (so
+    # "create twice" is refused even when the names differ); a fresh create mints
+    # identity from its own name.
+    existing = getattr(context, "current_table_root", None)
+    root = existing if existing is not None else _use_table(context, name)
+    context.world.dispatch(DOMAIN, P + "CreateTable", cmd, root=root)
 
 
 @when('player "{pid}" joins the table at seat {seat:d} with a buy-in of {amt:d}')
 def _when_join_seat(context, pid, seat, amt):
     cmd = table.JoinTable(player_root=uuid_for(pid), preferred_seat=seat, buy_in_amount=amt)
-    context.world.dispatch(DOMAIN, P + "JoinTable", cmd)
+    context.world.dispatch(DOMAIN, P + "JoinTable", cmd, root=_table_root(context))
 
 
 @when('player "{pid}" joins the table at any available seat with a buy-in of {amt:d}')
 def _when_join_any(context, pid, amt):
     cmd = table.JoinTable(player_root=uuid_for(pid), preferred_seat=-1, buy_in_amount=amt)
-    context.world.dispatch(DOMAIN, P + "JoinTable", cmd)
+    context.world.dispatch(DOMAIN, P + "JoinTable", cmd, root=_table_root(context))
 
 
 @when('player "{pid}" leaves the table')
 def _when_leave(context, pid):
-    context.world.dispatch(DOMAIN, P + "LeaveTable", table.LeaveTable(player_root=uuid_for(pid)))
+    context.world.dispatch(
+        DOMAIN, P + "LeaveTable", table.LeaveTable(player_root=uuid_for(pid)), root=_table_root(context)
+    )
 
 
 # --- Then: assert emitted event or rejection ---
@@ -245,19 +307,22 @@ _HAND_ROOT = uuid_for("hand-1")  # the root _given_hand_begun seeds
 
 @given("hand {n:d} was played with the dealer at seat {seat:d} and has ended")
 def _given_hand_played(context, n, seat):
-    root = uuid_for(f"hand-{n}")
+    hand_root = uuid_for(f"hand-{n}")
     context.world.seed_event(
         DOMAIN,
         P + "HandStarted",
-        table.HandStarted(hand_root=root, hand_number=n, dealer_position=seat),
+        table.HandStarted(hand_root=hand_root, hand_number=n, dealer_position=seat),
+        root=_table_root(context),
     )
-    context.world.seed_event(DOMAIN, P + "HandEnded", table.HandEnded(hand_root=root))
+    context.world.seed_event(
+        DOMAIN, P + "HandEnded", table.HandEnded(hand_root=hand_root), root=_table_root(context)
+    )
 
 
 @when("the next hand at the table begins")
 @when("the first hand at the table begins")
 def _when_start_hand(context):
-    context.world.dispatch(DOMAIN, P + "StartHand", table.StartHand())
+    context.world.dispatch(DOMAIN, P + "StartHand", table.StartHand(), root=_table_root(context))
 
 
 @when('the hand ends with "{pid}" winning {amt:d}')
@@ -266,7 +331,7 @@ def _when_end_hand_winner(context, pid, amt):
         hand_root=_HAND_ROOT,
         results=[table.PotResult(winner_root=uuid_for(pid), amount=amt)],
     )
-    context.world.dispatch(DOMAIN, P + "EndHand", cmd)
+    context.world.dispatch(DOMAIN, P + "EndHand", cmd, root=_table_root(context))
 
 
 @when("the hand ends with the following results:")
@@ -274,7 +339,7 @@ def _when_end_hand_results(context):
     cmd = table.EndHand(hand_root=_HAND_ROOT)
     for row in context.table:
         cmd.results.add(winner_root=uuid_for(row["player"]), amount=int(row["change"]))
-    context.world.dispatch(DOMAIN, P + "EndHand", cmd)
+    context.world.dispatch(DOMAIN, P + "EndHand", cmd, root=_table_root(context))
 
 
 @then("the table is on hand number {n:d} with {p:d} active players")
@@ -358,7 +423,7 @@ def _when_seat_player(context, pid, seat, res, amt):
     cmd = buy_in.SeatPlayer(
         player_root=uuid_for(pid), reservation_id=uuid_for(res), seat=seat, amount=amt
     )
-    context.world.dispatch(DOMAIN, P + "SeatPlayer", cmd)
+    context.world.dispatch(DOMAIN, P + "SeatPlayer", cmd, root=_table_root(context))
 
 
 @when('player "{pid}" is seated at any available seat with reservation "{res}" for {amt:d} chips')
@@ -366,7 +431,7 @@ def _when_seat_player_any(context, pid, res, amt):
     cmd = buy_in.SeatPlayer(
         player_root=uuid_for(pid), reservation_id=uuid_for(res), seat=-1, amount=amt
     )
-    context.world.dispatch(DOMAIN, P + "SeatPlayer", cmd)
+    context.world.dispatch(DOMAIN, P + "SeatPlayer", cmd, root=_table_root(context))
 
 
 @then("the seating is rejected because the amount is below the table minimum")
@@ -414,7 +479,7 @@ def _when_rebuy(context, pid, amt, res, seat):
     cmd = rebuy.AddRebuyChips(
         player_root=uuid_for(pid), reservation_id=uuid_for(res), seat=seat, amount=amt
     )
-    context.world.dispatch(DOMAIN, P + "AddRebuyChips", cmd)
+    context.world.dispatch(DOMAIN, P + "AddRebuyChips", cmd, root=_table_root(context))
 
 
 @then('player "{pid}" at seat {seat:d} has a stack of {total:d} after adding {amt:d} chips')
