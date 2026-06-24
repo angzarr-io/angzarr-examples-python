@@ -86,6 +86,9 @@ class World:
         from angzarr_poker._gen.io.angzarr.examples.v1.hand_flow_process_manager_angzarr import (
             register_hand_flow_process_manager,
         )
+        from angzarr_poker._gen.io.angzarr.examples.v1.reservation_process_manager_angzarr import (
+            register_reservation_process_manager,
+        )
         from angzarr_poker._gen.io.angzarr.examples.v1.output_projector_angzarr import (
             register_output_projector,
         )
@@ -95,6 +98,7 @@ class World:
         from angzarr_poker.hand.handler import HandAggregate
         from angzarr_poker.player.handler import PlayerAggregate
         from angzarr_poker.process_managers.hand_flow import HandFlowProcessManager
+        from angzarr_poker.process_managers.reservation import ReservationProcessManager
         from angzarr_poker.projectors.output import OutputProjector
         from angzarr_poker.reservation.handler import ReservationAggregate
         from angzarr_poker.sagas.table_hand import TableHandSaga
@@ -114,6 +118,10 @@ class World:
         # Held so steps can fold the PM's emitted own-events through its applier.
         self.hand_flow_pm = HandFlowProcessManager()
         register_hand_flow_process_manager(self.router, self.hand_flow_pm)
+        # Reservation PM co-resides with hand-flow on the `table` source domain;
+        # the core routes each trigger to the PM declaring its event type.
+        self.reservation_pm = ReservationProcessManager()
+        register_reservation_process_manager(self.router, self.reservation_pm)
         # Held so steps can read the rendered display sink (presentation lives on
         # the projector, not in the projection proto).
         self.output_projector = OutputProjector()
@@ -161,7 +169,12 @@ class World:
     # --- saga dispatch (stateless event -> commands/events) ---
 
     def dispatch_saga(
-        self, input_domain: str, fq: str, event_msg, dest_sequences=None, source_root: bytes = b""
+        self,
+        input_domain: str,
+        fq: str,
+        event_msg,
+        dest_sequences=None,
+        source_root: bytes = b"",
     ) -> None:
         """Run one source event through a registered saga. ``source_root`` is the
         trigger aggregate's id, passed on the source cover so the saga can route
@@ -185,10 +198,22 @@ class World:
     # --- process-manager dispatch (stateful trigger -> process_events/commands) ---
 
     def dispatch_process_manager(
-        self, input_domain: str, fq: str, event_msg, dest_sequences=None
+        self,
+        input_domain: str,
+        fq: str,
+        event_msg,
+        dest_sequences=None,
+        prior_events=None,
+        process_root: bytes = b"",
     ) -> None:
         """Run one trigger event through a registered PM. Captures the
-        ProcessManagerHandleResponse in ``resp`` or the rejection in ``err``."""
+        ProcessManagerHandleResponse in ``resp`` or the rejection in ``err``.
+
+        ``prior_events`` (list of ``(fq, message)``) seeds the PM's event-sourced
+        state: the core folds them through the PM's appliers before the trigger
+        fires — the PM's own prior history and, for an orchestrator, the folded
+        cross-domain facts it decides against. The same rebuild path production
+        takes."""
         self.resp = None
         self.err = None
         req = _pm.ProcessManagerHandleRequest()
@@ -196,6 +221,12 @@ class World:
         page = req.trigger.pages.add()
         page.event.type_url = type_url(fq)
         page.event.value = event_msg.SerializeToString()
+        for prior_fq, prior_msg in prior_events or []:
+            prior_page = req.process_state.pages.add()
+            prior_page.event.type_url = type_url(prior_fq)
+            prior_page.event.value = prior_msg.SerializeToString()
+        if process_root:
+            req.process_state.cover.root.value = process_root
         for domain, seq in (dest_sequences or {}).items():
             req.destination_sequences[domain] = seq
         try:
@@ -244,7 +275,13 @@ class World:
             return out
         for book in self.resp.commands:
             for page in book.pages:
-                out.append((book.cover.domain, fq_from_url(page.command.type_url), page.command))
+                out.append(
+                    (
+                        book.cover.domain,
+                        fq_from_url(page.command.type_url),
+                        page.command,
+                    )
+                )
         return out
 
     # --- emitted-event accessors ---
