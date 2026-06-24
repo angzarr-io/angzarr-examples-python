@@ -25,7 +25,7 @@ class TableHandSaga:
     """Implements ``TableHandSagaHandler``."""
 
     def hand_started(
-        self, event: _hand.HandStarted, dests: _az.Destinations
+        self, event: _hand.HandStarted, dests: _az.Destinations, source_cover: _t.Cover
     ) -> tuple[list, list]:
         book = _t.CommandBook()
         book.cover.domain = "hand"

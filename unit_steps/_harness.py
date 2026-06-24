@@ -52,8 +52,11 @@ class World:
         self.router = _az.Router()
         self._register_components()
         # Per-aggregate prior history, keyed by domain. Each is an EventBook the
-        # next dispatch to that domain folds to rebuild state.
-        self._prior: dict[str, _t.EventBook] = {}
+        # next dispatch to that (domain, root) folds to rebuild state. Keyed by
+        # (domain, root_hex) so multiple instances of one domain (e.g. several
+        # tables) don't collide; the default root b"" serves single-instance
+        # scenarios unchanged.
+        self._prior: dict[tuple[str, str], _t.EventBook] = {}
         self.resp = None  # BusinessResponse from the last successful dispatch
         self.err: Optional[_az.CodedError] = None  # coded rejection, if any
 
@@ -67,6 +70,15 @@ class World:
         )
         from angzarr_poker._gen.io.angzarr.examples.v1.reservation_aggregate_angzarr import (
             register_reservation_aggregate,
+        )
+        from angzarr_poker._gen.io.angzarr.examples.v1.tournament_aggregate_angzarr import (
+            register_tournament_aggregate,
+        )
+        from angzarr_poker._gen.io.angzarr.examples.v1.table_tournament_saga_angzarr import (
+            register_table_tournament_saga,
+        )
+        from angzarr_poker._gen.io.angzarr.examples.v1.tournament_table_saga_angzarr import (
+            register_tournament_table_saga,
         )
         from angzarr_poker._gen.io.angzarr.examples.v1.table_aggregate_angzarr import (
             register_table_aggregate,
@@ -86,12 +98,18 @@ class World:
         from angzarr_poker.projectors.output import OutputProjector
         from angzarr_poker.reservation.handler import ReservationAggregate
         from angzarr_poker.sagas.table_hand import TableHandSaga
+        from angzarr_poker.sagas.table_tournament import TableTournamentSaga
+        from angzarr_poker.sagas.tournament_table import TournamentTableSaga
         from angzarr_poker.table.handler import TableAggregate
+        from angzarr_poker.tournament.handler import TournamentAggregate
 
         register_table_aggregate(self.router, TableAggregate())
         register_hand_aggregate(self.router, HandAggregate())
         register_player_aggregate(self.router, PlayerAggregate())
         register_reservation_aggregate(self.router, ReservationAggregate())
+        register_tournament_aggregate(self.router, TournamentAggregate())
+        register_table_tournament_saga(self.router, TableTournamentSaga())
+        register_tournament_table_saga(self.router, TournamentTableSaga())
         register_table_hand_saga(self.router, TableHandSaga())
         # Held so steps can fold the PM's emitted own-events through its applier.
         self.hand_flow_pm = HandFlowProcessManager()
@@ -103,13 +121,15 @@ class World:
 
     # --- state seeding (prior events the core folds) ---
 
-    def seed_event(self, domain: str, fq: str, event_msg) -> None:
-        """Append one prior event to ``domain``'s rebuild history."""
-        book = self._prior.get(domain)
+    def seed_event(self, domain: str, fq: str, event_msg, root: bytes = b"") -> None:
+        """Append one prior event to the ``(domain, root)`` rebuild history."""
+        key = (domain, root.hex())
+        book = self._prior.get(key)
         if book is None:
             book = _t.EventBook()
             book.cover.domain = domain
-            self._prior[domain] = book
+            book.cover.root.value = root
+            self._prior[key] = book
         page = book.pages.add()
         page.header.sequence = len(book.pages) - 1
         page.event.type_url = type_url(fq)
@@ -118,17 +138,19 @@ class World:
 
     # --- dispatch + outcome ---
 
-    def dispatch(self, domain: str, fq: str, cmd_msg) -> None:
-        """Run one command through the core against the seeded history. Captures
-        the BusinessResponse in ``resp`` or the rejection in ``err``."""
+    def dispatch(self, domain: str, fq: str, cmd_msg, root: bytes = b"") -> None:
+        """Run one command through the core against the ``(domain, root)`` seeded
+        history. Captures the BusinessResponse in ``resp`` or the rejection in
+        ``err``."""
         self.resp = None
         self.err = None
         cc = _t.ContextualCommand()
         cc.command.cover.domain = domain
+        cc.command.cover.root.value = root
         page = cc.command.pages.add()
         page.command.type_url = type_url(fq)
         page.command.value = cmd_msg.SerializeToString()
-        prior = self._prior.get(domain)
+        prior = self._prior.get((domain, root.hex()))
         if prior is not None:
             cc.events.CopyFrom(prior)
         try:
@@ -138,13 +160,18 @@ class World:
 
     # --- saga dispatch (stateless event -> commands/events) ---
 
-    def dispatch_saga(self, input_domain: str, fq: str, event_msg, dest_sequences=None) -> None:
-        """Run one source event through a registered saga. Captures the
-        SagaResponse in ``resp`` or the rejection in ``err``."""
+    def dispatch_saga(
+        self, input_domain: str, fq: str, event_msg, dest_sequences=None, source_root: bytes = b""
+    ) -> None:
+        """Run one source event through a registered saga. ``source_root`` is the
+        trigger aggregate's id, passed on the source cover so the saga can route
+        emitted commands by it (e.g. PlayerJoined carries no table_root — the
+        table id comes from here). Captures the SagaResponse in ``resp``."""
         self.resp = None
         self.err = None
         req = _saga.SagaHandleRequest()
         req.source.cover.domain = input_domain
+        req.source.cover.root.value = source_root
         page = req.source.pages.add()
         page.event.type_url = type_url(fq)
         page.event.value = event_msg.SerializeToString()

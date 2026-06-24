@@ -229,6 +229,9 @@ class TableAggregate:
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")
+        if state.halted_for_balancing:
+            # TDA Rule 11D: a halted table starts no new hands until resumed.
+            raise _az.reject("TABLE_HALTED_FOR_BALANCING", "Table is halted for balancing")
         if state.status == "in_hand":
             raise _az.reject("HAND_IN_PROGRESS", "Hand already in progress")
 
@@ -483,6 +486,32 @@ class TableAggregate:
         seat = _find_player_seat(state, event.player_root)
         if seat is not None:
             seat.stack.amount = event.new_stack
+
+    # --- Rule 11D halt/resume execution (coordinator-issued) ---
+
+    def halt_for_balancing(
+        self, cmd: _table.HaltForBalancing, state: _table.TableState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")
+        return _book(_table.TableHaltedForBalancing(deficit=cmd.deficit, halted_at=_now()))
+
+    def resume_play_at_table(
+        self, cmd: _table.ResumePlayAtTable, state: _table.TableState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")
+        return _book(_table.TableResumedForBalancing(resumed_at=_now()))
+
+    def apply_table_halted_for_balancing(
+        self, state: _table.TableState, event: _table.TableHaltedForBalancing
+    ) -> None:
+        state.halted_for_balancing = True
+
+    def apply_table_resumed_for_balancing(
+        self, state: _table.TableState, event: _table.TableResumedForBalancing
+    ) -> None:
+        state.halted_for_balancing = False
 
     # --- rejection compensator ---
 
