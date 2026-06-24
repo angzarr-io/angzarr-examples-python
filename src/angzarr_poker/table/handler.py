@@ -64,6 +64,13 @@ def _exists(state: _table.TableState) -> bool:
     return bool(state.table_id)
 
 
+def _root(name: str) -> bytes:
+    """The example derives a table's root deterministically from its name (the
+    same scheme the harness/coordinator uses), so a name-addressed command can
+    name another table by root."""
+    return hashlib.sha256(name.encode()).digest()[:16]
+
+
 def _find_player_seat(state: _table.TableState, player_root: bytes):
     """The seat occupied by ``player_root``, or ``None``."""
     for seat in state.seats:
@@ -486,6 +493,41 @@ class TableAggregate:
         seat = _find_player_seat(state, event.player_root)
         if seat is not None:
             seat.stack.amount = event.new_stack
+
+    # --- Rule 11A balancing (source-table BB-next decision) ---
+
+    def balance_tables(
+        self, cmd: _table.BalanceTables, state: _table.TableState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")
+        active = [s for s in state.seats if not s.is_sitting_out]
+        if not active:
+            raise _az.reject("NO_PLAYERS_TO_MOVE", "No players to move")
+        positions = sorted(s.position for s in active)
+        dealer = state.dealer_position
+        dealer_idx = positions.index(dealer) if dealer in positions else 0
+        # TDA Rule 11A: the player who will be big blind on the next hand moves.
+        # After the button advances one seat, the next BB is three seats past the
+        # current button. The destination seat is chosen at the destination table.
+        bb_next_pos = positions[(dealer_idx + 3) % len(positions)]
+        moved = next(s for s in active if s.position == bb_next_pos)
+        return _book(
+            _table.BalancingMoveDecided(
+                player_root=moved.player_root,
+                source_table_root=_root(cmd.source_table_name),
+                destination_table_root=_root(cmd.destination_table_name),
+                moved_at=_now(),
+            )
+        )
+
+    def apply_balancing_move_decided(
+        self, state: _table.TableState, event: _table.BalancingMoveDecided
+    ) -> None:
+        remaining = [s for s in state.seats if s.player_root != event.player_root]
+        if len(remaining) != len(state.seats):
+            del state.seats[:]
+            state.seats.extend(remaining)
 
     # --- Rule 11D halt/resume execution (coordinator-issued) ---
 
