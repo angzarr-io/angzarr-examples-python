@@ -95,13 +95,25 @@ class World:
         from angzarr_poker._gen.io.angzarr.examples.v1.table_hand_saga_angzarr import (
             register_table_hand_saga,
         )
+        from angzarr_poker._gen.io.angzarr.examples.v1.hand_table_saga_angzarr import (
+            register_hand_table_saga,
+        )
+        from angzarr_poker._gen.io.angzarr.examples.v1.table_player_saga_angzarr import (
+            register_table_player_saga,
+        )
+        from angzarr_poker._gen.io.angzarr.examples.v1.hand_player_saga_angzarr import (
+            register_hand_player_saga,
+        )
         from angzarr_poker.hand.handler import HandAggregate
         from angzarr_poker.player.handler import PlayerAggregate
         from angzarr_poker.process_managers.hand_flow import HandFlowProcessManager
         from angzarr_poker.process_managers.reservation import ReservationProcessManager
         from angzarr_poker.projectors.output import OutputProjector
         from angzarr_poker.reservation.handler import ReservationAggregate
+        from angzarr_poker.sagas.hand_player import HandPlayerSaga
+        from angzarr_poker.sagas.hand_table import HandTableSaga
         from angzarr_poker.sagas.table_hand import TableHandSaga
+        from angzarr_poker.sagas.table_player import TablePlayerSaga
         from angzarr_poker.sagas.table_tournament import TableTournamentSaga
         from angzarr_poker.sagas.tournament_table import TournamentTableSaga
         from angzarr_poker.table.handler import TableAggregate
@@ -115,6 +127,9 @@ class World:
         register_table_tournament_saga(self.router, TableTournamentSaga())
         register_tournament_table_saga(self.router, TournamentTableSaga())
         register_table_hand_saga(self.router, TableHandSaga())
+        register_hand_table_saga(self.router, HandTableSaga())
+        register_table_player_saga(self.router, TablePlayerSaga())
+        register_hand_player_saga(self.router, HandPlayerSaga())
         # Held so steps can fold the PM's emitted own-events through its applier.
         self.hand_flow_pm = HandFlowProcessManager()
         register_hand_flow_process_manager(self.router, self.hand_flow_pm)
