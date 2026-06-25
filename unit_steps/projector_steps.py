@@ -243,6 +243,108 @@ def _then_rank_renders(context, desc, sym):
     assert _rank(value) == sym, f"rank {desc} rendered {_rank(value)!r}, want {sym!r}"
 
 
+# --- name resolution / timestamps / batch / unfamiliar (EU-0525..0530) ---
+
+
+@given('player "{pid}" is registered as "{name}"')
+def _given_registered_as(context, pid, name):
+    context.world.output_projector.names[uuid_for(pid).hex()] = name
+
+
+@when('an event references "{pid}"')
+def _when_references(context, pid):
+    context.world.dispatch_projector(
+        "table", [(P + "PlayerJoined", table.PlayerJoined(player_root=uuid_for(pid)))]
+    )
+
+
+@when('an event references an unknown player "{pid}"')
+def _when_references_unknown(context, pid):
+    context.world.dispatch_projector(
+        "table", [(P + "PlayerJoined", table.PlayerJoined(player_root=pid.encode()))]
+    )
+
+
+@then('the display uses "{name}"')
+def _then_display_uses(context, name):
+    lines = context.world.output_projector.lines
+    assert any(name in line for line in lines), f"{name!r} not in {lines}"
+
+
+@then('the display falls back to a short label starting with "{label}"')
+def _then_fallback_label(context, label):
+    lines = context.world.output_projector.lines
+    assert any(line.startswith(label) for line in lines), f"no line starting {label!r} in {lines}"
+
+
+@given("the game display with timestamps enabled")
+def _given_ts_enabled(context):
+    context.world.output_projector.timestamps = True
+
+
+@given("the game display with timestamps disabled")
+def _given_ts_disabled(context):
+    context.world.output_projector.timestamps = False
+
+
+@when("an event happens at {hh:d}:{mm:d}:{ss:d}")
+def _when_event_at(context, hh, mm, ss):
+    from datetime import datetime
+
+    from google.protobuf.timestamp_pb2 import Timestamp
+
+    ts = Timestamp()
+    ts.FromDatetime(datetime(2024, 1, 1, hh, mm, ss))
+    context.world.dispatch_projector(
+        "player", [(P + "PlayerRegistered", player.PlayerRegistered(display_name="X", registered_at=ts))]
+    )
+
+
+@when("an event happens")
+def _when_event_happens(context):
+    context.world.dispatch_projector(
+        "player", [(P + "PlayerRegistered", player.PlayerRegistered(display_name="X"))]
+    )
+
+
+@then('the display line starts with "{prefix}"')
+def _then_line_starts(context, prefix):
+    lines = context.world.output_projector.lines
+    assert any(line.startswith(prefix) for line in lines), f"no line starts {prefix!r}: {lines}"
+
+
+@then('the display line does not start with "{prefix}"')
+def _then_line_not_starts(context, prefix):
+    lines = context.world.output_projector.lines
+    assert not any(line.startswith(prefix) for line in lines), f"a line starts {prefix!r}: {lines}"
+
+
+@when("a batch of a PlayerJoined and a BlindPosted event is rendered")
+def _when_batch(context):
+    context.world.dispatch_projector(
+        "table",
+        [
+            (P + "PlayerJoined", table.PlayerJoined(player_root=b"batchp", seat_position=1, buy_in_amount=100)),
+            (P + "BlindPosted", hand.BlindPosted(player_root=b"batchp", blind_type="SMALL", amount=5)),
+        ],
+    )
+
+
+@then("both events appear in the display in order")
+def _then_batch_order(context):
+    lines = context.world.output_projector.lines
+    joined = next((i for i, line in enumerate(lines) if "joined" in line), None)
+    posts = next((i for i, line in enumerate(lines) if "posts" in line), None)
+    assert joined is not None and posts is not None and joined < posts, f"out of order: {lines}"
+
+
+@when("the display encounters an unfamiliar event")
+def _when_unfamiliar(context):
+    context.world.dispatch_projector(
+        "table", [(P + "MysteryEvent", player.FundsReserved())]
+    )
+
+
 @given("the game display")
 def _given_display(context):
     pass  # the OutputProjector is registered in the World

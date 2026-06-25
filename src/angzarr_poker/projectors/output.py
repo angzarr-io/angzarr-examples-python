@@ -53,6 +53,15 @@ def _cards(cards) -> str:
     return "[" + " ".join(_card(c) for c in cards) + "]"
 
 
+# Event short-names the display recognises (everything else is noted as unknown).
+_KNOWN = {
+    "CardsDealt", "BlindPosted", "ActionTaken", "CommunityCardsDealt", "CardsRevealed",
+    "CardsMucked", "ShowdownStarted", "PotAwarded", "HandComplete", "PlayerTimedOut",
+    "PlayerSeated", "PlayerRegistered", "FundsDeposited", "FundsWithdrawn", "FundsReserved",
+    "TableCreated", "PlayerJoined", "PlayerLeft", "HandStarted", "HandEnded",
+}
+
+
 class OutputProjector:
     """Implements ``OutputProjectorHandler`` (player-funds display slice).
 
@@ -63,15 +72,32 @@ class OutputProjector:
     def __init__(self) -> None:
         self.lines: list[str] = []
         self.names: dict[str, str] = {}  # player_root_hex -> display name
+        self.timestamps: bool = False
 
     def _name(self, player_root: bytes) -> str:
-        """A player's display name, or a short fallback for an unknown root."""
-        return self.names.get(player_root.hex(), f"Player {player_root.hex()[:6]}")
+        """A player's display name, or a short fallback derived from the id."""
+        known = self.names.get(player_root.hex())
+        if known is not None:
+            return known
+        try:
+            ident = player_root.decode("ascii")
+            if ident.isprintable():
+                return "Player_" + ident.split("-")[-1]
+        except UnicodeDecodeError:
+            pass
+        return f"Player_{player_root.hex()[:8]}"
+
+    def _line(self, text: str, when=None) -> None:
+        """Append a display line, prefixed with [HH:MM:SS] when timestamps are on."""
+        if self.timestamps and when is not None and (when.seconds or when.nanos):
+            self.lines.append(f"[{when.ToDatetime():%H:%M:%S}] {text}")
+        else:
+            self.lines.append(text)
 
     # --- rendered events (append to the display sink) ---
 
     def player_registered(self, projection, event) -> None:
-        self.lines.append(f"{event.display_name} registered ({event.email})")
+        self._line(f"{event.display_name} registered ({event.email})", event.registered_at)
 
     def funds_deposited(self, projection, event) -> None:
         self.lines.append(
@@ -86,6 +112,12 @@ class OutputProjector:
     # --- finish: the read-model envelope (display lives in the sink, not here) ---
 
     def finish(self, projection, events: _t.EventBook) -> _t.Projection:
+        # An event type the display does not recognise is noted, not dropped, so
+        # the narrative degrades gracefully.
+        for page in events.pages:
+            short = page.event.type_url.rsplit("/", 1)[-1].rsplit(".", 1)[-1]
+            if short not in _KNOWN:
+                self.lines.append(f"[Unknown event type: {short}]")
         return _t.Projection(projector="OutputProjector")
 
     # --- events not rendered in this slice (must not crash the display) ---
