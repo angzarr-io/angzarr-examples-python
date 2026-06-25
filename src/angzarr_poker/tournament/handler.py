@@ -59,6 +59,25 @@ def _reject(code: str, message: str, **extras: str) -> _az.CodedError:
     )
 
 
+def _rebuy_denial_reason(state: _trn.TournamentState, player_root: bytes) -> Optional[str]:
+    """Why a rebuy is denied (a stream event, not a coded reject), or None if it
+    may proceed. Combines registration with rebuy config (TDA Rule 27): enabled,
+    level cutoff, and per-player max."""
+    if not player_root:
+        return "player_root is required"
+    reg = state.registered_players.get(player_root.hex())
+    if reg is None:
+        return "Player is not registered"
+    if not state.HasField("rebuy_config") or not state.rebuy_config.enabled:
+        return "Rebuys are not enabled"
+    cfg = state.rebuy_config
+    if cfg.rebuy_level_cutoff > 0 and state.current_level > cfg.rebuy_level_cutoff:
+        return "Rebuy window is closed"
+    if cfg.max_rebuys > 0 and reg.rebuys_used >= cfg.max_rebuys:
+        return "Maximum rebuys reached"
+    return None
+
+
 class TournamentAggregate:
     """Coordination slice of ``TournamentAggregateHandler``."""
 
@@ -276,5 +295,165 @@ class TournamentAggregate:
 
     def apply_tournament_enrollment_rejected(
         self, state: _trn.TournamentState, event: _trn.TournamentEnrollmentRejected
+    ) -> None:
+        pass
+
+    # --- lifecycle: start / blind levels / eliminate / pause-resume / rebuy ---
+
+    def start_tournament(
+        self, cmd: _trn.StartTournament, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_REGISTRATION_OPEN:
+            raise _reject("REGISTRATION_NOT_OPEN", "Registration is not open")
+        if len(state.registered_players) < state.min_players:
+            raise _reject("NOT_ENOUGH_PLAYERS", "Not enough players to start")
+        return _book(
+            _trn.TournamentStarted(
+                total_players=len(state.registered_players),
+                total_prize_pool=state.total_prize_pool,
+                started_at=_now(),
+            )
+        )
+
+    def apply_tournament_started(
+        self, state: _trn.TournamentState, event: _trn.TournamentStarted
+    ) -> None:
+        state.status = _trn.TOURNAMENT_RUNNING
+        state.current_level = 1
+        state.players_remaining = event.total_players
+
+    def advance_blind_level(
+        self, cmd: _trn.AdvanceBlindLevel, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        new_level = state.current_level + 1
+        max_levels = len(state.blind_structure)
+        # Advancing past the defined structure is refused so the operator decides
+        # explicitly (extend the structure or end the tournament).
+        if new_level > max_levels:
+            raise _reject(
+                "BLIND_STRUCTURE_EXHAUSTED",
+                "blind structure is exhausted",
+                current=str(state.current_level),
+                max_value=str(max_levels),
+            )
+        level = state.blind_structure[new_level - 1]
+        return _book(
+            _trn.BlindLevelAdvanced(
+                level=new_level,
+                small_blind=level.small_blind,
+                big_blind=level.big_blind,
+                ante=level.ante,
+                advanced_at=_now(),
+            )
+        )
+
+    def apply_blind_level_advanced(
+        self, state: _trn.TournamentState, event: _trn.BlindLevelAdvanced
+    ) -> None:
+        state.current_level = event.level
+
+    def eliminate_player(
+        self, cmd: _trn.EliminatePlayer, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        if not cmd.player_root:
+            raise _reject("PLAYER_ROOT_REQUIRED", "player_root is required")
+        if cmd.player_root.hex() not in state.registered_players:
+            raise _reject("PLAYER_NOT_REGISTERED", "Player is not registered")
+        return _book(
+            _trn.PlayerEliminated(
+                player_root=cmd.player_root,
+                hand_root=cmd.hand_root,
+                finish_position=state.players_remaining,
+                payout=0,
+                eliminated_at=_now(),
+            )
+        )
+
+    def apply_player_eliminated(
+        self, state: _trn.TournamentState, event: _trn.PlayerEliminated
+    ) -> None:
+        if state.players_remaining > 0:
+            state.players_remaining -= 1
+
+    def pause_tournament(
+        self, cmd: _trn.PauseTournament, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status == _trn.TOURNAMENT_PAUSED:
+            raise _reject("TOURNAMENT_ALREADY_PAUSED", "Tournament is already paused")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        return _book(_trn.TournamentPaused(reason=cmd.reason, paused_at=_now()))
+
+    def apply_tournament_paused(
+        self, state: _trn.TournamentState, event: _trn.TournamentPaused
+    ) -> None:
+        state.status = _trn.TOURNAMENT_PAUSED
+
+    def resume_tournament(
+        self, cmd: _trn.ResumeTournament, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_PAUSED:
+            raise _reject("TOURNAMENT_NOT_PAUSED", "Tournament is not paused")
+        return _book(_trn.TournamentResumed(resumed_at=_now()))
+
+    def apply_tournament_resumed(
+        self, state: _trn.TournamentState, event: _trn.TournamentResumed
+    ) -> None:
+        state.status = _trn.TOURNAMENT_RUNNING
+
+    def process_rebuy(
+        self, cmd: _trn.ProcessRebuy, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        # A registered-player guard failure is a denial EVENT (the rebuy PM sees
+        # the outcome on the stream), not a coded reject.
+        reason = _rebuy_denial_reason(state, cmd.player_root)
+        if reason is not None:
+            return _book(
+                _trn.RebuyDenied(
+                    player_root=cmd.player_root,
+                    reservation_id=cmd.reservation_id,
+                    reason=reason,
+                    denied_at=_now(),
+                )
+            )
+        reg = state.registered_players[cmd.player_root.hex()]
+        has_cfg = state.HasField("rebuy_config")
+        return _book(
+            _trn.RebuyProcessed(
+                player_root=cmd.player_root,
+                reservation_id=cmd.reservation_id,
+                rebuy_cost=state.rebuy_config.rebuy_cost if has_cfg else state.buy_in,
+                chips_added=state.rebuy_config.rebuy_chips if has_cfg else state.starting_stack,
+                rebuy_count=reg.rebuys_used + 1,
+                processed_at=_now(),
+            )
+        )
+
+    def apply_rebuy_processed(
+        self, state: _trn.TournamentState, event: _trn.RebuyProcessed
+    ) -> None:
+        reg = state.registered_players[event.player_root.hex()]
+        reg.rebuys_used = event.rebuy_count
+
+    def apply_rebuy_denied(
+        self, state: _trn.TournamentState, event: _trn.RebuyDenied
     ) -> None:
         pass

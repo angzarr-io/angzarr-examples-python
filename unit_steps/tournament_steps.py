@@ -227,3 +227,187 @@ def _then_enroll_rejected(context, reason):
     assert reason.lower() in ev.reason.lower(), (
         f"rejection reason = {ev.reason!r}, want keyword {reason!r}"
     )
+
+
+# ===========================================================================
+# Slice 2: start / blind levels / eliminate / pause-resume / rebuy
+# ===========================================================================
+
+# A two-level blind structure; level 2 is small blind 50 / ante 10 (EU-0825).
+_TWO_LEVELS = [
+    trn.BlindLevel(level=1, small_blind=25, big_blind=50, ante=0, duration_minutes=20),
+    trn.BlindLevel(level=2, small_blind=50, big_blind=100, ante=10, duration_minutes=20),
+]
+
+
+def _seed_running(context, enrolled=2, min_p=2, max_p=10, levels=None):
+    """Seed a RUNNING tournament: created (+ optional blind structure) → open →
+    ``enrolled`` players p0..p{n-1} → started. Players are named so a later step
+    can eliminate/rebuy a registered ("p0") vs unregistered ("ghost") player."""
+    overrides = dict(min_players=min_p, max_players=max_p)
+    if levels is not None:
+        overrides["blind_structure"] = levels
+    _seed_created(context, "Test Tournament", **overrides)
+    context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
+    for i in range(enrolled):
+        _seed_enrolled(context, f"p{i}")
+    context.world.seed_event(
+        DOMAIN, P + "TournamentStarted", trn.TournamentStarted(total_players=enrolled)
+    )
+
+
+# --- Given: running / blind-structure variants ---
+
+
+@given("a tournament with min_players {min_p:d} and max_players {max_p:d} and registration open")
+def _given_reg_open_minmax(context, min_p, max_p):
+    _seed_created(context, "Test Tournament", min_players=min_p, max_players=max_p)
+    context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
+
+
+@given(
+    "a running tournament with min_players {min_p:d} and max_players {max_p:d} "
+    "and {n:d} enrolled players"
+)
+def _given_running_enrolled(context, min_p, max_p, n):
+    _seed_running(context, enrolled=n, min_p=min_p, max_p=max_p)
+
+
+@given("a running tournament with a two-level blind structure")
+def _given_running_two_levels(context):
+    _seed_running(context, levels=_TWO_LEVELS)
+
+
+@given("a running tournament at the final defined blind level")
+def _given_running_final_level(context):
+    _seed_running(context, levels=_TWO_LEVELS)
+    context.world.seed_event(
+        DOMAIN, P + "BlindLevelAdvanced", trn.BlindLevelAdvanced(level=2)
+    )
+
+
+@given("a running tournament with no blind structure")
+def _given_running_no_structure(context):
+    _seed_running(context)
+
+
+# --- When: lifecycle transitions ---
+
+
+@when("the tournament starts")
+def _when_start(context):
+    context.world.dispatch(DOMAIN, P + "StartTournament", trn.StartTournament())
+
+
+@when("the blind level advances")
+def _when_advance_blind(context):
+    context.world.dispatch(DOMAIN, P + "AdvanceBlindLevel", trn.AdvanceBlindLevel())
+
+
+@when('player "{pid}" requests a rebuy')
+def _when_rebuy(context, pid):
+    context.world.dispatch(
+        DOMAIN, P + "ProcessRebuy", trn.ProcessRebuy(player_root=uuid_for(pid))
+    )
+
+
+@when('player "{pid}" is eliminated')
+def _when_eliminate(context, pid):
+    context.world.dispatch(
+        DOMAIN, P + "EliminatePlayer", trn.EliminatePlayer(player_root=uuid_for(pid))
+    )
+
+
+@when('player "{pid}" is eliminated on hand "{hand}"')
+def _when_eliminate_hand(context, pid, hand):
+    context.world.dispatch(
+        DOMAIN,
+        P + "EliminatePlayer",
+        trn.EliminatePlayer(player_root=uuid_for(pid), hand_root=uuid_for(hand)),
+    )
+
+
+@when('the tournament is paused with reason "{reason}"')
+def _when_pause(context, reason):
+    context.world.dispatch(DOMAIN, P + "PauseTournament", trn.PauseTournament(reason=reason))
+
+
+@when("the tournament resumes")
+def _when_resume(context):
+    context.world.dispatch(DOMAIN, P + "ResumeTournament", trn.ResumeTournament())
+
+
+# --- Then: outcomes ---
+
+
+@then("the tournament is running with {n:d} players")
+def _then_running_with(context, n):
+    ev = context.world.emitted(P + "TournamentStarted", trn.TournamentStarted())
+    assert ev.total_players == n, f"total_players = {ev.total_players}, want {n}"
+
+
+@then("the start is refused because there are not enough players")
+def _then_start_few(context):
+    assert_rejected(context, "NOT_ENOUGH_PLAYERS")
+
+
+@then("the rebuy is refused because the tournament is not running")
+def _then_rebuy_not_running(context):
+    assert_rejected(context, "TOURNAMENT_NOT_RUNNING")
+
+
+@then('the rebuy is denied because of "{reason}"')
+def _then_rebuy_denied(context, reason):
+    ev = context.world.emitted(P + "RebuyDenied", trn.RebuyDenied())
+    assert reason.lower() in ev.reason.lower(), (
+        f"denial reason = {ev.reason!r}, want keyword {reason!r}"
+    )
+
+
+@then("the elimination is refused because the tournament is not running")
+def _then_elim_not_running(context):
+    assert_rejected(context, "TOURNAMENT_NOT_RUNNING")
+
+
+@then("the elimination is refused because the player is not registered")
+def _then_elim_not_registered(context):
+    assert_rejected(context, "PLAYER_NOT_REGISTERED")
+
+
+@then('the elimination records hand "{hand}"')
+def _then_elim_hand(context, hand):
+    ev = context.world.emitted(P + "PlayerEliminated", trn.PlayerEliminated())
+    assert ev.hand_root == uuid_for(hand), "elimination recorded a different hand"
+
+
+@then("the pause is refused because the tournament is not running")
+def _then_pause_not_running(context):
+    assert_rejected(context, "TOURNAMENT_NOT_RUNNING")
+
+
+@then("the resume is refused because the tournament is not paused")
+def _then_resume_not_paused(context):
+    assert_rejected(context, "TOURNAMENT_NOT_PAUSED")
+
+
+@then("the enrollment is refused because the tournament does not exist")
+def _then_enroll_no_tourney(context):
+    assert_rejected(context, "TOURNAMENT_NOT_FOUND")
+
+
+@then("the tournament is at blind level {lvl:d} with small blind {sb:d} and ante {ante:d}")
+def _then_blind_level(context, lvl, sb, ante):
+    ev = context.world.emitted(P + "BlindLevelAdvanced", trn.BlindLevelAdvanced())
+    assert ev.level == lvl, f"level = {ev.level}, want {lvl}"
+    assert ev.small_blind == sb, f"small_blind = {ev.small_blind}, want {sb}"
+    assert ev.ante == ante, f"ante = {ev.ante}, want {ante}"
+
+
+@then("advancing the blind level is refused because the tournament is not running")
+def _then_advance_not_running(context):
+    assert_rejected(context, "TOURNAMENT_NOT_RUNNING")
+
+
+@then("advancing the blind level is refused because the blind structure is exhausted")
+def _then_advance_exhausted(context):
+    assert_rejected(context, "BLIND_STRUCTURE_EXHAUSTED")
