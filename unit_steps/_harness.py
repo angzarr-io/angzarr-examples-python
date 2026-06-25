@@ -151,6 +151,25 @@ class World:
         book = self._prior.get((domain, root.hex()))
         return list(book.pages) if book is not None else []
 
+    def fold_emitted(self, domain: str, root: bytes = b"") -> None:
+        """Append the last dispatch's emitted events to the ``(domain, root)``
+        history, so a subsequent command in the same scenario rebuilds over them
+        (e.g. a CloseRegistration before a late enrollment)."""
+        if self.resp is None:
+            return
+        key = (domain, root.hex())
+        book = self._prior.get(key)
+        if book is None:
+            book = _t.EventBook()
+            book.cover.domain = domain
+            book.cover.root.value = root
+            self._prior[key] = book
+        for page in self.resp.events.pages:
+            new = book.pages.add()
+            new.header.sequence = len(book.pages) - 1
+            new.event.CopyFrom(page.event)
+        book.next_sequence = len(book.pages)
+
     # --- dispatch + outcome ---
 
     def dispatch(self, domain: str, fq: str, cmd_msg, root: bytes = b"") -> None:

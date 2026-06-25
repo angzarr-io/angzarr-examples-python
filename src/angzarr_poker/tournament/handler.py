@@ -247,7 +247,7 @@ class TournamentAggregate:
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
-        if state.status != _trn.TOURNAMENT_REGISTRATION_OPEN:
+        if not _registration_open(state):
             raise _reject("REGISTRATION_NOT_OPEN", "Registration is not open")
         return _book(
             _trn.RegistrationClosed(

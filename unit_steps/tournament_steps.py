@@ -88,6 +88,8 @@ def _when_open(context):
 @when("registration closes")
 def _when_close(context):
     context.world.dispatch(DOMAIN, P + "CloseRegistration", trn.CloseRegistration())
+    # Fold the close into history so a subsequent late enrollment sees it closed.
+    context.world.fold_emitted(DOMAIN)
 
 
 # Regex matcher (scoped): the create/enroll commands carry quoted fields that can
@@ -259,16 +261,23 @@ _TWO_LEVELS = [
 _NAMES = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"]
 
 
-def _seed_running(context, enrolled=2, min_p=2, max_p=10, levels=None, rebuy_config=None):
+def _seed_running(
+    context, enrolled=2, min_p=2, max_p=10, levels=None, rebuy_config=None, starting_stack=None, cutoff=None
+):
     """Seed a RUNNING tournament: created (+ optional blind structure / rebuy
-    config) → open → ``enrolled`` players from the standard name sequence →
-    started. The first enrolled is "Alice", so a later step can eliminate/rebuy a
-    registered ("Alice") vs unregistered ("ghost") player."""
+    config / starting stack / late-reg cutoff) → open → ``enrolled`` players from
+    the standard name sequence → started. The first enrolled is "Alice", so a
+    later step can eliminate/rebuy a registered ("Alice") vs unregistered
+    ("ghost") player."""
     overrides = dict(min_players=min_p, max_players=max_p)
     if levels is not None:
         overrides["blind_structure"] = levels
     if rebuy_config is not None:
         overrides["rebuy_config"] = rebuy_config
+    if starting_stack is not None:
+        overrides["starting_stack"] = starting_stack
+    if cutoff is not None:
+        overrides["registration_cutoff_level"] = cutoff
     _seed_created(context, "Test Tournament", **overrides)
     context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
     for name in _NAMES[:enrolled]:
@@ -557,7 +566,10 @@ def _rebuild(context):
 
     state = trn.TournamentState()
     handler = TournamentAggregate()
-    for page in context.world.prior_pages(DOMAIN):
+    # Seeded history plus any event the last dispatch emitted (e.g. a late
+    # enrollment whose effect a Then asserts on the rebuilt state).
+    pages = list(context.world.prior_pages(DOMAIN)) + context.world.emitted_pages()
+    for page in pages:
         fq = page.event.type_url.rsplit("/", 1)[-1]
         msg = _SYM.GetSymbol(fq)()
         msg.ParseFromString(page.event.value)
@@ -565,7 +577,15 @@ def _rebuild(context):
         applier = getattr(handler, f"apply_{snake}", None)
         if applier is not None:
             applier(state, msg)
-    context.rebuilt = state
+    context._rebuilt_state = state
+
+
+def _rebuilt(context):
+    """The reconstructed state. Rebuilt fresh on each access (cheap, deterministic)
+    so a late-registration Then can assert the rebuilt state with no explicit
+    rebuild step, and so nothing leaks between scenarios."""
+    _rebuild(context)
+    return context._rebuilt_state
 
 
 # --- Given: append events to the replay history (past tense) ---
@@ -661,102 +681,102 @@ def _when_rebuild(context):
 
 @then('the rebuilt tournament is identified as "{name}"')
 def _t_id(context, name):
-    assert context.rebuilt.tournament_id == f"tournament_{name}", (
-        f"tournament_id = {context.rebuilt.tournament_id!r}"
+    assert _rebuilt(context).tournament_id == f"tournament_{name}", (
+        f"tournament_id = {_rebuilt(context).tournament_id!r}"
     )
 
 
 @then('the rebuilt tournament is named "{name}"')
 def _t_name(context, name):
-    assert context.rebuilt.name == name, f"name = {context.rebuilt.name!r}"
+    assert _rebuilt(context).name == name, f"name = {_rebuilt(context).name!r}"
 
 
 @then("the rebuilt tournament is in the created phase")
 def _t_created(context):
-    assert context.rebuilt.status == trn.TOURNAMENT_CREATED
+    assert _rebuilt(context).status == trn.TOURNAMENT_CREATED
 
 
 @then("the rebuilt tournament has registration open")
 def _t_reg_open(context):
-    assert context.rebuilt.status == trn.TOURNAMENT_REGISTRATION_OPEN
+    assert _rebuilt(context).status == trn.TOURNAMENT_REGISTRATION_OPEN
 
 
 @then("the rebuilt tournament is paused")
 def _t_paused(context):
-    assert context.rebuilt.status == trn.TOURNAMENT_PAUSED
+    assert _rebuilt(context).status == trn.TOURNAMENT_PAUSED
 
 
 @then("the rebuilt tournament is running")
 def _t_running(context):
-    assert context.rebuilt.status == trn.TOURNAMENT_RUNNING
+    assert _rebuilt(context).status == trn.TOURNAMENT_RUNNING
 
 
 @then("the rebuilt tournament is completed")
 def _t_completed(context):
-    assert context.rebuilt.status == trn.TOURNAMENT_COMPLETED
+    assert _rebuilt(context).status == trn.TOURNAMENT_COMPLETED
 
 
 @then("the rebuilt buy-in is {n:d}")
 def _t_buyin(context, n):
-    assert context.rebuilt.buy_in == n, f"buy_in = {context.rebuilt.buy_in}"
+    assert _rebuilt(context).buy_in == n, f"buy_in = {_rebuilt(context).buy_in}"
 
 
 @then("the rebuilt starting stack is {n:d}")
 def _t_stack(context, n):
-    assert context.rebuilt.starting_stack == n
+    assert _rebuilt(context).starting_stack == n
 
 
 @then("the rebuilt maximum is {n:d} players")
 def _t_max(context, n):
-    assert context.rebuilt.max_players == n
+    assert _rebuilt(context).max_players == n
 
 
 @then("the rebuilt minimum is {n:d} players")
 def _t_min(context, n):
-    assert context.rebuilt.min_players == n
+    assert _rebuilt(context).min_players == n
 
 
 @then("the rebuilt blind level is {n:d}")
 def _t_level(context, n):
-    assert context.rebuilt.current_level == n, f"current_level = {context.rebuilt.current_level}"
+    assert _rebuilt(context).current_level == n, f"current_level = {_rebuilt(context).current_level}"
 
 
 @then("the rebuilt tournament has no blind levels")
 def _t_no_levels(context):
-    assert len(context.rebuilt.blind_structure) == 0
+    assert len(_rebuilt(context).blind_structure) == 0
 
 
 @then("the rebuilt prize pool is {n:d}")
 def _t_pool(context, n):
-    assert context.rebuilt.total_prize_pool == n, (
-        f"total_prize_pool = {context.rebuilt.total_prize_pool}, want {n}"
+    assert _rebuilt(context).total_prize_pool == n, (
+        f"total_prize_pool = {_rebuilt(context).total_prize_pool}, want {n}"
     )
 
 
 @then("the rebuilt tournament has {n:d} registered players")
 def _t_reg_count(context, n):
-    assert len(context.rebuilt.registered_players) == n, (
-        f"registered = {len(context.rebuilt.registered_players)}, want {n}"
+    assert len(_rebuilt(context).registered_players) == n, (
+        f"registered = {len(_rebuilt(context).registered_players)}, want {n}"
     )
 
 
 @then("the rebuilt tournament has {n:d} players remaining")
 def _t_remaining(context, n):
-    assert context.rebuilt.players_remaining == n, (
-        f"players_remaining = {context.rebuilt.players_remaining}, want {n}"
+    assert _rebuilt(context).players_remaining == n, (
+        f"players_remaining = {_rebuilt(context).players_remaining}, want {n}"
     )
 
 
 @then("the rebuilt tournament shows {pid} has used {n:d} rebuys")
 def _t_rebuys(context, pid, n):
-    reg = context.rebuilt.registered_players.get(uuid_for(pid).hex())
+    reg = _rebuilt(context).registered_players.get(uuid_for(pid).hex())
     assert reg is not None, f"{pid} not registered"
     assert reg.rebuys_used == n, f"rebuys_used = {reg.rebuys_used}, want {n}"
 
 
 @then('the rebuilt tournament has no registration for "{pid}"')
 def _t_no_reg(context, pid):
-    assert uuid_for(pid).hex() not in context.rebuilt.registered_players
+    assert uuid_for(pid).hex() not in _rebuilt(context).registered_players
 
 
 # ===========================================================================
@@ -877,3 +897,42 @@ def _then_order_too_short(context, got, bound):
     assert extras.get("got") == str(got) and extras.get("bound") == str(bound), (
         f"got/bound = {extras.get('got')}/{extras.get('bound')}, want {got}/{bound}"
     )
+
+
+# ===========================================================================
+# Slice 6: late registration (enroll while RUNNING until closed / cutoff)
+# ===========================================================================
+
+
+@given("a running tournament with registration open and {n:d} enrolled players")
+def _given_running_reg_open(context, n):
+    _seed_running(context, enrolled=n)
+
+
+@given("a running tournament with {n:d} enrolled players")
+def _given_running_n(context, n):
+    _seed_running(context, enrolled=n)
+
+
+@given(
+    "a running tournament with a starting stack of {stack:d}, registration open, "
+    "and {n:d} enrolled players"
+)
+def _given_running_stack(context, stack, n):
+    _seed_running(context, enrolled=n, starting_stack=stack)
+
+
+@given(
+    "a running tournament with a registration cutoff at level {cutoff:d} at level "
+    "{level:d} and {n:d} enrolled players"
+)
+def _given_running_cutoff(context, cutoff, level, n):
+    _seed_running(context, enrolled=n, cutoff=cutoff)
+    _seed_at_level(context, level)
+
+
+@then('player "{pid}" is enrolled with starting stack {n:d}')
+def _then_enrolled_stack(context, pid, n):
+    ev = context.world.emitted(P + "TournamentPlayerEnrolled", trn.TournamentPlayerEnrolled())
+    assert ev.player_root == uuid_for(pid), "enrolled a different player"
+    assert ev.starting_stack == n, f"starting_stack = {ev.starting_stack}, want {n}"
