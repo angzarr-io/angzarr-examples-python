@@ -227,6 +227,16 @@ def _then_enrolled_fee(context, pid, n):
     assert ev.fee_paid == n, f"fee_paid = {ev.fee_paid}, want {n}"
 
 
+@then("the enrollment is rejected because a player identity is required")
+def _then_enroll_no_identity(context):
+    ev = context.world.emitted(
+        P + "TournamentEnrollmentRejected", trn.TournamentEnrollmentRejected()
+    )
+    assert "player identity" in ev.reason.lower(), (
+        f"rejection reason = {ev.reason!r}, want the player-identity-required reason"
+    )
+
+
 @then('the enrollment is rejected because of "{reason}"')
 def _then_enroll_rejected(context, reason):
     ev = context.world.emitted(
@@ -248,17 +258,22 @@ _TWO_LEVELS = [
 ]
 
 
+# The poker example's standard player-name sequence (matches the features).
+_NAMES = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"]
+
+
 def _seed_running(context, enrolled=2, min_p=2, max_p=10, levels=None):
     """Seed a RUNNING tournament: created (+ optional blind structure) → open →
-    ``enrolled`` players p0..p{n-1} → started. Players are named so a later step
-    can eliminate/rebuy a registered ("p0") vs unregistered ("ghost") player."""
+    ``enrolled`` players from the standard name sequence → started. The first
+    enrolled is "Alice", so a later step can eliminate/rebuy a registered
+    ("Alice") vs unregistered ("ghost") player."""
     overrides = dict(min_players=min_p, max_players=max_p)
     if levels is not None:
         overrides["blind_structure"] = levels
     _seed_created(context, "Test Tournament", **overrides)
     context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
-    for i in range(enrolled):
-        _seed_enrolled(context, f"p{i}")
+    for name in _NAMES[:enrolled]:
+        _seed_enrolled(context, name)
     context.world.seed_event(
         DOMAIN, P + "TournamentStarted", trn.TournamentStarted(total_players=enrolled)
     )

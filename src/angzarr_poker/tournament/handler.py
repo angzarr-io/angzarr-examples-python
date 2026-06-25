@@ -256,7 +256,7 @@ class TournamentAggregate:
         # the reservation PM sees the enrollment outcome on the stream.
         reason = None
         if not cmd.player_root:
-            reason = "player_root is required"
+            reason = "a player identity is required"
         elif state.status != _trn.TOURNAMENT_REGISTRATION_OPEN:
             reason = "Registration is not open"
         elif len(state.registered_players) >= state.max_players:
