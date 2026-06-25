@@ -19,7 +19,19 @@ from unit_steps._harness import uuid_for
 from unit_steps.common_steps import assert_rejected
 
 P = "io.angzarr.examples.v1."
-TOURNAMENT_ROOT = b""  # single tournament per scenario
+# Single tournament per scenario. Non-empty so the deployed coordinator would
+# accept it (a rootless tournament cover is rejected); the forwarding sagas read
+# the owning tournament from the table's TableExt, built by ``_owning_ext``.
+TOURNAMENT_ROOT = uuid_for("coordination-tournament")
+
+
+def _owning_ext() -> table.TableExt:
+    """The TableExt a tournament-enrolled table carries on its cover.ext, naming
+    the owning tournament so TableTournamentSaga can address its forwards."""
+    ext = table.TableExt()
+    ext.tournament_cover.domain = "tournament"
+    ext.tournament_cover.root.value = TOURNAMENT_ROOT
+    return ext
 
 
 def _emitted_command(context, fq, msg):
@@ -38,7 +50,9 @@ def _emitted_command(context, fq, msg):
 def _given_table_with_players(context, name, n):
     root = uuid_for(name)
     # The table aggregate itself (so a halt/resume command lands on a real table).
-    context.world.seed_event("table", P + "TableCreated", table.TableCreated(table_name=name), root=root)
+    context.world.seed_event(
+        "table", P + "TableCreated", table.TableCreated(table_name=name), root=root
+    )
     # The tournament's per-table count (the deficit substrate).
     for _ in range(n):
         context.world.seed_event(
@@ -58,12 +72,19 @@ def _bb_on_empty(context, name):
     context.halted_table = name
     # 1. table BB-on-empty → TableTournamentSaga → RecordTableBBOnEmpty
     context.world.dispatch_saga(
-        "table", P + "TableBBOnEmptyPredicted",
-        table.TableBBOnEmptyPredicted(table_root=root), source_root=root,
+        "table",
+        P + "TableBBOnEmptyPredicted",
+        table.TableBBOnEmptyPredicted(table_root=root),
+        source_root=root,
+        source_ext=_owning_ext(),
     )
-    rec = _emitted_command(context, P + "RecordTableBBOnEmpty", trn.RecordTableBBOnEmpty())
+    rec = _emitted_command(
+        context, P + "RecordTableBBOnEmpty", trn.RecordTableBBOnEmpty()
+    )
     # 2. tournament deficit decision → TableHaltOrdered (or nothing)
-    context.world.dispatch("tournament", P + "RecordTableBBOnEmpty", rec, root=TOURNAMENT_ROOT)
+    context.world.dispatch(
+        "tournament", P + "RecordTableBBOnEmpty", rec, root=TOURNAMENT_ROOT
+    )
     context.halt_ordered = (P + "TableHaltOrdered") in context.world.emitted_fqs()
     if not context.halt_ordered:
         return
@@ -73,7 +94,9 @@ def _bb_on_empty(context, name):
     halt = _emitted_command(context, P + "HaltForBalancing", table.HaltForBalancing())
     # 4. table executes the halt → TableHaltedForBalancing; fold into its history
     context.world.dispatch("table", P + "HaltForBalancing", halt, root=root)
-    halted = context.world.emitted(P + "TableHaltedForBalancing", table.TableHaltedForBalancing())
+    halted = context.world.emitted(
+        P + "TableHaltedForBalancing", table.TableHaltedForBalancing()
+    )
     context.world.seed_event("table", P + "TableHaltedForBalancing", halted, root=root)
 
 
@@ -89,9 +112,15 @@ def _bb_on_empty_step(context, name):
 @when('the coordinator resumes play at "{name}"')
 def _when_resume(context, name):
     root = uuid_for(name)
-    context.world.dispatch("table", P + "ResumePlayAtTable", table.ResumePlayAtTable(), root=root)
-    resumed = context.world.emitted(P + "TableResumedForBalancing", table.TableResumedForBalancing())
-    context.world.seed_event("table", P + "TableResumedForBalancing", resumed, root=root)
+    context.world.dispatch(
+        "table", P + "ResumePlayAtTable", table.ResumePlayAtTable(), root=root
+    )
+    resumed = context.world.emitted(
+        P + "TableResumedForBalancing", table.TableResumedForBalancing()
+    )
+    context.world.seed_event(
+        "table", P + "TableResumedForBalancing", resumed, root=root
+    )
 
 
 @when('the next hand at "{name}" begins')
@@ -160,9 +189,9 @@ def _when_balance(context, src, dst):
 @then('the moved player is "{pid}"')
 def _then_moved_player(context, pid):
     ev = context.world.emitted(P + "BalancingMoveDecided", table.BalancingMoveDecided())
-    assert ev.player_root == uuid_for(pid), (
-        f"moved player_root = {ev.player_root.hex()}, want {uuid_for(pid).hex()} ({pid})"
-    )
+    assert ev.player_root == uuid_for(
+        pid
+    ), f"moved player_root = {ev.player_root.hex()}, want {uuid_for(pid).hex()} ({pid})"
 
 
 @then('the move\'s destination table is "{name}"')
@@ -208,7 +237,9 @@ def _when_combine(context, sources, final):
 @then("the final table has {n:d} active players")
 def _then_final_count(context, n):
     ev = context.world.emitted(P + "FinalTableCombined", table.FinalTableCombined())
-    assert len(ev.active_players) == n, f"final seats = {len(ev.active_players)}, want {n}"
+    assert (
+        len(ev.active_players) == n
+    ), f"final seats = {len(ev.active_players)}, want {n}"
 
 
 @then('every original player has been reseated at "{final}"')
@@ -216,12 +247,14 @@ def _then_all_reseated(context, final):
     ev = context.world.emitted(P + "FinalTableCombined", table.FinalTableCombined())
     seated = {s.player_root for s in ev.active_players}
     expected = {s.player_root for s in context.combine_active}
-    assert seated == expected, f"reseated {len(seated)} players, want {len(expected)} originals"
+    assert (
+        seated == expected
+    ), f"reseated {len(seated)} players, want {len(expected)} originals"
 
 
 @then('"{name}" is broken')
 def _then_table_broken(context, name):
     ev = context.world.emitted(P + "FinalTableCombined", table.FinalTableCombined())
-    assert uuid_for(name) in ev.source_table_roots, (
-        f"{name} not recorded among combined source tables"
-    )
+    assert (
+        uuid_for(name) in ev.source_table_roots
+    ), f"{name} not recorded among combined source tables"

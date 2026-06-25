@@ -15,6 +15,8 @@ for the harness to resolve.
 
 from __future__ import annotations
 
+from typing import Optional
+
 import angzarr_router_ffi as _az
 
 from angzarr_poker._gen.io.angzarr.examples.v1 import table_pb2 as _table
@@ -27,9 +29,30 @@ from angzarr_poker._gen.io.angzarr.examples.v1.table_tournament_saga_angzarr imp
 _TOURNAMENT = "tournament"
 
 
-def _to_tournament(cmd) -> list:
+def _owning_tournament(source_cover: _t.Cover) -> Optional[_t.Cover]:
+    """The cover of the tournament that owns the source table, carried in the
+    table's ``TableExt`` (``source_cover.ext``). ``None`` when the table is
+    free-standing — a table not enrolled in a tournament has nothing to forward,
+    and emitting a rootless tournament command would be rejected ("Cover must
+    have a root UUID")."""
+    if not source_cover.ext.value:
+        return None
+    ext = _table.TableExt()
+    if not source_cover.ext.Unpack(ext):
+        return None
+    if not ext.HasField("tournament_cover") or not ext.tournament_cover.root.value:
+        return None
+    return ext.tournament_cover
+
+
+def _to_tournament(cmd, owner: Optional[_t.Cover]) -> list:
+    """A command book addressed to the owning tournament, or nothing when the
+    table is not part of one."""
+    if owner is None:
+        return []
     book = _t.CommandBook()
     book.cover.domain = _TOURNAMENT
+    book.cover.root.CopyFrom(owner.root)
     book.pages.add().command.CopyFrom(_az.pack(cmd))
     return [book]
 
@@ -38,33 +61,59 @@ class TableTournamentSaga:
     """Implements ``TableTournamentSagaHandler``."""
 
     def player_joined(
-        self, event: _table.PlayerJoined, dests: _az.Destinations, source_cover: _t.Cover
+        self,
+        event: _table.PlayerJoined,
+        dests: _az.Destinations,
+        source_cover: _t.Cover,
     ) -> tuple[list, list]:
+        owner = _owning_tournament(source_cover)
         cmd = _trn.RecordTablePlayerJoined(
             table_root=source_cover.root.value, player_root=event.player_root
         )
-        return (_to_tournament(cmd), [])
+        return (_to_tournament(cmd, owner), [])
 
     def player_left(
         self, event: _table.PlayerLeft, dests: _az.Destinations, source_cover: _t.Cover
     ) -> tuple[list, list]:
+        owner = _owning_tournament(source_cover)
         cmd = _trn.RecordTablePlayerLeft(
             table_root=source_cover.root.value, player_root=event.player_root
         )
-        return (_to_tournament(cmd), [])
+        return (_to_tournament(cmd, owner), [])
 
     def table_bb_on_empty_predicted(
-        self, event: _table.TableBBOnEmptyPredicted, dests: _az.Destinations, source_cover: _t.Cover
+        self,
+        event: _table.TableBBOnEmptyPredicted,
+        dests: _az.Destinations,
+        source_cover: _t.Cover,
     ) -> tuple[list, list]:
-        return (_to_tournament(_trn.RecordTableBBOnEmpty(table_root=event.table_root)), [])
+        owner = _owning_tournament(source_cover)
+        return (
+            _to_tournament(
+                _trn.RecordTableBBOnEmpty(table_root=event.table_root), owner
+            ),
+            [],
+        )
 
     def table_bb_on_empty_resolved(
-        self, event: _table.TableBBOnEmptyResolved, dests: _az.Destinations, source_cover: _t.Cover
+        self,
+        event: _table.TableBBOnEmptyResolved,
+        dests: _az.Destinations,
+        source_cover: _t.Cover,
     ) -> tuple[list, list]:
-        return (_to_tournament(_trn.RecordTableBBOnEmptyCleared(table_root=event.table_root)), [])
+        owner = _owning_tournament(source_cover)
+        return (
+            _to_tournament(
+                _trn.RecordTableBBOnEmptyCleared(table_root=event.table_root), owner
+            ),
+            [],
+        )
 
     def balancing_move_decided(
-        self, event: _table.BalancingMoveDecided, dests: _az.Destinations, source_cover: _t.Cover
+        self,
+        event: _table.BalancingMoveDecided,
+        dests: _az.Destinations,
+        source_cover: _t.Cover,
     ) -> tuple[list, list]:
         # Option A balancing chain — ported with B3.
         return ([], [])

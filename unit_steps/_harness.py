@@ -216,16 +216,22 @@ class World:
         event_msg,
         dest_sequences=None,
         source_root: bytes = b"",
+        source_ext=None,
     ) -> None:
         """Run one source event through a registered saga. ``source_root`` is the
         trigger aggregate's id, passed on the source cover so the saga can route
         emitted commands by it (e.g. PlayerJoined carries no table_root — the
-        table id comes from here). Captures the SagaResponse in ``resp``."""
+        table id comes from here). ``source_ext`` is an optional message packed
+        into ``source.cover.ext`` (e.g. a ``TableExt`` carrying the owning
+        tournament's cover, so a forwarding saga can address it). Captures the
+        SagaResponse in ``resp``."""
         self.resp = None
         self.err = None
         req = _saga.SagaHandleRequest()
         req.source.cover.domain = input_domain
         req.source.cover.root.value = source_root
+        if source_ext is not None:
+            req.source.cover.ext.CopyFrom(_az.pack(source_ext))
         page = req.source.pages.add()
         page.event.type_url = type_url(fq)
         page.event.value = event_msg.SerializeToString()

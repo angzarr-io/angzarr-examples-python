@@ -54,7 +54,9 @@ def _player_rows(context):
 def _seed_dealt(context, n_players, stack, variant=pt.TEXAS_HOLDEM):
     context.dealt_stack = stack
     players = [
-        hand.PlayerInHand(player_root=uuid_for(f"player-{i + 1}"), position=i, stack=stack)
+        hand.PlayerInHand(
+            player_root=uuid_for(f"player-{i + 1}"), position=i, stack=stack
+        )
         for i in range(n_players)
     ]
     context.world.seed_event(
@@ -120,19 +122,65 @@ def _given_posted_blind(context, pid, amt):
 @when("a {variant} hand is dealt to:")
 @when("an {variant} hand is dealt to:")
 def _when_deal(context, variant):
-    context.world.dispatch(DOMAIN, P + "DealCards", _deal_cmd(variant, _player_rows(context)))
+    context.world.dispatch(
+        DOMAIN, P + "DealCards", _deal_cmd(variant, _player_rows(context))
+    )
 
 
 @when("a {variant} hand is dealt to only 1 player")
 def _when_deal_one(context, variant):
-    players = [hand.PlayerInHand(player_root=uuid_for("player-1"), position=0, stack=500)]
+    players = [
+        hand.PlayerInHand(player_root=uuid_for("player-1"), position=0, stack=500)
+    ]
     context.world.dispatch(DOMAIN, P + "DealCards", _deal_cmd(variant, players))
+
+
+def _deal_with_seed(context, variant, players, seed, root=b""):
+    """Shuffle(seed) then DealCards against the same hand, folding the emitted
+    DeckShuffled so the deal draws from the seeded deck — the production
+    saga-driven order. Returns the emitted CardsDealt."""
+    context.world.dispatch(
+        DOMAIN,
+        P + "Shuffle",
+        hand.Shuffle(seed=seed.encode(), game_variant=_VARIANTS[variant]),
+        root=root,
+    )
+    context.world.fold_emitted(DOMAIN, root=root)
+    context.world.dispatch(
+        DOMAIN, P + "DealCards", _deal_cmd(variant, players), root=root
+    )
+    return context.world.emitted(P + "CardsDealt", hand.CardsDealt())
+
+
+@when('a {variant} hand is dealt with seed "{seed}" to:')
+def _when_deal_with_seed(context, variant, seed):
+    context.seed_deal = _deal_with_seed(context, variant, _player_rows(context), seed)
+
+
+@when('the same {variant} hand is dealt twice with seed "{seed}"')
+def _when_deal_twice_with_seed(context, variant, seed):
+    players = [
+        hand.PlayerInHand(
+            player_root=uuid_for(f"player-{i + 1}"), position=i, stack=500
+        )
+        for i in range(2)
+    ]
+    # Two distinct hand instances (roots) so the second deal is a fresh hand,
+    # not a re-deal of the first.
+    context.deal_a = _deal_with_seed(
+        context, variant, players, seed, root=uuid_for("seed-hand-a")
+    )
+    context.deal_b = _deal_with_seed(
+        context, variant, players, seed, root=uuid_for("seed-hand-b")
+    )
 
 
 @when("the dealer attempts to deal the hand again")
 def _when_deal_again(context):
     players = [
-        hand.PlayerInHand(player_root=uuid_for(f"player-{i + 1}"), position=i, stack=500)
+        hand.PlayerInHand(
+            player_root=uuid_for(f"player-{i + 1}"), position=i, stack=500
+        )
         for i in range(2)
     ]
     context.world.dispatch(DOMAIN, P + "DealCards", _deal_cmd("Texas Hold'em", players))
@@ -158,13 +206,41 @@ def _then_hole_cards(context, n):
     ev = context.world.emitted(P + "CardsDealt", hand.CardsDealt())
     assert ev.player_cards, "no player_cards dealt"
     for pc in ev.player_cards:
-        assert len(pc.cards) == n, f"{pc.player_root.hex()} has {len(pc.cards)} cards, want {n}"
+        assert (
+            len(pc.cards) == n
+        ), f"{pc.player_root.hex()} has {len(pc.cards)} cards, want {n}"
 
 
 @then("the remaining deck has {n:d} cards")
 def _then_remaining_deck(context, n):
     ev = context.world.emitted(P + "CardsDealt", hand.CardsDealt())
-    assert len(ev.remaining_deck) == n, f"remaining = {len(ev.remaining_deck)}, want {n}"
+    assert (
+        len(ev.remaining_deck) == n
+    ), f"remaining = {len(ev.remaining_deck)}, want {n}"
+
+
+@then('player "{pid}" holds the cards expected for seed "{seed}"')
+def _then_holds_expected(context, pid, seed):
+    from angzarr_poker.hand.handler import _HOLE_CARDS, _deck_from_seed
+
+    ev = context.seed_deal
+    deck = _deck_from_seed(seed.encode())
+    hole = _HOLE_CARDS[ev.game_variant]
+    order = [p.player_root for p in ev.players]
+    idx = order.index(uuid_for(pid))
+    expected = deck[idx * hole : (idx + 1) * hole]
+    actual = next(pc.cards for pc in ev.player_cards if pc.player_root == uuid_for(pid))
+    assert list(actual) == list(expected), (
+        f"{pid} holds cards that don't match the seed-derived deck — the deal "
+        f"did not draw from the Shuffle(seed) deck"
+    )
+
+
+@then("both deals produce identical hole cards")
+def _then_identical_deals(context):
+    a = {pc.player_root: list(pc.cards) for pc in context.deal_a.player_cards}
+    b = {pc.player_root: list(pc.cards) for pc in context.deal_b.player_cards}
+    assert a == b, "the two deals with the same seed produced different hole cards"
 
 
 @then("the deal is refused because the hand has already been dealt")
