@@ -256,14 +256,16 @@ _TWO_LEVELS = [
 _NAMES = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"]
 
 
-def _seed_running(context, enrolled=2, min_p=2, max_p=10, levels=None):
-    """Seed a RUNNING tournament: created (+ optional blind structure) → open →
-    ``enrolled`` players from the standard name sequence → started. The first
-    enrolled is "Alice", so a later step can eliminate/rebuy a registered
-    ("Alice") vs unregistered ("ghost") player."""
+def _seed_running(context, enrolled=2, min_p=2, max_p=10, levels=None, rebuy_config=None):
+    """Seed a RUNNING tournament: created (+ optional blind structure / rebuy
+    config) → open → ``enrolled`` players from the standard name sequence →
+    started. The first enrolled is "Alice", so a later step can eliminate/rebuy a
+    registered ("Alice") vs unregistered ("ghost") player."""
     overrides = dict(min_players=min_p, max_players=max_p)
     if levels is not None:
         overrides["blind_structure"] = levels
+    if rebuy_config is not None:
+        overrides["rebuy_config"] = rebuy_config
     _seed_created(context, "Test Tournament", **overrides)
     context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
     for name in _NAMES[:enrolled]:
@@ -434,3 +436,102 @@ def _then_advance_last_level(context, current, max_v):
 def _then_advance_no_levels(context):
     assert_rejected(context, "BLIND_STRUCTURE_EXHAUSTED")
     assert context.world.err.extras.get("max_value") == "0", "expected zero defined levels"
+
+
+# ===========================================================================
+# Slice 3: rebuy config thresholds (TDA Rule 27 — enabled / cutoff / max)
+# ===========================================================================
+
+
+def _rebuy_cfg(enabled=True, max_rebuys=0, rebuy_level_cutoff=0):
+    """A rebuy config (cost 100 / 1000 chips); max_rebuys=0 is unlimited,
+    rebuy_level_cutoff=0 disables the cutoff check."""
+    return trn.RebuyConfig(
+        enabled=enabled,
+        rebuy_cost=100,
+        rebuy_chips=1000,
+        max_rebuys=max_rebuys,
+        rebuy_level_cutoff=rebuy_level_cutoff,
+    )
+
+
+def _seed_alice_rebuys(context, used):
+    """Seed Alice's prior rebuy count (she is the first enrolled player)."""
+    context.world.seed_event(
+        DOMAIN,
+        P + "RebuyProcessed",
+        trn.RebuyProcessed(player_root=uuid_for("Alice"), rebuy_count=used),
+    )
+
+
+def _seed_at_level(context, level):
+    context.world.seed_event(
+        DOMAIN, P + "BlindLevelAdvanced", trn.BlindLevelAdvanced(level=level)
+    )
+
+
+# --- Given: rebuy-config variants ---
+
+
+@given("a running tournament with rebuys enabled and {n:d} enrolled player")
+def _given_rebuys_enabled(context, n):
+    _seed_running(context, enrolled=n, rebuy_config=_rebuy_cfg())
+
+
+@given("a running tournament with rebuys disabled and {n:d} enrolled player")
+def _given_rebuys_disabled(context, n):
+    _seed_running(context, enrolled=n, rebuy_config=_rebuy_cfg(enabled=False))
+
+
+@given(
+    "a running tournament whose rebuy window closes after level {cutoff:d}, "
+    "now at blind level {level:d}, with {n:d} enrolled player"
+)
+def _given_rebuy_cutoff(context, cutoff, level, n):
+    _seed_running(context, enrolled=n, rebuy_config=_rebuy_cfg(rebuy_level_cutoff=cutoff))
+    _seed_at_level(context, level)
+
+
+@given("a running tournament with no rebuy level cutoff, now at blind level {level:d}, with {n:d} enrolled player")
+def _given_rebuy_no_cutoff(context, level, n):
+    _seed_running(context, enrolled=n, rebuy_config=_rebuy_cfg(rebuy_level_cutoff=0))
+    _seed_at_level(context, level)
+
+
+@given("a running tournament allowing at most {max_r:d} rebuys per player, where Alice has used {used:d}")
+def _given_rebuy_max(context, max_r, used):
+    _seed_running(context, enrolled=1, rebuy_config=_rebuy_cfg(max_rebuys=max_r))
+    _seed_alice_rebuys(context, used)
+
+
+@given("a running tournament with unlimited rebuys, where Alice has used {used:d}")
+def _given_rebuy_unlimited(context, used):
+    _seed_running(context, enrolled=1, rebuy_config=_rebuy_cfg(max_rebuys=0))
+    _seed_alice_rebuys(context, used)
+
+
+# --- Then: rebuy processed / refused ---
+
+
+@then("the rebuy is processed at cost {cost:d} adding {chips:d} chips for rebuy {n:d}")
+def _then_rebuy_processed_full(context, cost, chips, n):
+    ev = context.world.emitted(P + "RebuyProcessed", trn.RebuyProcessed())
+    assert ev.rebuy_cost == cost, f"rebuy_cost = {ev.rebuy_cost}, want {cost}"
+    assert ev.chips_added == chips, f"chips_added = {ev.chips_added}, want {chips}"
+    assert ev.rebuy_count == n, f"rebuy_count = {ev.rebuy_count}, want {n}"
+
+
+@then("the rebuy is processed as rebuy {n:d}")
+def _then_rebuy_processed_n(context, n):
+    ev = context.world.emitted(P + "RebuyProcessed", trn.RebuyProcessed())
+    assert ev.rebuy_count == n, f"rebuy_count = {ev.rebuy_count}, want {n}"
+
+
+@then("the rebuy is processed")
+def _then_rebuy_processed(context):
+    context.world.emitted(P + "RebuyProcessed", trn.RebuyProcessed())
+
+
+@then("the rebuy is refused because the tournament does not exist")
+def _then_rebuy_no_tournament(context):
+    assert_rejected(context, "TOURNAMENT_NOT_FOUND")
