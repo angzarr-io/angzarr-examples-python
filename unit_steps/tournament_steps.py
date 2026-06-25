@@ -69,12 +69,6 @@ def _given_reg_open(context):
     context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
 
 
-@given("a tournament with max_players {max_p:d} and min_players {min_p:d} and registration open")
-def _given_reg_open_bounds(context, max_p, min_p):
-    _seed_created(context, "Test Tournament", max_players=max_p, min_players=min_p)
-    context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
-
-
 @given('player "{pid}" is enrolled')
 def _given_enrolled(context, pid):
     _seed_enrolled(context, pid)
@@ -154,17 +148,17 @@ def _then_create_name(context):
     assert_rejected(context, "NAME_REQUIRED")
 
 
-@then("the create-tournament is refused because buy_in must be positive")
+@then("the create-tournament is refused because the buy-in must be positive")
 def _then_create_buyin(context):
     assert_rejected(context, "BUY_IN_NOT_POSITIVE")
 
 
-@then("the create-tournament is refused because starting_stack must be positive")
+@then("the create-tournament is refused because the starting stack must be positive")
 def _then_create_stack(context):
     assert_rejected(context, "STARTING_STACK_NOT_POSITIVE")
 
 
-@then("the create-tournament is refused because min_players must be at least 2")
+@then("the create-tournament is refused because the minimum must be at least 2 players")
 def _then_create_min(context):
     assert_rejected(context, "MIN_PLAYERS_TOO_LOW")
 
@@ -282,16 +276,13 @@ def _seed_running(context, enrolled=2, min_p=2, max_p=10, levels=None):
 # --- Given: running / blind-structure variants ---
 
 
-@given("a tournament with min_players {min_p:d} and max_players {max_p:d} and registration open")
+@given("a tournament for {min_p:d} to {max_p:d} players with registration open")
 def _given_reg_open_minmax(context, min_p, max_p):
     _seed_created(context, "Test Tournament", min_players=min_p, max_players=max_p)
     context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
 
 
-@given(
-    "a running tournament with min_players {min_p:d} and max_players {max_p:d} "
-    "and {n:d} enrolled players"
-)
+@given("a running tournament for {min_p:d} to {max_p:d} players with {n:d} enrolled")
 def _given_running_enrolled(context, min_p, max_p, n):
     _seed_running(context, enrolled=n, min_p=min_p, max_p=max_p)
 
