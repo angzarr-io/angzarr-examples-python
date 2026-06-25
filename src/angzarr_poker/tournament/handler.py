@@ -12,9 +12,11 @@ count); a deficit of 3 or more, signalled when the big blind would land on an em
 seat, emits ``TableHaltOrdered`` which the TournamentTableSaga fans out to the
 table's ``HaltForBalancing``.
 
-Only the coordination methods are ported here; the tournament's own lifecycle
-(create / register / blinds / eliminations / payouts) is a separate port, so
-dispatching those commands raises AttributeError (loud, not a silent no-op).
+The cross-table coordination methods and the lifecycle foundation (create /
+open-close registration / enroll) are ported. The remaining lifecycle (start /
+blind levels / rebuys / eliminations / pause-resume / complete / payouts) is a
+separate port, so dispatching those commands raises AttributeError (loud, not a
+silent no-op).
 """
 
 from __future__ import annotations
@@ -42,6 +44,19 @@ def _book(*events) -> _t.EventBook:
     for ev in events:
         book.pages.add().event.CopyFrom(_az.pack(ev))
     return book
+
+
+def _exists(state: _trn.TournamentState) -> bool:
+    """A tournament exists once TournamentCreated has been folded."""
+    return bool(state.tournament_id)
+
+
+def _reject(code: str, message: str, **extras: str) -> _az.CodedError:
+    """An invalid-argument business rejection carrying a stable code (and
+    optional detail fields, e.g. lhs/rhs for a bound violation)."""
+    return _az.CodedError(
+        code=code, message=message, grpc=_az.GrpcCode.INVALID_ARGUMENT, extras=extras or None
+    )
 
 
 class TournamentAggregate:
@@ -117,5 +132,149 @@ class TournamentAggregate:
 
     def apply_table_resume_ordered(
         self, state: _trn.TournamentState, event: _trn.TableResumeOrdered
+    ) -> None:
+        pass
+
+    # --- lifecycle: create / open-close registration / enroll ---
+
+    def create_tournament(
+        self, cmd: _trn.CreateTournament, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if _exists(state):
+            raise _reject("TOURNAMENT_EXISTS", "Tournament already exists")
+        if not cmd.name:
+            raise _reject("NAME_REQUIRED", "name is required")
+        if cmd.buy_in <= 0:
+            raise _reject("BUY_IN_NOT_POSITIVE", "buy_in must be positive")
+        if cmd.starting_stack <= 0:
+            raise _reject("STARTING_STACK_NOT_POSITIVE", "starting_stack must be positive")
+        if cmd.max_players < 2:
+            raise _reject("MAX_PLAYERS_TOO_LOW", "max_players must be at least 2")
+        if cmd.min_players < 2:
+            raise _reject("MIN_PLAYERS_TOO_LOW", "min_players must be at least 2")
+        if cmd.min_players > cmd.max_players:
+            raise _reject(
+                "MIN_PLAYERS_EXCEEDS_MAX",
+                "min_players exceeds max_players",
+                lhs=str(cmd.min_players),
+                rhs=str(cmd.max_players),
+            )
+        return _book(
+            _trn.TournamentCreated(
+                name=cmd.name,
+                game_variant=cmd.game_variant,
+                buy_in=cmd.buy_in,
+                starting_stack=cmd.starting_stack,
+                max_players=cmd.max_players,
+                min_players=cmd.min_players,
+                scheduled_start=cmd.scheduled_start,
+                rebuy_config=cmd.rebuy_config if cmd.HasField("rebuy_config") else None,
+                addon_config=cmd.addon_config if cmd.HasField("addon_config") else None,
+                blind_structure=cmd.blind_structure,
+                created_at=_now(),
+            )
+        )
+
+    def apply_tournament_created(
+        self, state: _trn.TournamentState, event: _trn.TournamentCreated
+    ) -> None:
+        state.tournament_id = f"tournament_{event.name}"
+        state.name = event.name
+        state.game_variant = event.game_variant
+        state.buy_in = event.buy_in
+        state.starting_stack = event.starting_stack
+        state.max_players = event.max_players
+        state.min_players = event.min_players
+        state.status = _trn.TOURNAMENT_CREATED
+        if event.HasField("rebuy_config"):
+            state.rebuy_config.CopyFrom(event.rebuy_config)
+        del state.blind_structure[:]
+        state.blind_structure.extend(event.blind_structure)
+
+    def open_registration(
+        self, cmd: _trn.OpenRegistration, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status == _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_RUNNING", "Cannot open registration on a running tournament")
+        if state.status == _trn.TOURNAMENT_REGISTRATION_OPEN:
+            raise _reject("REGISTRATION_ALREADY_OPEN", "Registration is already open")
+        return _book(_trn.RegistrationOpened(opened_at=_now()))
+
+    def apply_registration_opened(
+        self, state: _trn.TournamentState, event: _trn.RegistrationOpened
+    ) -> None:
+        state.status = _trn.TOURNAMENT_REGISTRATION_OPEN
+
+    def close_registration(
+        self, cmd: _trn.CloseRegistration, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_REGISTRATION_OPEN:
+            raise _reject("REGISTRATION_NOT_OPEN", "Registration is not open")
+        return _book(
+            _trn.RegistrationClosed(
+                total_registrations=len(state.registered_players), closed_at=_now()
+            )
+        )
+
+    def apply_registration_closed(
+        self, state: _trn.TournamentState, event: _trn.RegistrationClosed
+    ) -> None:
+        # Registration closed but the tournament has not yet started; it leaves
+        # the open state and awaits StartTournament. (Re-opening is a separate
+        # transition, not exercised by the close scenarios.)
+        state.status = _trn.TOURNAMENT_CREATED
+
+    def enroll_player(
+        self, cmd: _trn.EnrollPlayer, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        # Guard failures are recorded as a rejection EVENT (not a coded reject) so
+        # the reservation PM sees the enrollment outcome on the stream.
+        reason = None
+        if not cmd.player_root:
+            reason = "player_root is required"
+        elif state.status != _trn.TOURNAMENT_REGISTRATION_OPEN:
+            reason = "Registration is not open"
+        elif len(state.registered_players) >= state.max_players:
+            reason = "Tournament is full"
+        elif cmd.player_root.hex() in state.registered_players:
+            reason = "Player is already registered"
+        if reason is not None:
+            return _book(
+                _trn.TournamentEnrollmentRejected(
+                    player_root=cmd.player_root,
+                    reservation_id=cmd.reservation_id,
+                    reason=reason,
+                    rejected_at=_now(),
+                )
+            )
+        return _book(
+            _trn.TournamentPlayerEnrolled(
+                player_root=cmd.player_root,
+                reservation_id=cmd.reservation_id,
+                fee_paid=state.buy_in,
+                starting_stack=state.starting_stack,
+                registration_number=len(state.registered_players) + 1,
+                enrolled_at=_now(),
+            )
+        )
+
+    def apply_tournament_player_enrolled(
+        self, state: _trn.TournamentState, event: _trn.TournamentPlayerEnrolled
+    ) -> None:
+        reg = state.registered_players[event.player_root.hex()]
+        reg.player_root = event.player_root
+        reg.fee_paid = event.fee_paid
+        reg.starting_stack = event.starting_stack
+        reg.registered_at.CopyFrom(event.enrolled_at)
+        state.total_prize_pool += event.fee_paid
+
+    def apply_tournament_enrollment_rejected(
+        self, state: _trn.TournamentState, event: _trn.TournamentEnrollmentRejected
     ) -> None:
         pass
