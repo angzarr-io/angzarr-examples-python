@@ -87,6 +87,39 @@ def _given_registered_players(context):
 @given('a registered player "{name}" with bankroll {bankroll:d}')
 def _given_registered_player(context, name, bankroll):
     _register_player(context, name, bankroll)
+    context.world.current_player = name
+
+
+@when('I deposit {amount:d} chips to player "{name}"')
+def _deposit_chips(context, amount, name):
+    w = context.world
+    w.client.send(
+        "player",
+        "DepositFunds",
+        player.DepositFunds(amount=_currency(amount)),
+        root=w.root(name),
+        correlation_id=w.correlation_id,
+    )
+    w.current_player = name
+
+
+@then("within {secs:d} seconds the player display reports bankroll {amount:d}")
+def _player_display_bankroll(context, secs, amount):
+    # Observes the deployed PlayerProjector's read model over the wire — the
+    # deposit lands on the player aggregate, the projector coordinator delivers
+    # the FundsDeposited off the bus, the projector folds it, and the query
+    # surface reports the new balance. The bound under test is that lag.
+    name = getattr(context.world, "current_player", None)
+    assert name is not None, "no player established in this scenario"
+    root = context.world.root(name)
+    view = context.world.client.wait_for_balance(root, amount, within=float(secs))
+    assert view is not None and view.found, (
+        f"player projector never reported a balance for {name!r} within {secs}s "
+        f"(read model has not observed the deposit)"
+    )
+    assert view.balance.amount == amount, (
+        f"player display bankroll = {view.balance.amount}, want {amount}"
+    )
 
 
 # ---------------------------------------------------------------------------

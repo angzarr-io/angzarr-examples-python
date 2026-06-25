@@ -141,6 +141,7 @@ RESERVATION_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-reservation"
 SAGA_IMAGE := "ghcr.io/angzarr-io/examples-python-saga"
 PMG_IMAGE := "ghcr.io/angzarr-io/examples-python-pmg"
 PROJECTOR_IMAGE := "ghcr.io/angzarr-io/examples-python-projector"
+PROJECTOR_PLAYER_IMAGE := "ghcr.io/angzarr-io/examples-python-projector-player"
 AI_IMAGE := "ghcr.io/angzarr-io/examples-python-ai-player"
 AI_CHART := ROOT + "/deploy/k8s/helm/ai-player"
 
@@ -239,6 +240,7 @@ build-images:
     docker build -t {{SAGA_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga {{ROOT}}
     docker build -t {{PMG_IMAGE}}:latest -f {{ROOT}}/Containerfile --target pmg {{ROOT}}
     docker build -t {{PROJECTOR_IMAGE}}:latest -f {{ROOT}}/Containerfile --target projector {{ROOT}}
+    docker build -t {{PROJECTOR_PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target projector-player {{ROOT}}
     echo "=== Building AI player ==="
     docker build -t {{AI_IMAGE}}:latest -f {{ROOT}}/ai_player/Containerfile --target production {{ROOT}}
 
@@ -255,6 +257,7 @@ load-images:
     kind load docker-image {{SAGA_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{PMG_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{PROJECTOR_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{PROJECTOR_PLAYER_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{AI_IMAGE}}:latest --name {{KIND_CLUSTER}}
 
 # Pull and load coordinator images into kind

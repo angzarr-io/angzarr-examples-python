@@ -37,3 +37,8 @@ nodes:
       - containerPort: 31324
         hostPort: 31324
         protocol: TCP
+      # Player projector read-model query (PlayerProjectionQueryService) —
+      # exposed for the EA-0004 read-model consistency scenario.
+      - containerPort: 31325
+        hostPort: 31325
+        protocol: TCP

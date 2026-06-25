@@ -144,3 +144,14 @@ FROM app AS projector
 ENV PORT=50491
 EXPOSE 50491
 CMD ["python", "-m", "angzarr_poker.projectors.main"]
+
+# ============================================================================
+# Player projector - per-domain bankroll read model. Folds player-domain funds
+# events into a queryable read model and ALSO serves PlayerProjectionQueryService
+# on the same port, so a client can observe read-model eventual consistency from
+# outside the write side (EA-0004). Distinct from the auxiliary OutputProjector.
+# ============================================================================
+FROM app AS projector-player
+ENV PORT=50492
+EXPOSE 50492
+CMD ["python", "-m", "angzarr_poker.projectors.player_main"]

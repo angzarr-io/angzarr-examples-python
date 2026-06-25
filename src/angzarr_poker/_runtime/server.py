@@ -66,15 +66,22 @@ def create_server(
     servicer: object,
     service_name: str = "",
     max_workers: int = 10,
+    extra_servicers: list[tuple[Callable, object]] | None = None,
 ) -> tuple[grpc.Server, str]:
     """Build a gRPC server with the servicer + a health service registered.
 
     Returns (server, bind_address). The health service reports SERVING for the
     empty service name and, when given, for ``service_name``.
+
+    ``extra_servicers`` registers additional (add_func, servicer) pairs on the
+    same port — e.g. a projector process serving both the framework
+    ProjectorService and an example read-model query service.
     """
     _, address = _transport_config()
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     add_servicer_func(servicer, server)
+    for add_func, extra in extra_servicers or ():
+        add_func(extra, server)
 
     health_servicer = health.HealthServicer()
     health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
@@ -93,15 +100,19 @@ def run_server(
     domain: str = "",
     default_port: str = "50052",
     logger=None,
+    extra_servicers: list[tuple[Callable, object]] | None = None,
 ) -> None:
     """Run a gRPC server until termination.
 
     PORT defaults to ``default_port`` when unset. ``domain`` is for logging only.
+    ``extra_servicers`` co-hosts additional (add_func, servicer) pairs.
     """
     if "PORT" not in os.environ:
         os.environ["PORT"] = default_port
 
-    server, address = create_server(add_servicer_func, servicer, service_name)
+    server, address = create_server(
+        add_servicer_func, servicer, service_name, extra_servicers=extra_servicers
+    )
     transport_type = os.environ.get("TRANSPORT_TYPE", "tcp").lower()
 
     if logger:

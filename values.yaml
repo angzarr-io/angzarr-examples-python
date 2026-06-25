@@ -180,11 +180,18 @@ applications:
         tag: latest
         pullPolicy: IfNotPresent
 
-  # Projectors — OutputProjector (read-model renderer). The coordinator binds
-  # a single source domain (`.topics | first`); the rendered read model lives
-  # in the handler's in-process sink (no external query surface yet — the
-  # cluster projector-consistency scenario EA-0004 stays @wip). Deployed bound
-  # to `hand` so it renders the hand lifecycle that the smoke path produces.
+  # Projectors — per-domain read models. Each coordinator binds a single source
+  # domain (`.topics | first`).
+  #
+  # `output` is the auxiliary cross-domain OutputProjector narrator: it renders
+  # the hand lifecycle into an in-process display sink (presentation, no query
+  # surface) and is deployed bound to `hand` for the smoke path.
+  #
+  # `player` is the PlayerProjector: it folds player-domain funds events into a
+  # bankroll read model AND serves PlayerProjectionQueryService on its own gRPC
+  # port, so a client can observe read-model eventual consistency from outside
+  # the write side. Exposed via a debug NodePort (31325) so the cluster
+  # acceptance harness can query it (EA-0004).
   projectors:
     - name: output
       domain: hand
@@ -195,6 +202,18 @@ applications:
         repository: ghcr.io/angzarr-io/examples-python-projector
         tag: latest
         pullPolicy: IfNotPresent
+    - name: player
+      domain: player
+      port: 50492
+      topics:
+        - "player"
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-projector-player
+        tag: latest
+        pullPolicy: IfNotPresent
+      debug:
+        enabled: true
+        nodePort: 31325
 
 # Infrastructure settings
 infrastructure:

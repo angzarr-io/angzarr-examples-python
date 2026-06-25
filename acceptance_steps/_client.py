@@ -29,6 +29,12 @@ import grpc
 from angzarr_poker._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_poker._gen.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
 from angzarr_poker._gen.io.angzarr.v1 import query_pb2_grpc as _q_grpc
+from angzarr_poker._gen.io.angzarr.examples.v1 import (
+    player_projection_query_pb2 as _pq,
+)
+from angzarr_poker._gen.io.angzarr.examples.v1 import (
+    player_projection_query_pb2_grpc as _pq_grpc,
+)
 
 # Fully-qualified poker proto prefix; angzarr keys dispatch on a bare "/" Any
 # type-URL prefix (not the type.googleapis.com default).
@@ -52,6 +58,12 @@ _DEFAULT_PORTS = {
     "tournament": 31323,
     "reservation": 31324,
 }
+
+# The player projector's read-model query surface (PlayerProjectionQueryService)
+# is served by the player-projector pod, exposed on its own debug NodePort —
+# separate from the aggregate command/query ports above. Overridable via
+# PLAYER_PROJECTOR_URL for a remote cluster.
+_PLAYER_PROJECTOR_PORT = 31325
 
 
 def type_url(fq: str) -> str:
@@ -97,6 +109,16 @@ class ClusterClient:
             self._cmd_channels[domain] = cmd_ch
             self._cmd[domain] = _ch_grpc.CommandHandlerCoordinatorServiceStub(cmd_ch)
             self._query[domain] = _q_grpc.EventQueryServiceStub(cmd_ch)
+
+        # The player projector read-model query surface lives on its own pod
+        # (separate NodePort), so it gets its own channel + stub.
+        proj_ep = (
+            os.environ.get("PLAYER_PROJECTOR_URL")
+            or f"localhost:{_PLAYER_PROJECTOR_PORT}"
+        )
+        proj_ch = grpc.insecure_channel(proj_ep)
+        self._channels.append(proj_ch)
+        self._player_projection = _pq_grpc.PlayerProjectionQueryServiceStub(proj_ch)
 
     def close(self) -> None:
         for ch in self._channels:
@@ -218,4 +240,39 @@ class ClusterClient:
                 return page
             if time.time() >= deadline:
                 return None
+            time.sleep(poll)
+
+    # --- projector read-model query -----------------------------------------
+
+    def player_balance(self, player_root: bytes, timeout: float = 10.0):
+        """The PlayerProjector's materialized bankroll view for ``player_root``
+        (``found`` is False until the projection has observed that player)."""
+        return self._player_projection.GetPlayerBalance(
+            _pq.GetPlayerBalanceRequest(player_root=player_root), timeout=timeout
+        )
+
+    def wait_for_balance(
+        self,
+        player_root: bytes,
+        amount: int,
+        within: float,
+        poll: float = 0.2,
+    ):
+        """Poll the player projector's read model until it reports ``amount`` for
+        ``player_root`` or ``within`` seconds elapse. Returns the matching
+        PlayerBalanceView, or the last view/None on timeout. This observes the
+        ACTUAL projector folding the deposit event off the bus — the read-model
+        eventual-consistency bound EA-0004 asserts."""
+        deadline = time.time() + within
+        last = None
+        while True:
+            try:
+                view = self.player_balance(player_root)
+                last = view
+                if view.found and view.balance.amount == amount:
+                    return view
+            except grpc.RpcError:
+                pass
+            if time.time() >= deadline:
+                return last
             time.sleep(poll)
