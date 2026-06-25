@@ -14,6 +14,9 @@ event-type appears at the relevant root or the deadline expires.
 
 from __future__ import annotations
 
+import subprocess
+import time
+
 from behave import given, step, then, when
 
 from angzarr_poker._gen.io.angzarr.examples.v1 import hand_pb2 as hand
@@ -435,3 +438,67 @@ def _tournament_winner(context, name, who):
 def _table_starts_and_deals(context, secs):
     _assert_event_within(context, "table", "HandStarted", float(secs))
     _assert_event_within(context, "hand", "CardsDealt", float(secs))
+
+
+# ---------------------------------------------------------------------------
+# Durability — state survives a coordinator restart (EA-0003)
+# ---------------------------------------------------------------------------
+
+_NAMESPACE = "angzarr"
+
+
+def _kubectl(*args: str) -> None:
+    subprocess.run(
+        ["kubectl", "-n", _NAMESPACE, *args], check=True, capture_output=True
+    )
+
+
+@when("the player service restarts")
+def _restart_player_service(context):
+    # Roll the player coordinator and wait for the replacement to be Ready. The
+    # new pod holds NO in-memory state — it rebuilds each aggregate from the
+    # postgres event store on demand, which is exactly the durability under test.
+    # Reaching it needs no reconnect: the NodePort routes to whatever pod is
+    # ready (a kubectl port-forward, by contrast, pins the now-dead pod).
+    _kubectl("rollout", "restart", "deployment/player-aggregate")
+    _kubectl("rollout", "status", "deployment/player-aggregate", "--timeout=120s")
+    # The pre-restart connection is pinned to the now-dead pod; dial the new one.
+    context.world.client.reset_channel("player")
+
+
+def _player_book_resilient(context, name, secs=10.0):
+    """The player's EventBook, retrying transient gRPC failures. A rolling
+    restart tears down the old pod's connection mid-flight ("Socket closed");
+    the next call reconnects through the NodePort to the new pod, so a brief
+    retry rides out the blip."""
+    root = context.world.root(name)
+    deadline = time.time() + secs
+    last = None
+    while True:
+        try:
+            return context.world.client.event_book("player", root)
+        except Exception as exc:  # noqa: BLE001 — retry until the deadline
+            last = exc
+            if time.time() >= deadline:
+                raise AssertionError(
+                    f"player {name!r} not reachable within {secs}s: {last}"
+                ) from exc
+            context.world.client.reset_channel("player")
+            time.sleep(0.3)
+
+
+@then('within {secs:d} seconds player "{name}" is reachable')
+def _player_reachable(context, secs, name):
+    _player_book_resilient(context, name, float(secs))
+
+
+@then('player "{name}" has bankroll {amount:d}')
+def _player_bankroll(context, name, amount):
+    book = _player_book_resilient(context, name)
+    balance = None
+    for page in book.pages:
+        if fq_from_url(page.event.type_url).endswith(".FundsDeposited"):
+            ev = player.FundsDeposited()
+            ev.ParseFromString(page.event.value)
+            balance = ev.new_balance.amount
+    assert balance == amount, f"bankroll = {balance}, want {amount}"

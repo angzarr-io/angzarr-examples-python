@@ -102,6 +102,20 @@ class ClusterClient:
         for ch in self._channels:
             ch.close()
 
+    def reset_channel(self, domain: str) -> None:
+        """Drop and re-create a domain's channel + stubs. After a coordinator
+        restart the existing channel is pinned (via kube-proxy DNAT) to the
+        now-dead pod and its reconnect backoff can outlast a short retry window;
+        a fresh channel dials cleanly through the NodePort to the new pod."""
+        old = self._cmd_channels.get(domain)
+        if old is not None:
+            old.close()
+        ch = grpc.insecure_channel(_endpoint(domain))
+        self._channels.append(ch)
+        self._cmd_channels[domain] = ch
+        self._cmd[domain] = _ch_grpc.CommandHandlerCoordinatorServiceStub(ch)
+        self._query[domain] = _q_grpc.EventQueryServiceStub(ch)
+
     # --- reachability -------------------------------------------------------
 
     def reachable(self, timeout: float = 10.0) -> bool:
