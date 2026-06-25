@@ -9,7 +9,10 @@ tournament per scenario (the default root).
 
 from __future__ import annotations
 
+import re
+
 from behave import given, then, use_step_matcher, when
+from google.protobuf import symbol_database as _symdb
 
 from angzarr_poker._gen.io.angzarr.examples.v1 import tournament_pb2 as trn
 from unit_steps._harness import uuid_for
@@ -535,3 +538,222 @@ def _then_rebuy_processed(context):
 @then("the rebuy is refused because the tournament does not exist")
 def _then_rebuy_no_tournament(context):
     assert_rejected(context, "TOURNAMENT_NOT_FOUND")
+
+
+# ===========================================================================
+# Slice 4: state reconstruction (event replay through the appliers)
+# ===========================================================================
+
+_SYM = _symdb.Default()
+_CAMEL_RE = re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _rebuild(context):
+    """Fold the seeded tournament events through the aggregate's appliers — the
+    same projection the core does on rebuild — and stash the resulting state.
+    Each event's applier is resolved by convention: ``TournamentCreated`` →
+    ``apply_tournament_created``."""
+    from angzarr_poker.tournament.handler import TournamentAggregate
+
+    state = trn.TournamentState()
+    handler = TournamentAggregate()
+    for page in context.world.prior_pages(DOMAIN):
+        fq = page.event.type_url.rsplit("/", 1)[-1]
+        msg = _SYM.GetSymbol(fq)()
+        msg.ParseFromString(page.event.value)
+        snake = _CAMEL_RE.sub("_", fq.rsplit(".", 1)[-1]).lower()
+        applier = getattr(handler, f"apply_{snake}", None)
+        if applier is not None:
+            applier(state, msg)
+    context.rebuilt = state
+
+
+# --- Given: append events to the replay history (past tense) ---
+
+
+@given("registration has opened")
+def _g_reg_opened(context):
+    context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
+
+
+@given("registration has closed")
+def _g_reg_closed(context):
+    context.world.seed_event(DOMAIN, P + "RegistrationClosed", trn.RegistrationClosed())
+
+
+@given('player "{pid}" was enrolled paying {fee:d}')
+def _g_was_enrolled(context, pid, fee):
+    context.world.seed_event(
+        DOMAIN,
+        P + "TournamentPlayerEnrolled",
+        trn.TournamentPlayerEnrolled(
+            player_root=uuid_for(pid), fee_paid=fee, starting_stack=_DEF["starting_stack"]
+        ),
+    )
+
+
+@given('player "{pid}" was rejected from enrollment because of "{reason}"')
+def _g_was_rejected(context, pid, reason):
+    context.world.seed_event(
+        DOMAIN,
+        P + "TournamentEnrollmentRejected",
+        trn.TournamentEnrollmentRejected(player_root=uuid_for(pid), reason=reason),
+    )
+
+
+@given('player "{pid}" had a rebuy processed at cost {cost:d} for rebuy {n:d}')
+def _g_had_rebuy(context, pid, cost, n):
+    context.world.seed_event(
+        DOMAIN,
+        P + "RebuyProcessed",
+        trn.RebuyProcessed(player_root=uuid_for(pid), rebuy_cost=cost, rebuy_count=n),
+    )
+
+
+@given('player "{pid}" was denied a rebuy because the maximum was reached')
+def _g_was_denied(context, pid):
+    context.world.seed_event(
+        DOMAIN,
+        P + "RebuyDenied",
+        trn.RebuyDenied(player_root=uuid_for(pid), reason="Maximum rebuys reached"),
+    )
+
+
+@given("the blind level was advanced to {level:d}")
+def _g_advanced(context, level):
+    context.world.seed_event(
+        DOMAIN, P + "BlindLevelAdvanced", trn.BlindLevelAdvanced(level=level)
+    )
+
+
+@given('player "{pid}" was eliminated previously')
+def _g_was_eliminated(context, pid):
+    context.world.seed_event(
+        DOMAIN, P + "PlayerEliminated", trn.PlayerEliminated(player_root=uuid_for(pid))
+    )
+
+
+@given("the tournament was paused")
+def _g_was_paused(context):
+    context.world.seed_event(DOMAIN, P + "TournamentPaused", trn.TournamentPaused())
+
+
+@given("the tournament was resumed")
+def _g_was_resumed(context):
+    context.world.seed_event(DOMAIN, P + "TournamentResumed", trn.TournamentResumed())
+
+
+@given("the tournament was completed")
+def _g_was_completed(context):
+    context.world.seed_event(DOMAIN, P + "TournamentCompleted", trn.TournamentCompleted())
+
+
+# --- When ---
+
+
+@when("the tournament state is rebuilt from its events")
+def _when_rebuild(context):
+    _rebuild(context)
+
+
+# --- Then: assert reconstructed state ---
+
+
+@then('the rebuilt tournament is identified as "{name}"')
+def _t_id(context, name):
+    assert context.rebuilt.tournament_id == f"tournament_{name}", (
+        f"tournament_id = {context.rebuilt.tournament_id!r}"
+    )
+
+
+@then('the rebuilt tournament is named "{name}"')
+def _t_name(context, name):
+    assert context.rebuilt.name == name, f"name = {context.rebuilt.name!r}"
+
+
+@then("the rebuilt tournament is in the created phase")
+def _t_created(context):
+    assert context.rebuilt.status == trn.TOURNAMENT_CREATED
+
+
+@then("the rebuilt tournament has registration open")
+def _t_reg_open(context):
+    assert context.rebuilt.status == trn.TOURNAMENT_REGISTRATION_OPEN
+
+
+@then("the rebuilt tournament is paused")
+def _t_paused(context):
+    assert context.rebuilt.status == trn.TOURNAMENT_PAUSED
+
+
+@then("the rebuilt tournament is running")
+def _t_running(context):
+    assert context.rebuilt.status == trn.TOURNAMENT_RUNNING
+
+
+@then("the rebuilt tournament is completed")
+def _t_completed(context):
+    assert context.rebuilt.status == trn.TOURNAMENT_COMPLETED
+
+
+@then("the rebuilt buy-in is {n:d}")
+def _t_buyin(context, n):
+    assert context.rebuilt.buy_in == n, f"buy_in = {context.rebuilt.buy_in}"
+
+
+@then("the rebuilt starting stack is {n:d}")
+def _t_stack(context, n):
+    assert context.rebuilt.starting_stack == n
+
+
+@then("the rebuilt maximum is {n:d} players")
+def _t_max(context, n):
+    assert context.rebuilt.max_players == n
+
+
+@then("the rebuilt minimum is {n:d} players")
+def _t_min(context, n):
+    assert context.rebuilt.min_players == n
+
+
+@then("the rebuilt blind level is {n:d}")
+def _t_level(context, n):
+    assert context.rebuilt.current_level == n, f"current_level = {context.rebuilt.current_level}"
+
+
+@then("the rebuilt tournament has no blind levels")
+def _t_no_levels(context):
+    assert len(context.rebuilt.blind_structure) == 0
+
+
+@then("the rebuilt prize pool is {n:d}")
+def _t_pool(context, n):
+    assert context.rebuilt.total_prize_pool == n, (
+        f"total_prize_pool = {context.rebuilt.total_prize_pool}, want {n}"
+    )
+
+
+@then("the rebuilt tournament has {n:d} registered players")
+def _t_reg_count(context, n):
+    assert len(context.rebuilt.registered_players) == n, (
+        f"registered = {len(context.rebuilt.registered_players)}, want {n}"
+    )
+
+
+@then("the rebuilt tournament has {n:d} players remaining")
+def _t_remaining(context, n):
+    assert context.rebuilt.players_remaining == n, (
+        f"players_remaining = {context.rebuilt.players_remaining}, want {n}"
+    )
+
+
+@then("the rebuilt tournament shows {pid} has used {n:d} rebuys")
+def _t_rebuys(context, pid, n):
+    reg = context.rebuilt.registered_players.get(uuid_for(pid).hex())
+    assert reg is not None, f"{pid} not registered"
+    assert reg.rebuys_used == n, f"rebuys_used = {reg.rebuys_used}, want {n}"
+
+
+@then('the rebuilt tournament has no registration for "{pid}"')
+def _t_no_reg(context, pid):
+    assert uuid_for(pid).hex() not in context.rebuilt.registered_players

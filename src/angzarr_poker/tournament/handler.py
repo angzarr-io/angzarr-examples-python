@@ -205,6 +205,7 @@ class TournamentAggregate:
         state.max_players = event.max_players
         state.min_players = event.min_players
         state.status = _trn.TOURNAMENT_CREATED
+        state.current_level = 1
         if event.HasField("rebuy_config"):
             state.rebuy_config.CopyFrom(event.rebuy_config)
         del state.blind_structure[:]
@@ -242,10 +243,11 @@ class TournamentAggregate:
     def apply_registration_closed(
         self, state: _trn.TournamentState, event: _trn.RegistrationClosed
     ) -> None:
-        # Registration closed but the tournament has not yet started; it leaves
-        # the open state and awaits StartTournament. (Re-opening is a separate
-        # transition, not exercised by the close scenarios.)
-        state.status = _trn.TOURNAMENT_CREATED
+        # No status change: the TournamentStatus enum has no CLOSED value, so the
+        # status stays REGISTRATION_OPEN until StartTournament (the close is
+        # recorded by the event's total_registrations). When a "no enrollment
+        # after close" scenario is ported it will need a separate closed flag.
+        pass
 
     def enroll_player(
         self, cmd: _trn.EnrollPlayer, state: _trn.TournamentState, cctx: _az.CommandContext
@@ -292,6 +294,7 @@ class TournamentAggregate:
         reg.starting_stack = event.starting_stack
         reg.registered_at.CopyFrom(event.enrolled_at)
         state.total_prize_pool += event.fee_paid
+        state.players_remaining += 1
 
     def apply_tournament_enrollment_rejected(
         self, state: _trn.TournamentState, event: _trn.TournamentEnrollmentRejected
@@ -382,6 +385,9 @@ class TournamentAggregate:
     def apply_player_eliminated(
         self, state: _trn.TournamentState, event: _trn.PlayerEliminated
     ) -> None:
+        key = event.player_root.hex()
+        if key in state.registered_players:
+            del state.registered_players[key]
         if state.players_remaining > 0:
             state.players_remaining -= 1
 
@@ -414,6 +420,11 @@ class TournamentAggregate:
         self, state: _trn.TournamentState, event: _trn.TournamentResumed
     ) -> None:
         state.status = _trn.TOURNAMENT_RUNNING
+
+    def apply_tournament_completed(
+        self, state: _trn.TournamentState, event: _trn.TournamentCompleted
+    ) -> None:
+        state.status = _trn.TOURNAMENT_COMPLETED
 
     def process_rebuy(
         self, cmd: _trn.ProcessRebuy, state: _trn.TournamentState, cctx: _az.CommandContext
@@ -450,8 +461,13 @@ class TournamentAggregate:
     def apply_rebuy_processed(
         self, state: _trn.TournamentState, event: _trn.RebuyProcessed
     ) -> None:
-        reg = state.registered_players[event.player_root.hex()]
-        reg.rebuys_used = event.rebuy_count
+        # The rebuy fee grows the prize pool. Track the player's count only if
+        # they are registered (a rebuy recorded for an unknown player still grows
+        # the pool but adds no registration).
+        state.total_prize_pool += event.rebuy_cost
+        key = event.player_root.hex()
+        if key in state.registered_players:
+            state.registered_players[key].rebuys_used = event.rebuy_count
 
     def apply_rebuy_denied(
         self, state: _trn.TournamentState, event: _trn.RebuyDenied
