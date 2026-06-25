@@ -59,6 +59,17 @@ def _reject(code: str, message: str, **extras: str) -> _az.CodedError:
     )
 
 
+def _registration_open(state: _trn.TournamentState) -> bool:
+    """Whether the tournament currently accepts enrollments. Open while the
+    tournament is taking registrations OR running (late registration, TDA Rule
+    30) — until registration is explicitly closed or the cutoff level is passed."""
+    if state.registration_closed:
+        return False
+    if state.registration_cutoff_level > 0 and state.current_level > state.registration_cutoff_level:
+        return False
+    return state.status in (_trn.TOURNAMENT_REGISTRATION_OPEN, _trn.TOURNAMENT_RUNNING)
+
+
 def _rebuy_denial_reason(state: _trn.TournamentState, player_root: bytes) -> Optional[str]:
     """Why a rebuy is denied (a stream event, not a coded reject), or None if it
     may proceed. Combines registration with rebuy config (TDA Rule 27): enabled,
@@ -210,6 +221,9 @@ class TournamentAggregate:
             state.rebuy_config.CopyFrom(event.rebuy_config)
         del state.blind_structure[:]
         state.blind_structure.extend(event.blind_structure)
+        del state.payout_structure[:]
+        state.payout_structure.extend(event.payout_structure)
+        state.registration_cutoff_level = event.registration_cutoff_level
 
     def open_registration(
         self, cmd: _trn.OpenRegistration, state: _trn.TournamentState, cctx: _az.CommandContext
@@ -226,6 +240,7 @@ class TournamentAggregate:
         self, state: _trn.TournamentState, event: _trn.RegistrationOpened
     ) -> None:
         state.status = _trn.TOURNAMENT_REGISTRATION_OPEN
+        state.registration_closed = False
 
     def close_registration(
         self, cmd: _trn.CloseRegistration, state: _trn.TournamentState, cctx: _az.CommandContext
@@ -243,11 +258,9 @@ class TournamentAggregate:
     def apply_registration_closed(
         self, state: _trn.TournamentState, event: _trn.RegistrationClosed
     ) -> None:
-        # No status change: the TournamentStatus enum has no CLOSED value, so the
-        # status stays REGISTRATION_OPEN until StartTournament (the close is
-        # recorded by the event's total_registrations). When a "no enrollment
-        # after close" scenario is ported it will need a separate closed flag.
-        pass
+        # No status change (the enum has no CLOSED value); the registration_closed
+        # flag gates further enrollment while the status stays REGISTRATION_OPEN.
+        state.registration_closed = True
 
     def enroll_player(
         self, cmd: _trn.EnrollPlayer, state: _trn.TournamentState, cctx: _az.CommandContext
@@ -259,7 +272,7 @@ class TournamentAggregate:
         reason = None
         if not cmd.player_root:
             reason = "a player identity is required"
-        elif state.status != _trn.TOURNAMENT_REGISTRATION_OPEN:
+        elif not _registration_open(state):
             reason = "Registration is not open"
         elif len(state.registered_players) >= state.max_players:
             reason = "Tournament is full"
@@ -473,3 +486,56 @@ class TournamentAggregate:
         self, state: _trn.TournamentState, event: _trn.RebuyDenied
     ) -> None:
         pass
+
+    # --- completion + multi-place payout (RP-9 / WSOP §III) ---
+
+    def complete_tournament(
+        self, cmd: _trn.CompleteTournament, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status == _trn.TOURNAMENT_COMPLETED:
+            raise _reject("TOURNAMENT_ALREADY_COMPLETED", "Tournament is already completed")
+        if state.status not in (_trn.TOURNAMENT_RUNNING, _trn.TOURNAMENT_PAUSED):
+            raise _reject(
+                "TOURNAMENT_NOT_RUNNING", "Tournament must be running or paused to complete"
+            )
+        results = []
+        schedule = sorted(state.payout_structure, key=lambda p: p.position)
+        if schedule:
+            # The finishing order must cover every paid position (the caller
+            # decides explicitly rather than silently skipping a payout).
+            if len(cmd.finishing_order) < len(schedule):
+                raise _reject(
+                    "FINISHING_ORDER_SHORTER_THAN_PAYOUT_POSITIONS",
+                    "finishing order is shorter than the paid positions",
+                    got=str(len(cmd.finishing_order)),
+                    bound=str(len(schedule)),
+                )
+            total = 0
+            for p in schedule:
+                payout = state.total_prize_pool * p.percentage // 100
+                results.append(
+                    _trn.TournamentResult(
+                        position=p.position,
+                        player_root=cmd.finishing_order[p.position - 1],
+                        payout=payout,
+                    )
+                )
+                total += payout
+            # The schedule must distribute the whole pool (guards the chip ledger).
+            if total != state.total_prize_pool:
+                raise _reject(
+                    "PAYOUTS_DO_NOT_SUM_TO_POOL",
+                    "payouts do not sum to the prize pool",
+                    got=str(total),
+                    bound=str(state.total_prize_pool),
+                )
+        return _book(
+            _trn.TournamentCompleted(
+                winner_root=cmd.winner_root,
+                total_prize_pool=state.total_prize_pool,
+                results=results,
+                completed_at=_now(),
+            )
+        )

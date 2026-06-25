@@ -757,3 +757,123 @@ def _t_rebuys(context, pid, n):
 @then('the rebuilt tournament has no registration for "{pid}"')
 def _t_no_reg(context, pid):
     assert uuid_for(pid).hex() not in context.rebuilt.registered_players
+
+
+# ===========================================================================
+# Slice 5: completion + multi-place payout (RP-9 / WSOP §III)
+# ===========================================================================
+
+
+@given('a running tournament "{name}" with a prize pool of {pool:d} and {n:d} enrolled players')
+def _given_running_pool(context, name, pool, n):
+    """Seed a running tournament whose prize pool is exactly ``pool`` — ``n``
+    players each paying ``pool/n`` into the pool."""
+    fee = pool // n
+    _seed_created(context, name, buy_in=fee)
+    context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
+    for nm in _NAMES[:n]:
+        context.world.seed_event(
+            DOMAIN,
+            P + "TournamentPlayerEnrolled",
+            trn.TournamentPlayerEnrolled(player_root=uuid_for(nm), fee_paid=fee),
+        )
+    context.world.seed_event(DOMAIN, P + "TournamentStarted", trn.TournamentStarted(total_players=n))
+
+
+@given("a payout schedule paying positions {positions} at percentages {pcts}")
+def _given_payout_schedule(context, positions, pcts):
+    """Attach a payout schedule to the seeded TournamentCreated (the schedule is
+    configured at create time and folds into the tournament's state)."""
+    poss = [int(x) for x in positions.split(",")]
+    pcs = [int(x) for x in pcts.split(",")]
+    for page in context.world.prior_pages(DOMAIN):
+        if page.event.type_url.rsplit("/", 1)[-1] == P + "TournamentCreated":
+            created = trn.TournamentCreated()
+            created.ParseFromString(page.event.value)
+            for pos, pct in zip(poss, pcs):
+                created.payout_structure.add(position=pos, percentage=pct)
+            page.event.value = created.SerializeToString()
+            return
+    raise AssertionError("no seeded TournamentCreated to attach a payout schedule")
+
+
+@given('finishing order "{order}"')
+def _given_finishing_order(context, order):
+    context.finishing_order = [uuid_for(n) for n in order.split(",")]
+
+
+# Regex (scoped): the finishing order is optional inline — without it the order
+# comes from a prior "finishing order" Given. One step avoids the parse-matcher
+# ambiguity between the two phrasings.
+use_step_matcher("re")
+
+
+@when(r'the tournament completes with winner "(?P<winner>[^"]+)"(?: and finishing order "(?P<order>[^"]*)")?')
+def _when_complete(context, winner, order=None):
+    if order is not None:
+        context.finishing_order = [uuid_for(n) for n in order.split(",")]
+    cmd = trn.CompleteTournament(
+        winner_root=uuid_for(winner), finishing_order=getattr(context, "finishing_order", [])
+    )
+    context.world.dispatch(DOMAIN, P + "CompleteTournament", cmd)
+
+
+use_step_matcher("parse")
+
+
+@then('the tournament is completed with winner "{winner}"')
+def _then_completed_winner(context, winner):
+    ev = context.world.emitted(P + "TournamentCompleted", trn.TournamentCompleted())
+    assert ev.winner_root == uuid_for(winner), "completed with a different winner"
+
+
+@then("the tournament is completed")
+def _then_completed(context):
+    context.world.emitted(P + "TournamentCompleted", trn.TournamentCompleted())
+
+
+@then("there are {n:d} paid positions")
+def _then_paid_positions(context, n):
+    ev = context.world.emitted(P + "TournamentCompleted", trn.TournamentCompleted())
+    assert len(ev.results) == n, f"results = {len(ev.results)}, want {n}"
+
+
+@then('position {pos:d} pays "{pid}" {amt:d}')
+def _then_position_pays(context, pos, pid, amt):
+    ev = context.world.emitted(P + "TournamentCompleted", trn.TournamentCompleted())
+    match = [
+        r for r in ev.results if r.position == pos and r.player_root == uuid_for(pid)
+    ]
+    assert match, f"no result at position {pos} for {pid}; got {[(r.position) for r in ev.results]}"
+    assert match[0].payout == amt, f"payout = {match[0].payout}, want {amt}"
+
+
+@then('"{pid}" receives no payout')
+def _then_no_payout(context, pid):
+    ev = context.world.emitted(P + "TournamentCompleted", trn.TournamentCompleted())
+    paid = [r for r in ev.results if r.player_root == uuid_for(pid) and r.payout > 0]
+    assert not paid, f"{pid} unexpectedly received a payout"
+
+
+@then(
+    "completing the tournament is refused because the payouts total {got:d} "
+    "but the prize pool is {bound:d}"
+)
+def _then_payouts_mismatch(context, got, bound):
+    assert_rejected(context, "PAYOUTS_DO_NOT_SUM_TO_POOL")
+    extras = context.world.err.extras
+    assert extras.get("got") == str(got) and extras.get("bound") == str(bound), (
+        f"got/bound = {extras.get('got')}/{extras.get('bound')}, want {got}/{bound}"
+    )
+
+
+@then(
+    "completing the tournament is refused because the finishing order lists only "
+    "{got:d} of the {bound:d} paid positions"
+)
+def _then_order_too_short(context, got, bound):
+    assert_rejected(context, "FINISHING_ORDER_SHORTER_THAN_PAYOUT_POSITIONS")
+    extras = context.world.err.extras
+    assert extras.get("got") == str(got) and extras.get("bound") == str(bound), (
+        f"got/bound = {extras.get('got')}/{extras.get('bound')}, want {got}/{bound}"
+    )
