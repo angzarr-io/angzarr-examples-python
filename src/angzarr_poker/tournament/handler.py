@@ -224,6 +224,7 @@ class TournamentAggregate:
         del state.payout_structure[:]
         state.payout_structure.extend(event.payout_structure)
         state.registration_cutoff_level = event.registration_cutoff_level
+        state.bounty_per_knockout = event.bounty_per_knockout
 
     def open_registration(
         self, cmd: _trn.OpenRegistration, state: _trn.TournamentState, cctx: _az.CommandContext
@@ -539,3 +540,28 @@ class TournamentAggregate:
                 completed_at=_now(),
             )
         )
+
+    # --- bounty (TDA RP-22 / WSOP Rule 39) ---
+
+    def award_bounty(
+        self, cmd: _trn.AwardBounty, state: _trn.TournamentState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        # The bounty paid per knockout is the configured amount; the caller names
+        # the eliminator + knocked-out player (and the tiebreak when a last-two
+        # simultaneous bust was resolved by pre-hand stack).
+        return _book(
+            _trn.BountyAwarded(
+                eliminator_root=cmd.eliminator_root,
+                knocked_out_root=cmd.knocked_out_root,
+                amount=state.bounty_per_knockout,
+                tiebreak_reason=cmd.tiebreak_reason,
+                awarded_at=_now(),
+            )
+        )
+
+    def apply_bounty_awarded(
+        self, state: _trn.TournamentState, event: _trn.BountyAwarded
+    ) -> None:
+        state.bounty_totals[event.eliminator_root.hex()] += event.amount

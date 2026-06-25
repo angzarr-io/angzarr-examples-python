@@ -936,3 +936,73 @@ def _then_enrolled_stack(context, pid, n):
     ev = context.world.emitted(P + "TournamentPlayerEnrolled", trn.TournamentPlayerEnrolled())
     assert ev.player_root == uuid_for(pid), "enrolled a different player"
     assert ev.starting_stack == n, f"starting_stack = {ev.starting_stack}, want {n}"
+
+
+# ===========================================================================
+# Slice 7: knockout bounties (TDA RP-22 / WSOP Rule 39)
+# ===========================================================================
+
+
+@given("a bounty tournament paying {amt:d} per knockout")
+def _given_bounty_tournament(context, amt):
+    _seed_created(context, "Bounty", bounty_per_knockout=amt)
+    context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
+    context.world.seed_event(DOMAIN, P + "TournamentStarted", trn.TournamentStarted())
+
+
+@given('player "{elim}" eliminates player "{ko}" by winning the showdown')
+def _given_eliminates(context, elim, ko):
+    context.eliminator, context.knocked_out = elim, ko
+
+
+@given('exactly 2 players left "{a}" stack {sa:d} and "{b}" stack {sb:d} pre-hand')
+def _given_two_left(context, a, sa, b, sb):
+    context.heads_up = {a: sa, b: sb}
+
+
+@when("both players go all-in and lose at the same showdown (split-pot push not applicable)")
+def _when_simultaneous_bust(context):
+    pass  # the eliminator is decided by the next step's pre-hand-stack tiebreak
+
+
+@when('the higher pre-hand stack is "{name}" ({hi:d} > {lo:d})')
+def _when_higher_stack(context, name, hi, lo):
+    other = next(p for p in context.heads_up if p != name)
+    cmd = trn.AwardBounty(
+        eliminator_root=uuid_for(name),
+        knocked_out_root=uuid_for(other),
+        tiebreak_reason="PRE_HAND_STACK",
+    )
+    context.world.dispatch(DOMAIN, P + "AwardBounty", cmd)
+
+
+@when("the elimination is processed")
+def _when_elimination_processed(context):
+    cmd = trn.AwardBounty(
+        eliminator_root=uuid_for(context.eliminator),
+        knocked_out_root=uuid_for(context.knocked_out),
+    )
+    context.world.dispatch(DOMAIN, P + "AwardBounty", cmd)
+
+
+@then('a bounty of {amt:d} is awarded with eliminator "{elim}" knocking out "{ko}"')
+def _then_bounty_awarded(context, amt, elim, ko):
+    ev = context.world.emitted(P + "BountyAwarded", trn.BountyAwarded())
+    assert ev.amount == amt, f"amount = {ev.amount}, want {amt}"
+    assert ev.eliminator_root == uuid_for(elim), "different eliminator"
+    assert ev.knocked_out_root == uuid_for(ko), "different knocked-out player"
+
+
+@then("\"{name}\"'s bounty total increases by {amt:d}")
+def _then_bounty_total(context, name, amt):
+    assert _rebuilt(context).bounty_totals.get(uuid_for(name).hex()) == amt, (
+        f"bounty total for {name} = {_rebuilt(context).bounty_totals.get(uuid_for(name).hex())}"
+    )
+
+
+@then('no bounty is awarded for "{name}"')
+def _then_no_bounty_for(context, name):
+    for page in context.world.emitted_pages():
+        if page.event.type_url.rsplit("/", 1)[-1] == P + "BountyAwarded":
+            ev = trn.BountyAwarded.FromString(page.event.value)
+            assert ev.knocked_out_root != uuid_for(name), f"a bounty was paid for {name}"
