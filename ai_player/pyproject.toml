@@ -15,7 +15,6 @@ dependencies = [
     "pgvector>=0.2.0",
     "structlog>=24.0.0",
     "protobuf>=5.0.0",
-    "angzarr-client",
 ]
 
 [[tool.uv.index]]
@@ -25,7 +24,6 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
-angzarr-client = { path = "../angzarr-client-python", editable = true }
 
 [dependency-groups]
 dev = [

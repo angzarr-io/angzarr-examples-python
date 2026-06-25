@@ -36,13 +36,9 @@ FROM base AS dependencies
 # Copy dependency files
 COPY ai_player/pyproject.toml ai_player/uv.lock* ./
 
-# The ai_player uv source block pins angzarr-client to the sibling submodule
-# via `path = "../angzarr-client-python"`. WORKDIR is /app, so uv resolves
-# that to /angzarr-client-python — it must exist at that path for --frozen
-# to find the editable distribution.
-COPY angzarr-client-python/ /angzarr-client-python/
-
-# Install dependencies (using CPU-only PyTorch via pyproject.toml index)
+# Install dependencies (using CPU-only PyTorch via pyproject.toml index). The
+# ai_player is self-contained: it generates its own proto stubs (proto stage)
+# and does not depend on the EOL angzarr-client-python package.
 RUN uv sync --no-dev --frozen
 
 # =============================================================================
