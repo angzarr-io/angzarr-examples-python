@@ -51,10 +51,15 @@ test-example-unit:
     uv run behave --stage unit angzarr-project/features/example/poker angzarr-project/features/example/framework --tags="~@wip"
 
 # Acceptance-example cucumber: poker E2E via CommandClient (gRPC).
-# PLAYER_URL picks the coordinator; defaults to localhost:1310.
+# Drives a DEPLOYED cluster: the harness talks straight to each aggregate
+# coordinator on its NodePort (player 31320 … reservation 31324), which the
+# kind cluster maps to the host and the dev container shares via --network=host
+# — no `kubectl port-forward` needed. Override a domain with <DOMAIN>_URL
+# (PLAYER_URL / TABLE_URL / HAND_URL / TOURNAMENT_URL / RESERVATION_URL) to
+# point at a different / remote cluster.
 # --stage acceptance resolves acceptance_environment.py + acceptance_steps/.
 test-example-acceptance:
-    PLAYER_URL="${PLAYER_URL:-}" uv run behave --stage acceptance angzarr-project/features/example/acceptance/ --tags="~@wip"
+    uv run behave --stage acceptance angzarr-project/features/example/acceptance/ --tags="~@wip"
 
 # Run all tests
 test: test-pytest test-example-unit test-example-acceptance

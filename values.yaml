@@ -19,22 +19,29 @@ imagePullSecrets: []
 #
 # To update: docker inspect --format='{{index .RepoDigests 0}}' <image> or
 #            gh api /orgs/angzarr-io/packages/container/<name>/versions
+# NOTE: the aggregate/saga/projector/processManager coordinators are pinned to
+# locally-built `:latest` images (loaded into kind via `just
+# load-coordinators-local`), NOT the published digests. The published digests
+# lagged core HEAD's `io.angzarr` proto-package + bare absolute type-URL
+# refactor, so their CommandHandlerCoordinatorService returned UNIMPLEMENTED to
+# clients built from the current `_gen` stubs. Rebuild from core/main with
+# `just images` / the Containerfile `angzarr-*-dev` targets when core moves.
 images:
   aggregate:
     repository: ghcr.io/angzarr-io/angzarr-aggregate
-    tag: "b98e8de@sha256:4799c8b2a85c148fac2368be4328f5cab599e68b14865ba03fe51698ba59b9fe"
+    tag: "latest"
     pullPolicy: IfNotPresent
   saga:
     repository: ghcr.io/angzarr-io/angzarr-saga
-    tag: "b98e8de@sha256:1b64face0a2f8fc346d506d3ab0d62dcc85bba54e3848aaab3897b808968a119"
+    tag: "latest"
     pullPolicy: IfNotPresent
   projector:
     repository: ghcr.io/angzarr-io/angzarr-projector
-    tag: "b98e8de@sha256:b9f3a52a37e0e9b3c47b8331d1d8c5f9c68331e655f13579b4bcf591b6f8aea1"
+    tag: "latest"
     pullPolicy: IfNotPresent
   processManager:
     repository: ghcr.io/angzarr-io/angzarr-process-manager
-    tag: "b98e8de@sha256:49af52fe739d6b3552e32a8f182584e8bc9e7d57674089d2b57e9b102217f954"
+    tag: "latest"
     pullPolicy: IfNotPresent
   stream:
     repository: ghcr.io/angzarr-io/angzarr-stream-dev
@@ -131,74 +138,72 @@ applications:
         enabled: true
         nodePort: 31324
 
-  # Sagas — stateless event→command translators, deployed as their own pods
-  # alongside an angzarr-saga sidecar that consumes from AMQP topics.
+  # Sagas — ONE app hosting every poker saga (sagas/main.py registers all six;
+  # the core routes each source event by its cover domain to the saga(s) that
+  # consume it). The saga coordinator subscribes to ALL events (SubscriberAll,
+  # queue `saga-saga`) and the in-process router filters by source domain, so a
+  # SINGLE app covers table/hand/tournament sources. Running one app per source
+  # domain would NOT fan-out usefully — each pod gets every event anyway, so
+  # three pods would each emit the same command (e.g. duplicate DealCards).
+  # Multiple DISTINCT saga services (not replicas of one) would each get their
+  # own queue; that is the real fan-out. Events with no registered saga (e.g.
+  # player) are ACK-skipped by the servicer rather than NACK+requeued.
   sagas:
-    - name: saga-table-hand
-      domain: saga-table-hand
-      port: 50411
+    - name: poker-saga
+      domain: saga
+      port: 50410
       topics:
-        - "table"  # subscribes to HandStarted from the table aggregate
+        - "table"   # advisory only; SubscriberAll ignores it and binds all
       image:
-        repository: ghcr.io/angzarr-io/examples-python-saga-table-hand
-        tag: latest
-        pullPolicy: IfNotPresent
-    - name: saga-table-player
-      domain: saga-table-player
-      port: 50413
-      topics:
-        - "table"  # subscribes to HandEnded from the table aggregate
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-saga-table-player
-        tag: latest
-        pullPolicy: IfNotPresent
-    - name: saga-hand-table
-      domain: saga-hand-table
-      port: 50412
-      topics:
-        - "hand"  # subscribes to HandComplete -> emits EndHand on table
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-saga-hand-table
-        tag: latest
-        pullPolicy: IfNotPresent
-    - name: saga-hand-player
-      domain: saga-hand-player
-      port: 50414
-      topics:
-        - "hand"  # subscribes to PotAwarded -> emits DepositFunds (winner credit)
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-saga-hand-player
+        repository: ghcr.io/angzarr-io/examples-python-saga
         tag: latest
         pullPolicy: IfNotPresent
 
-  # Consolidated reservation process manager — replaces the former buy-in /
-  # rebuy / registration PMs. Subscribes to reservation (for lifecycle
-  # events), table (for seating + chip-add confirmations), and tournament
-  # (for enrollment + rebuy results); fans commands back to player
-  # (ReserveFunds / DeductReservedFunds / ReleaseFunds), reservation
-  # (Confirm* / Release*), table (SeatPlayer / AddRebuyChips), and
-  # tournament (EnrollPlayer / ProcessRebuy). Uses QueryClient for sync
-  # cross-aggregate reads (table capacity, tournament fee / phase) rather
-  # than embedding destination state in the request.
+  # Process managers — ONE consolidated image (examples-python-pmg) hosts both
+  # poker PMs (hand_flow + reservation; process_managers/main.py registers
+  # both). The PM coordinator supports multiple source domains per app (chart
+  # maps `.topics | join ","` → ANGZARR__MESSAGING__AMQP__DOMAIN and emits
+  # ANGZARR_SUBSCRIPTIONS), so a single app binds every source the two PMs
+  # consume. The core routes each trigger to every co-resident PM that
+  # consumes its domain (see commit "route triggers to co-resident PMs").
   processManagers:
-    - name: pmg-reservation
-      domain: pmg-reservation
+    - name: poker-pmg
+      domain: pmg
       port: 50395
       topics:
-        - "reservation"
-        - "table"
-        - "tournament"
+        - "reservation"  # reservation PM lifecycle events
+        - "table"        # seating + chip-add confirmations; hand-flow table events
+        - "tournament"   # enrollment + rebuy results
+        - "hand"         # hand-flow lifecycle triggers
       image:
-        repository: ghcr.io/angzarr-io/examples-python-pmg-reservation
+        repository: ghcr.io/angzarr-io/examples-python-pmg
         tag: latest
         pullPolicy: IfNotPresent
 
-  # Projectors — prj-training image isn't built by `just build-images` and
-  # isn't published; left empty for now since acceptance tests don't need it.
-  projectors: []
+  # Projectors — OutputProjector (read-model renderer). The coordinator binds
+  # a single source domain (`.topics | first`); the rendered read model lives
+  # in the handler's in-process sink (no external query surface yet — the
+  # cluster projector-consistency scenario EA-0004 stays @wip). Deployed bound
+  # to `hand` so it renders the hand lifecycle that the smoke path produces.
+  projectors:
+    - name: output
+      domain: hand
+      port: 50491
+      topics:
+        - "hand"
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-projector
+        tag: latest
+        pullPolicy: IfNotPresent
 
 # Infrastructure settings
 infrastructure:
+  # The status console (angzarr-status) isn't part of the poker example and its
+  # image isn't built/loaded here — leaving it on makes the pod ImagePullBackOff
+  # and `helm --wait` time out (the deploy reports failure though every poker
+  # component is healthy). Disabled so `just up` / `deploy-apps` succeed cleanly.
+  status:
+    enabled: false
   gateway:
     enabled: true
     grpcTarget: "table-aggregate:1310"  # Points to table aggregate service

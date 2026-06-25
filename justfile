@@ -115,22 +115,33 @@ run-hand:
 KIND_CLUSTER := "poker-ai"
 NAMESPACE := "angzarr"
 
-# OCI chart references
+# OCI chart references (infra charts still come from here).
 CHART_REGISTRY := "oci://ghcr.io/angzarr-io/charts"
 ANGZARR_CHART_VERSION := "0.5.1"
 
-# Image names
-PLAYER_IMAGE := "ghcr.io/angzarr-io/poker-python-player"
-TABLE_IMAGE := "ghcr.io/angzarr-io/poker-python-table"
-HAND_IMAGE := "ghcr.io/angzarr-io/poker-python-hand"
-AI_IMAGE := "ghcr.io/angzarr-io/poker-python-ai-player"
-SAGA_TABLE_HAND_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-table-hand"
-SAGA_TABLE_PLAYER_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-table-player"
-SAGA_HAND_TABLE_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-hand-table"
-SAGA_HAND_PLAYER_IMAGE := "ghcr.io/angzarr-io/poker-python-saga-hand-player"
-TOURNAMENT_IMAGE := "ghcr.io/angzarr-io/poker-python-tournament"
-RESERVATION_IMAGE := "ghcr.io/angzarr-io/poker-python-reservation"
-PMG_RESERVATION_IMAGE := "ghcr.io/angzarr-io/poker-python-pmg-reservation"
+# App chart: the LOCAL core chart (tracks core HEAD), NOT the published OCI
+# 0.5.1. The OCI chart lags core HEAD — it emits the legacy
+# ANGZARR__STORAGE__POSTGRES__URI which HEAD's StorageRegistryConfig ignores
+# (→ localhost default → PoolTimedOut), and predates other HEAD config. The
+# local chart additionally emits ANGZARR__STORAGE__BACKENDS__DEFAULT__* so the
+# locally-built core-HEAD coordinators get a valid event store. Keep the chart
+# and the coordinator images on the same core ref.
+ANGZARR_CHART := ANGZARR_ROOT + "/core/main/deploy/k8s/helm/angzarr"
+
+# Image names — must match the repositories referenced in values.yaml
+# (the `just up` / deploy-apps path deploys those). One consolidated image per
+# component-type: five aggregates, one all-sagas image, one all-PMs image, one
+# projector image. The Containerfile target names map 1:1 (agg-player, saga,
+# pmg, projector, …).
+PLAYER_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-player"
+TABLE_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-table"
+HAND_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-hand"
+TOURNAMENT_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-tournament"
+RESERVATION_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-reservation"
+SAGA_IMAGE := "ghcr.io/angzarr-io/examples-python-saga"
+PMG_IMAGE := "ghcr.io/angzarr-io/examples-python-pmg"
+PROJECTOR_IMAGE := "ghcr.io/angzarr-io/examples-python-projector"
+AI_IMAGE := "ghcr.io/angzarr-io/examples-python-ai-player"
 AI_CHART := ROOT + "/deploy/k8s/helm/ai-player"
 
 # =============================================================================
@@ -224,13 +235,10 @@ build-images:
     docker build -t {{HAND_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-hand {{ROOT}}
     docker build -t {{TOURNAMENT_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-tournament {{ROOT}}
     docker build -t {{RESERVATION_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-reservation {{ROOT}}
-    echo "=== Building reservation PM ==="
-    docker build -t {{PMG_RESERVATION_IMAGE}}:latest -f {{ROOT}}/Containerfile --target pmg-reservation {{ROOT}}
-    echo "=== Building poker sagas ==="
-    docker build -t {{SAGA_TABLE_HAND_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-table-hand {{ROOT}}
-    docker build -t {{SAGA_TABLE_PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-table-player {{ROOT}}
-    docker build -t {{SAGA_HAND_TABLE_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-hand-table {{ROOT}}
-    docker build -t {{SAGA_HAND_PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga-hand-player {{ROOT}}
+    echo "=== Building consolidated saga + PM + projector ==="
+    docker build -t {{SAGA_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga {{ROOT}}
+    docker build -t {{PMG_IMAGE}}:latest -f {{ROOT}}/Containerfile --target pmg {{ROOT}}
+    docker build -t {{PROJECTOR_IMAGE}}:latest -f {{ROOT}}/Containerfile --target projector {{ROOT}}
     echo "=== Building AI player ==="
     docker build -t {{AI_IMAGE}}:latest -f {{ROOT}}/ai_player/Containerfile --target production {{ROOT}}
 
@@ -244,11 +252,9 @@ load-images:
     kind load docker-image {{HAND_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{TOURNAMENT_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{RESERVATION_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{PMG_RESERVATION_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{SAGA_TABLE_HAND_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{SAGA_TABLE_PLAYER_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{SAGA_HAND_TABLE_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{SAGA_HAND_PLAYER_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{SAGA_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{PMG_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    kind load docker-image {{PROJECTOR_IMAGE}}:latest --name {{KIND_CLUSTER}}
     kind load docker-image {{AI_IMAGE}}:latest --name {{KIND_CLUSTER}}
 
 # Pull and load coordinator images into kind
@@ -357,8 +363,7 @@ deploy-apps:
         exit 1
     fi
     echo "=== Deploying poker applications ==="
-    helm upgrade --install poker {{CHART_REGISTRY}}/angzarr \
-      --version {{ANGZARR_CHART_VERSION}} \
+    helm upgrade --install poker {{ANGZARR_CHART}} \
       -f {{ROOT}}/values.yaml \
       --set-string storage.postgres.password="$DB_PW" \
       --set-string storage.postgres.uri="postgres://angzarr:${DB_PW}@angzarr-db:5432/angzarr" \
