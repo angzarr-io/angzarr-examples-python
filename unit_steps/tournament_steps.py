@@ -169,9 +169,17 @@ def _then_create_min(context):
     assert_rejected(context, "MIN_PLAYERS_TOO_LOW")
 
 
-@then("the create-tournament is refused because min_players exceeds max_players")
-def _then_create_min_max(context):
+@then(
+    "the create-tournament is refused because the minimum of {min_p:d} players "
+    "exceeds the maximum of {max_p:d}"
+)
+def _then_create_min_max(context, min_p, max_p):
+    # Business-language assertion; the stable code + bound detail are verified in
+    # the step, not leaked into the feature.
     assert_rejected(context, "MIN_PLAYERS_EXCEEDS_MAX")
+    extras = context.world.err.extras
+    assert extras.get("lhs") == str(min_p), f"lhs = {extras.get('lhs')!r}, want {min_p}"
+    assert extras.get("rhs") == str(max_p), f"rhs = {extras.get('rhs')!r}, want {max_p}"
 
 
 @then('the command is rejected with code "{code}"')
@@ -408,6 +416,15 @@ def _then_advance_not_running(context):
     assert_rejected(context, "TOURNAMENT_NOT_RUNNING")
 
 
-@then("advancing the blind level is refused because the blind structure is exhausted")
-def _then_advance_exhausted(context):
+@then("advancing the blind level is refused because level {current:d} is the last of {max_v:d} defined levels")
+def _then_advance_last_level(context, current, max_v):
     assert_rejected(context, "BLIND_STRUCTURE_EXHAUSTED")
+    extras = context.world.err.extras
+    assert extras.get("current") == str(current), f"current = {extras.get('current')!r}, want {current}"
+    assert extras.get("max_value") == str(max_v), f"max_value = {extras.get('max_value')!r}, want {max_v}"
+
+
+@then("advancing the blind level is refused because no blind levels are defined")
+def _then_advance_no_levels(context):
+    assert_rejected(context, "BLIND_STRUCTURE_EXHAUSTED")
+    assert context.world.err.extras.get("max_value") == "0", "expected zero defined levels"
