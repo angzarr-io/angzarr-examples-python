@@ -100,6 +100,149 @@ def _when_hand_ends_winner(context, name, amt):
 use_step_matcher("parse")
 
 
+# --- hand-event rendering (EU-0509..0524) ---
+
+_RANK_IN = {"T": 10, "J": 11, "Q": 12, "K": 13, "A": 14}
+_SUIT_IN = {"c": 1, "d": 2, "h": 3, "s": 4}
+_RANK_NAME = {"Jack": 11, "Queen": 12, "King": 13, "Ace": 14}
+
+
+def _card(s):
+    return pt.Card(
+        rank=_RANK_IN.get(s[0], int(s[0]) if s[0].isdigit() else 0),
+        suit=_SUIT_IN[s[1]],
+    )
+
+
+def _cards(s):
+    return [_card(c) for c in s.split()]
+
+
+def _proj(context, fq, ev):
+    context.world.dispatch_projector("hand", [(P + fq, ev)])
+
+
+@when("the display records {name} dealt {cards}")
+def _when_dealt(context, name, cards):
+    ev = hand.CardsDealt()
+    pc = ev.player_cards.add(player_root=uuid_for(name))
+    pc.cards.extend(_cards(cards))
+    _proj(context, "CardsDealt", ev)
+
+
+@when("the display records {name} posting the small blind of {amt:d}")
+def _when_blind(context, name, amt):
+    _proj(
+        context,
+        "BlindPosted",
+        hand.BlindPosted(player_root=uuid_for(name), blind_type="SMALL", amount=amt),
+    )
+
+
+@when("the display records {name} folding")
+def _when_fold(context, name):
+    _proj(context, "ActionTaken", hand.ActionTaken(player_root=uuid_for(name), action=1))
+
+
+@when("the display records {name} calling {amt:d} with the pot at {pot:d}")
+def _when_call(context, name, amt, pot):
+    _proj(
+        context,
+        "ActionTaken",
+        hand.ActionTaken(player_root=uuid_for(name), action=3, amount=amt, pot_total=pot),
+    )
+
+
+@when("the display records {name} raising to {amt:d} with the pot at {pot:d}")
+def _when_raise(context, name, amt, pot):
+    _proj(
+        context,
+        "ActionTaken",
+        hand.ActionTaken(player_root=uuid_for(name), action=5, amount=amt, pot_total=pot),
+    )
+
+
+@when("the display records {name} going all-in for {amt:d} with the pot at {pot:d}")
+def _when_allin(context, name, amt, pot):
+    _proj(
+        context,
+        "ActionTaken",
+        hand.ActionTaken(player_root=uuid_for(name), action=6, amount=amt, pot_total=pot),
+    )
+
+
+@when("the display records the flop {cards}")
+def _when_flop(context, cards):
+    c = _cards(cards)
+    _proj(context, "CommunityCardsDealt", hand.CommunityCardsDealt(cards=c, phase=2, all_community_cards=c))
+
+
+@when("the display records the turn {card}")
+def _when_turn(context, card):
+    c = _cards(card)
+    _proj(context, "CommunityCardsDealt", hand.CommunityCardsDealt(cards=c, phase=3, all_community_cards=c))
+
+
+@when("the display records the showdown beginning")
+def _when_showdown(context):
+    _proj(context, "ShowdownStarted", hand.ShowdownStarted())
+
+
+@when("the display records {name} revealing {cards} with a pair")
+def _when_reveal(context, name, cards):
+    ev = hand.CardsRevealed(player_root=uuid_for(name))
+    ev.cards.extend(_cards(cards))
+    ev.ranking.rank_type = 2  # PAIR
+    _proj(context, "CardsRevealed", ev)
+
+
+@when("the display records {name} mucking")
+def _when_muck(context, name):
+    _proj(context, "CardsMucked", hand.CardsMucked(player_root=uuid_for(name)))
+
+
+@when("{name} wins a pot of {amt:d}")
+def _when_wins_pot(context, name, amt):
+    ev = hand.PotAwarded()
+    ev.winners.add(player_root=uuid_for(name), amount=amt)
+    _proj(context, "PotAwarded", ev)
+
+
+@when("the hand finishes with final stacks:")
+def _when_final_stacks(context):
+    ev = hand.HandComplete()
+    for row in context.table:
+        ev.final_stacks.add(
+            player_root=uuid_for(row["player"]),
+            stack=int(row["stack"]),
+            has_folded=row["has_folded"].strip() == "true",
+        )
+    _proj(context, "HandComplete", ev)
+
+
+@when("{name} times out and is auto-folded")
+def _when_timeout(context, name):
+    _proj(context, "PlayerTimedOut", hand.PlayerTimedOut(player_root=uuid_for(name), default_action=1))
+
+
+@when("cards are shown for each suit:")
+def _when_suits(context):
+    ev = hand.CommunityCardsDealt(phase=2)
+    for row in context.table:
+        ev.cards.add(suit=getattr(pt, row["suit"]), rank=int(row["rank"]))
+    ev.all_community_cards.extend(ev.cards)
+    _proj(context, "CommunityCardsDealt", ev)
+
+
+@then('a {desc} displays as "{sym}"')
+@then('an {desc} displays as "{sym}"')
+def _then_rank_renders(context, desc, sym):
+    from angzarr_poker.projectors.output import _rank
+
+    value = _RANK_NAME.get(desc, int(desc) if desc.isdigit() else 0)
+    assert _rank(value) == sym, f"rank {desc} rendered {_rank(value)!r}, want {sym!r}"
+
+
 @given("the game display")
 def _given_display(context):
     pass  # the OutputProjector is registered in the World

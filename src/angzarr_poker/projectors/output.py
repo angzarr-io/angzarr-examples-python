@@ -30,6 +30,29 @@ def _chips(n: int) -> str:
     return f"${n:,}"
 
 
+_SUIT = {1: "c", 2: "d", 3: "h", 4: "s"}
+_RANK = {10: "T", 11: "J", 12: "Q", 13: "K", 14: "A"}
+_ACTION = {1: "folds", 2: "checks", 3: "calls", 4: "bets", 5: "raises to", 6: "all-in"}
+_AUTO = {1: "folds", 2: "checks"}
+_PHASE = {2: "Flop", 3: "Turn", 4: "River"}
+_HANDRANK = {
+    1: "High Card", 2: "Pair", 3: "Two Pair", 4: "Three of a Kind", 5: "Straight",
+    6: "Flush", 7: "Full House", 8: "Four of a Kind", 9: "Straight Flush", 10: "Royal Flush",
+}
+
+
+def _rank(r: int) -> str:
+    return _RANK.get(r, str(r))
+
+
+def _card(c) -> str:
+    return f"{_rank(c.rank)}{_SUIT.get(c.suit, '?')}"
+
+
+def _cards(cards) -> str:
+    return "[" + " ".join(_card(c) for c in cards) + "]"
+
+
 class OutputProjector:
     """Implements ``OutputProjectorHandler`` (player-funds display slice).
 
@@ -97,18 +120,57 @@ class OutputProjector:
     def hand_complete(self, projection, event) -> None:
         for w in event.winners:
             self.lines.append(f"{self._name(w.player_root)} wins {_chips(w.amount)}")
+        if event.final_stacks:
+            self.lines.append("Final stacks")
+            for s in event.final_stacks:
+                folded = " (folded)" if s.has_folded else ""
+                self.lines.append(f"{self._name(s.player_root)}: {_chips(s.stack)}{folded}")
+
+    def blind_posted(self, projection, event) -> None:
+        self.lines.append(
+            f"{self._name(event.player_root)} posts {event.blind_type} {_chips(event.amount)}"
+        )
+
+    def action_taken(self, projection, event) -> None:
+        name = self._name(event.player_root)
+        verb = _ACTION.get(event.action, "acts")
+        if event.action in (1, 2):  # FOLD, CHECK — no amount
+            self.lines.append(f"{name} {verb}")
+        elif event.action == 6:  # ALL_IN
+            self.lines.append(f"{name} all-in {_chips(event.amount)}")
+        else:  # CALL / BET / RAISE
+            self.lines.append(f"{name} {verb} {_chips(event.amount)}")
+        if event.pot_total:
+            self.lines.append(f"pot: {_chips(event.pot_total)}")
+
+    def cards_dealt(self, projection, event) -> None:
+        for pc in event.player_cards:
+            self.lines.append(f"{self._name(pc.player_root)}: {_cards(pc.cards)}")
+
+    def community_cards_dealt(self, projection, event) -> None:
+        self.lines.append(f"{_PHASE.get(event.phase, 'Board')}: {_cards(event.cards)}")
+        self.lines.append(f"Board: {_cards(event.all_community_cards)}")
+
+    def cards_revealed(self, projection, event) -> None:
+        self.lines.append(f"{self._name(event.player_root)} shows {_cards(event.cards)}")
+        self.lines.append(_HANDRANK.get(event.ranking.rank_type, "High Card"))
+
+    def cards_mucked(self, projection, event) -> None:
+        self.lines.append(f"{self._name(event.player_root)} mucks")
+
+    def showdown_started(self, projection, event) -> None:
+        self.lines.append("SHOWDOWN")
+
+    def pot_awarded(self, projection, event) -> None:
+        for w in event.winners:
+            self.lines.append(f"{self._name(w.player_root)} wins {_chips(w.amount)}")
+
+    def player_timed_out(self, projection, event) -> None:
+        self.lines.append(f"{self._name(event.player_root)} timed out")
+        self.lines.append(f"auto {_AUTO.get(event.default_action, 'folds')}")
 
     # --- events not rendered in this slice (must not crash the display) ---
 
-    def cards_dealt(self, projection, event) -> None: ...
-    def blind_posted(self, projection, event) -> None: ...
-    def action_taken(self, projection, event) -> None: ...
-    def community_cards_dealt(self, projection, event) -> None: ...
-    def cards_revealed(self, projection, event) -> None: ...
-    def cards_mucked(self, projection, event) -> None: ...
-    def showdown_started(self, projection, event) -> None: ...
-    def pot_awarded(self, projection, event) -> None: ...
-    def player_timed_out(self, projection, event) -> None: ...
     def player_seated(self, projection, event) -> None: ...
     def hand_ended(self, projection, event) -> None: ...
 
