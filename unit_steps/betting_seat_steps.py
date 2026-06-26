@@ -34,6 +34,12 @@ def _seat_root(seat: int) -> bytes:
 def _seed_hand(context, n, big_blind, stacks=None) -> None:
     context.big_blind = big_blind
     context.last_turn_assigned = None
+    # Betting-round observables accumulated across the scenario's actions.
+    context.contributions = {}
+    context.action_count = 0
+    context.seat_actions = {}
+    context.last_action = {}
+    context.round_complete_event = None
     if stacks is None:
         stacks = [10000] * n
     players = [
@@ -182,3 +188,174 @@ def _then_raise_below_min(context):
 @then("the bet is refused because it is below the minimum raise")
 def _then_bet_below_min_raise(context):
     assert_rejected(context, "BET_BELOW_MIN")
+
+
+# ---------------------------------------------------------------------------
+# Betting-round engine (betting_round.feature) + cross-street community deals
+# (raise_tracking.feature). Round-completion fires BettingRoundComplete; the
+# observables are per-seat contributions, action counts, and the post-action
+# stacks read off the emitted events.
+# ---------------------------------------------------------------------------
+
+_VERB = {
+    "FOLD": pt.FOLD,
+    "CHECK": pt.CHECK,
+    "CALL": pt.CALL,
+    "BET": pt.BET,
+    "RAISE": pt.RAISE,
+    "ALL_IN": pt.ALL_IN,
+}
+
+_PHASE = {
+    "PREFLOP": pt.PREFLOP,
+    "FLOP": pt.FLOP,
+    "TURN": pt.TURN,
+    "RIVER": pt.RIVER,
+}
+
+
+@given("a {n:d}-handed {variant} hand")
+def _given_hand_plain(context, n, variant):
+    context.variant = variant
+    # The blind amounts come from the explicit "blinds posted" step; seed with a
+    # nominal BB so context is initialised.
+    _seed_hand(context, n, 10)
+
+
+@given("a table with players:")
+def _given_table_players(context):
+    context.variant = "Texas Hold'em"
+    rows = list(context.table)
+    n = len(rows)
+    stacks = [0] * n
+    for r in rows:
+        stacks[int(r["seat"])] = int(r["stack"])
+    _seed_hand(context, n, 10, stacks)
+
+
+def _post_blind(context, seat, blind_type, amount):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(
+            player_root=_seat_root(seat), blind_type=blind_type, amount=amount
+        ),
+    )
+    context.contributions[seat] = context.contributions.get(seat, 0) + amount
+    _capture_turn_assigned(context)
+    context.world.fold_emitted(DOMAIN)
+
+
+@given(
+    "blinds posted: SB at seat {s1:d} amount {a1:d}, " "BB at seat {s2:d} amount {a2:d}"
+)
+@when(
+    "blinds posted: SB at seat {s1:d} amount {a1:d}, " "BB at seat {s2:d} amount {a2:d}"
+)
+def _step_blinds_posted(context, s1, a1, s2, a2):
+    _post_blind(context, s1, "small", a1)
+    _post_blind(context, s2, "big", a2)
+
+
+def _drive_action(context, seat, action, amount):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(player_root=_seat_root(seat), action=action, amount=amount),
+    )
+    for page in context.world.emitted_pages():
+        name = page.event.type_url.rsplit("/", 1)[-1]
+        if name == P + "ActionTaken":
+            at = hand.ActionTaken()
+            at.ParseFromString(page.event.value)
+            context.action_count += 1
+            context.seat_actions[seat] = context.seat_actions.get(seat, 0) + 1
+            context.contributions[seat] = context.contributions.get(seat, 0) + at.amount
+            context.last_action[seat] = at
+        elif name == P + "BettingRoundComplete":
+            brc = hand.BettingRoundComplete()
+            brc.ParseFromString(page.event.value)
+            context.round_complete_event = brc
+        elif name == P + "TurnAssigned":
+            ta = hand.TurnAssigned()
+            ta.ParseFromString(page.event.value)
+            context.last_turn_assigned = ta
+    context.world.fold_emitted(DOMAIN)
+
+
+@when("players act in sequence:")
+def _when_act_sequence(context):
+    for row in context.table:
+        _drive_action(
+            context, int(row["seat"]), _VERB[row["action"]], int(row["amount"])
+        )
+
+
+def _deal_street(context, count):
+    context.world.dispatch(
+        DOMAIN, P + "DealCommunityCards", hand.DealCommunityCards(count=count)
+    )
+    _capture_turn_assigned(context)
+    context.world.fold_emitted(DOMAIN)
+
+
+@when("the flop is dealt")
+def _when_flop_dealt(context):
+    _deal_street(context, 3)
+
+
+@when("the turn is dealt")
+def _when_turn_dealt(context):
+    _deal_street(context, 1)
+
+
+@then("a BettingRoundComplete event is emitted for phase {phase}")
+def _then_round_complete(context, phase):
+    brc = getattr(context, "round_complete_event", None)
+    assert brc is not None, "no BettingRoundComplete was emitted"
+    want = _PHASE[phase]
+    assert (
+        brc.completed_phase == want
+    ), f"completed_phase = {pt.BettingPhase.Name(brc.completed_phase)}, want {phase}"
+
+
+@then("seat {seat:d} contributed {amt:d} chips this round")
+def _then_contributed(context, seat, amt):
+    got = context.contributions.get(seat, 0)
+    assert got == amt, f"seat {seat} contributed {got}, want {amt}"
+
+
+@then("the pot total is {amt:d}")
+def _then_pot_total(context, amt):
+    got = sum(context.contributions.values())
+    assert got == amt, f"pot total = {got}, want {amt}"
+
+
+@then("exactly {n:d} ActionTaken events were emitted this round")
+def _then_action_count(context, n):
+    assert (
+        context.action_count == n
+    ), f"{context.action_count} ActionTaken emitted, want {n}"
+
+
+@then("seat {seat:d} acted exactly {k:d} time this round")
+@then("seat {seat:d} acted exactly {k:d} times this round")
+def _then_seat_acted(context, seat, k):
+    got = context.seat_actions.get(seat, 0)
+    assert got == k, f"seat {seat} acted {got} times, want {k}"
+
+
+@then("seat {seat:d} is all-in")
+def _then_seat_all_in(context, seat):
+    at = context.last_action.get(seat)
+    assert at is not None, f"seat {seat} took no action"
+    assert (
+        at.action == pt.ALL_IN or at.player_stack == 0
+    ), f"seat {seat} is not all-in (stack={at.player_stack})"
+
+
+@then("seat {seat:d} has stack {amt:d}")
+def _then_seat_stack(context, seat, amt):
+    at = context.last_action.get(seat)
+    assert at is not None, f"seat {seat} took no action"
+    assert at.player_stack == amt, f"seat {seat} stack = {at.player_stack}, want {amt}"

@@ -153,6 +153,39 @@ def _turn_assigned(state: _hand.HandState, next_pos: int) -> _hand.TurnAssigned:
     )
 
 
+def _round_complete(state: _hand.HandState) -> bool:
+    """A betting round closes once every live seat that can still act has acted
+    and matched the current bet (or everyone is all-in). A heads-up fold-out
+    (one contender left) is the hand-end path, not a round close, so it returns
+    False here."""
+    contenders = [p for p in state.players if not p.has_folded]
+    if len(contenders) < 2:
+        return False
+    actionable = [p for p in contenders if not p.is_all_in]
+    return all(
+        p.has_acted and p.bet_this_round == state.current_bet for p in actionable
+    )
+
+
+def _betting_round_complete(state: _hand.HandState) -> _hand.BettingRoundComplete:
+    """The street-close event, carrying the pot and a per-seat stack snapshot
+    read off the post-final-action state."""
+    return _hand.BettingRoundComplete(
+        completed_phase=state.current_phase,
+        pot_total=_pot_total(state),
+        stacks=[
+            _hand.PlayerStackSnapshot(
+                player_root=p.player_root,
+                stack=p.stack,
+                is_all_in=p.is_all_in,
+                has_folded=p.has_folded,
+            )
+            for p in state.players
+        ],
+        completed_at=_now(),
+    )
+
+
 class HandAggregate:
     """Implements ``HandAggregateHandler`` for the dealing + blinds subset."""
 
@@ -314,6 +347,8 @@ class HandAggregate:
                 if event.amount > state.current_bet:
                     state.current_bet = event.amount
                 state.min_raise = event.amount
+                # Remember the BB so each new street can reset the min raise.
+                state.big_blind = event.amount
 
     # --- not-yet-ported seam (fail loudly rather than silently no-op) ---
 
@@ -422,13 +457,14 @@ class HandAggregate:
             amount_to_call=max(state.current_bet, player.bet_this_round + chips_put_in),
             action_at=_now(),
         )
-        # Hand action to the next live seat with the post-action call/min-raise
-        # level. Round-completion (no live seat left to match) is the engine's
-        # BettingRoundComplete path, not yet ported; until then we always assign
-        # the next live seat.
+        # When this action closes the round (every live seat has acted and
+        # matched, or all are all-in), emit BettingRoundComplete; otherwise hand
+        # action to the next live seat with the post-action call/min-raise level.
         after = _hand.HandState()
         after.CopyFrom(state)
         self.apply_action_taken(after, event)
+        if _round_complete(after):
+            return _book(event, _betting_round_complete(after))
         nxt = after.action_on_position
         if nxt >= 0:
             return _book(event, _turn_assigned(after, nxt))
@@ -477,6 +513,14 @@ class HandAggregate:
             all_community_cards=all_community,
             dealt_at=_now(),
         )
+        # Open the new street: announce the first live actor with the reset call
+        # level (0) and minimum raise (the big blind).
+        after = _hand.HandState()
+        after.CopyFrom(state)
+        self.apply_community_cards_dealt(after, event)
+        nxt = _next_active_position(after, after.dealer_position)
+        if nxt >= 0:
+            return _book(event, _turn_assigned(after, nxt))
         return _book(event)
 
     def request_draw(self, cmd, state, cctx):
@@ -552,14 +596,16 @@ class HandAggregate:
     def apply_betting_round_complete(
         self, state: _hand.HandState, event: _hand.BettingRoundComplete
     ) -> None:
-        """Reset per-round betting state at a street boundary. ``min_raise`` is
-        left as the street-opening big-blind increment carried on state (the
-        proto has no big-blind field to re-derive it from); for Five Card Draw,
-        completing preflop advances the phase to the draw."""
+        """Reset per-round betting state at a street boundary: clear each seat's
+        round bet and acted flag, drop the current bet, and reset the minimum
+        raise to the big blind (NLHE: min raise == BB at the start of each
+        street, TDA Rule 47A). For Five Card Draw, completing preflop advances
+        the phase to the draw."""
         for p in state.players:
             p.bet_this_round = 0
             p.has_acted = False
         state.current_bet = 0
+        state.min_raise = state.big_blind
         for snap in event.stacks:
             p = _find_player(state, snap.player_root)
             if p is not None:
@@ -583,11 +629,13 @@ class HandAggregate:
                     break
         state.current_phase = event.phase
         state.status = "betting"
-        # New street: per-round betting resets.
+        # New street: per-round betting resets and the min raise returns to the
+        # big blind (TDA Rule 47A).
         for p in state.players:
             p.bet_this_round = 0
             p.has_acted = False
         state.current_bet = 0
+        state.min_raise = state.big_blind
 
     def apply_draw_completed(self, state, event):
         raise NotImplementedError("apply_draw_completed not ported")
