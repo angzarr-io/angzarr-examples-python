@@ -3,7 +3,7 @@ aiPlayer:
   replicas: 1
 
   image:
-    repository: ghcr.io/angzarr-io/poker-python-ai-player
+    repository: ghcr.io/angzarr-io/examples-python-ai-player
     tag: latest
     pullPolicy: IfNotPresent
 
