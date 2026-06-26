@@ -53,7 +53,14 @@ def _to_tournament(cmd, owner: Optional[_t.Cover]) -> list:
     book = _t.CommandBook()
     book.cover.domain = _TOURNAMENT
     book.cover.root.CopyFrom(owner.root)
-    book.pages.add().command.CopyFrom(_az.pack(cmd))
+    page = book.pages.add()
+    page.command.CopyFrom(_az.pack(cmd))
+    # Deferred (unstamped) + MERGE_AGGREGATE_HANDLES: the owning tournament is
+    # non-fresh and the saga can't know its sequence, so the tournament stamps the
+    # real sequence on delivery and owns its own concurrency (the default
+    # COMMUTATIVE gate would call the tournament's unimplemented ``replay`` and
+    # degrade to STRICT, rejecting the command). See tournament_table._to_table.
+    page.merge_strategy = _t.MERGE_AGGREGATE_HANDLES
     return [book]
 
 
@@ -115,8 +122,23 @@ class TableTournamentSaga:
         dests: _az.Destinations,
         source_cover: _t.Cover,
     ) -> tuple[list, list]:
-        # Option A balancing chain — ported with B3.
-        return ([], [])
+        """Forward the source table's BB-next decision up to the owning
+        tournament as ``RebalanceTables`` (the tournament records the move and
+        orders the destination seating). Only fires when the table is enrolled
+        in a tournament (``source_cover.ext`` carries the tournament cover);
+        a free-standing table has nothing to forward.
+
+        ``BalancingMoveDecided`` carries no stack, so ``RebalanceTables.stack``
+        is left zero here — the tournament is the chip authority and supplies
+        the moved player's stack when it records the move."""
+        owner = _owning_tournament(source_cover)
+        cmd = _trn.RebalanceTables(
+            source_table_root=event.source_table_root,
+            destination_table_root=event.destination_table_root,
+            player_root=event.player_root,
+            destination_seat=event.destination_seat,
+        )
+        return (_to_tournament(cmd, owner), [])
 
 
 _: TableTournamentSagaHandler = TableTournamentSaga()

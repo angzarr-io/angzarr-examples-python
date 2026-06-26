@@ -186,6 +186,200 @@ class TournamentAggregate:
     ) -> None:
         pass
 
+    # --- Rule 14 table balancing (records the move + orders dest seating) ---
+
+    def rebalance_tables(
+        self,
+        cmd: _trn.RebalanceTables,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Record the move the source table already decided (forwarded by the
+        TableTournamentSaga from BalancingMoveDecided, or named explicitly by a
+        coordinator). The tournament is the cross-table authority: it stamps the
+        move on ``PlayerMovedBetweenTables`` — which both updates its per-table
+        counts and is fanned out by the TournamentTableSaga to the source table
+        (LeaveTable) and the destination table (SeatPlayer). The moved player's
+        stack rides on the event so the destination seats them with their
+        existing chips (TDA Rule 10A — the player keeps their stack across the
+        move)."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        return _book(
+            _trn.PlayerMovedBetweenTables(
+                player_root=cmd.player_root,
+                source_table_root=cmd.source_table_root,
+                destination_table_root=cmd.destination_table_root,
+                destination_seat=cmd.destination_seat,
+                stack=cmd.stack,
+                moved_at=_now(),
+            )
+        )
+
+    def apply_player_moved_between_tables(
+        self, state: _trn.TournamentState, event: _trn.PlayerMovedBetweenTables
+    ) -> None:
+        # The move shifts one active player from the source table to the
+        # destination, so the per-table counts move with it.
+        src = event.source_table_root.hex()
+        dst = event.destination_table_root.hex()
+        if state.table_player_counts.get(src, 0) > 0:
+            state.table_player_counts[src] -= 1
+        state.table_player_counts[dst] += 1
+
+    # --- Rule 12 hand-for-hand bubble play ---
+
+    def enter_hand_for_hand(
+        self,
+        cmd: _trn.EnterHandForHand,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Switch the tournament into hand-for-hand mode (TDA Rule 12). The tables
+        in ``cmd.active_table_roots`` must each complete every subsequent hand
+        before any starts the next, until the next elimination ends bubble play.
+        The active set rides on the emitted event so the pending-set apply can
+        seed both the per-round pending set and the active set from it."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        return _book(
+            _trn.HandForHandStarted(
+                started_at=_now(),
+                active_table_roots=list(cmd.active_table_roots),
+            )
+        )
+
+    def apply_hand_for_hand_started(
+        self, state: _trn.TournamentState, event: _trn.HandForHandStarted
+    ) -> None:
+        state.hand_for_hand = True
+        state.hand_for_hand_round = 0
+        # Seed the per-round pending set from the event. Each
+        # RecordTableHandComplete(table_root) discards one table; when the set
+        # empties the tournament emits HandForHandRoundComplete and the apply
+        # reseeds pending from the active set.
+        del state.hand_for_hand_pending_tables[:]
+        state.hand_for_hand_pending_tables.extend(event.active_table_roots)
+        del state.hand_for_hand_active_tables[:]
+        state.hand_for_hand_active_tables.extend(event.active_table_roots)
+
+    def record_table_hand_complete(
+        self,
+        cmd: _trn.RecordTableHandComplete,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Signal that one specific table's synchronised H4H hand finished. Always
+        emits ``TableHandCompleteRecorded(table_root)`` so per-table progress is
+        durable across the coordinator's per-command state replay; once every
+        active table has reported in (the pending set empties after applying this
+        discard), also emits ``HandForHandRoundComplete``. Both events are booked
+        together so the apply hooks converge on replay — the recorded receipt is
+        what lets a later command's rebuilt state see the prior table's removal."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        now_ts = _now()
+        events = [
+            _trn.TableHandCompleteRecorded(
+                table_root=cmd.table_root, recorded_at=now_ts
+            )
+        ]
+        # Compute the post-discard pending set locally to decide whether this
+        # report closed the round, without re-replaying.
+        remaining = [
+            t for t in state.hand_for_hand_pending_tables if t != cmd.table_root
+        ]
+        if not remaining:
+            events.append(
+                _trn.HandForHandRoundComplete(
+                    round_number=state.hand_for_hand_round + 1, completed_at=now_ts
+                )
+            )
+        return _book(*events)
+
+    def apply_table_hand_complete_recorded(
+        self, state: _trn.TournamentState, event: _trn.TableHandCompleteRecorded
+    ) -> None:
+        # Discard the reported table so the next RecordTableHandComplete's rebuilt
+        # state sees the prior removal (the persisted equivalent of the in-process
+        # path's in-place mutation across calls).
+        pending = state.hand_for_hand_pending_tables
+        remaining = [t for t in pending if t != event.table_root]
+        if len(remaining) != len(pending):
+            del pending[:]
+            pending.extend(remaining)
+
+    def record_hand_for_hand_round_complete(
+        self,
+        cmd: _trn.RecordHandForHandRoundComplete,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Operator signal that every active H4H table finished the current
+        synchronised hand. Emits ``HandForHandRoundComplete`` with the
+        auto-incremented round number so each table can be re-armed for the next
+        round. (EA-0013 drives the round via RecordTableHandComplete; this is the
+        explicit operator path.)"""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        return _book(
+            _trn.HandForHandRoundComplete(
+                round_number=state.hand_for_hand_round + 1, completed_at=_now()
+            )
+        )
+
+    def apply_hand_for_hand_round_complete(
+        self, state: _trn.TournamentState, event: _trn.HandForHandRoundComplete
+    ) -> None:
+        state.hand_for_hand_round = event.round_number
+        # Reseed the pending set from the active tables so the next synchronised
+        # round is tracked independently.
+        del state.hand_for_hand_pending_tables[:]
+        state.hand_for_hand_pending_tables.extend(state.hand_for_hand_active_tables)
+
+    def apply_hand_for_hand_ended(
+        self, state: _trn.TournamentState, event: _trn.HandForHandEnded
+    ) -> None:
+        state.hand_for_hand = False
+        del state.hand_for_hand_pending_tables[:]
+        del state.hand_for_hand_active_tables[:]
+
+    def record_hand_for_hand_hand(
+        self,
+        cmd: _trn.RecordHandForHandHand,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA RP-8B/8C — deduct from the level clock for one H4H hand. Default
+        per-hand deduction is 120s; when ``cmd.real_seconds`` is set, the deducted
+        time is the real time used, capped at 180s (RP-8B 3-minute ceiling)."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        real = cmd.real_seconds
+        deducted = min(real, 180) if real > 0 else 120
+        return _book(
+            _trn.HandForHandHandRecorded(
+                real_seconds=real,
+                clock_seconds_deducted=deducted,
+                recorded_at=_now(),
+            )
+        )
+
+    def apply_hand_for_hand_hand_recorded(
+        self, state: _trn.TournamentState, event: _trn.HandForHandHandRecorded
+    ) -> None:
+        # The clock economy is presentation in this slice; the recorded deduction
+        # rides on the event and needs no aggregate-state mutation.
+        pass
+
     # --- lifecycle: create / open-close registration / enroll ---
 
     def create_tournament(
@@ -432,15 +626,20 @@ class TournamentAggregate:
             raise _reject("PLAYER_ROOT_REQUIRED", "player_root is required")
         if cmd.player_root.hex() not in state.registered_players:
             raise _reject("PLAYER_NOT_REGISTERED", "Player is not registered")
-        return _book(
-            _trn.PlayerEliminated(
-                player_root=cmd.player_root,
-                hand_root=cmd.hand_root,
-                finish_position=state.players_remaining,
-                payout=0,
-                eliminated_at=_now(),
-            )
+        eliminated = _trn.PlayerEliminated(
+            player_root=cmd.player_root,
+            hand_root=cmd.hand_root,
+            finish_position=state.players_remaining,
+            payout=0,
+            eliminated_at=_now(),
         )
+        # TDA Rule 12 — bubble break ends hand-for-hand play. The next elimination
+        # after entering H4H is by definition the bubble bursting; emit
+        # HandForHandEnded alongside the elimination so the tables resume normal
+        # pace. apply_hand_for_hand_ended clears the H4H flags.
+        if state.hand_for_hand:
+            return _book(eliminated, _trn.HandForHandEnded(ended_at=_now()))
+        return _book(eliminated)
 
     def apply_player_eliminated(
         self, state: _trn.TournamentState, event: _trn.PlayerEliminated
@@ -603,6 +802,49 @@ class TournamentAggregate:
                 completed_at=_now(),
             )
         )
+
+    # --- color-up / chip race (TDA Rule 24) ---
+
+    def color_up(
+        self,
+        cmd: _trn.ColorUp,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Retire a low-denomination chip between levels, exchanging it for the
+        higher denomination. In this slice the exchange conserves chips exactly
+        (no race remainder): ``chips_added_by_rescue`` and ``chips_removed_by_race``
+        are both zero, so the chip economy is unchanged. The retired denomination
+        is recorded on the event — per-stack chip retirement is presentation, not
+        aggregate state."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if cmd.retire_denomination <= 0:
+            raise _reject(
+                "RETIRE_DENOMINATION_NOT_POSITIVE",
+                "retire_denomination must be positive",
+            )
+        if cmd.new_denomination <= 0:
+            raise _reject(
+                "NEW_DENOMINATION_NOT_POSITIVE", "new_denomination must be positive"
+            )
+        return _book(
+            _trn.ColorUpCompleted(
+                retired_denomination=cmd.retire_denomination,
+                new_denomination=cmd.new_denomination,
+                chips_added_by_rescue=0,
+                chips_removed_by_race=0,
+                completed_at=_now(),
+            )
+        )
+
+    def apply_color_up_completed(
+        self, state: _trn.TournamentState, event: _trn.ColorUpCompleted
+    ) -> None:
+        # Conservation invariant (TDA Rule 24A/24C): total chips move by the
+        # rescue gain minus the race loss. Both are zero in this slice, so the
+        # chip economy is unchanged and no state mutation is required.
+        pass
 
     # --- bounty (TDA RP-22 / WSOP Rule 39) ---
 

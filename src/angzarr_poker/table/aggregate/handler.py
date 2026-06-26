@@ -244,6 +244,15 @@ class TableAggregate:
             )
         if state.status == "in_hand":
             raise _az.reject("HAND_IN_PROGRESS", "Hand already in progress")
+        # TDA Rule 12 — while parked for hand-for-hand the table starts no new
+        # hand: "waiting" means the synchronised hand has not finished, "complete"
+        # means it has but the round has not been cleared (EndTableHandForHand).
+        # Either way a new hand must wait for the synchronised round.
+        if state.hand_for_hand_status in ("waiting", "complete"):
+            raise _az.reject(
+                "TABLE_IN_HAND_FOR_HAND",
+                "Table is waiting for the synchronised hand",
+            )
 
         active_seats = [s for s in state.seats if not s.is_sitting_out]
         if len(active_seats) < 2:
@@ -602,6 +611,78 @@ class TableAggregate:
         self, state: _table.TableState, event: _table.TableResumedForBalancing
     ) -> None:
         state.halted_for_balancing = False
+
+    # --- Rule 12 hand-for-hand bubble play ---
+
+    def enter_table_hand_for_hand(
+        self,
+        cmd: _table.EnterTableHandForHand,
+        state: _table.TableState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Park the table at "waiting" for the current synchronised round (TDA
+        Rule 12). ``cmd.tournament_root`` names the tournament this H4H run belongs
+        to; it rides on the event for downstream routing."""
+        if not _exists(state):
+            raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")
+        return _book(
+            _table.TableHandForHandWaiting(
+                entered_at=_now(),
+                tournament_root=cmd.tournament_root,
+            )
+        )
+
+    def apply_table_hand_for_hand_waiting(
+        self, state: _table.TableState, event: _table.TableHandForHandWaiting
+    ) -> None:
+        state.hand_for_hand_status = "waiting"
+
+    def mark_table_hand_for_hand_hand_complete(
+        self,
+        cmd: _table.MarkTableHandForHandHandComplete,
+        state: _table.TableState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Signal that this table's synchronised H4H hand finished. Emits
+        ``TableHandForHandRoundComplete`` whose apply flips the status to
+        "complete". Rejects unless the table is currently parked at "waiting" — the
+        table must have entered hand-for-hand first."""
+        if not _exists(state):
+            raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")
+        if state.hand_for_hand_status != "waiting":
+            raise _az.reject(
+                "TABLE_NOT_IN_HAND_FOR_HAND_WAITING",
+                "Table is not waiting for a synchronised hand",
+            )
+        return _book(
+            _table.TableHandForHandRoundComplete(
+                hand_root=cmd.hand_root,
+                completed_at=_now(),
+            )
+        )
+
+    def apply_table_hand_for_hand_round_complete(
+        self, state: _table.TableState, event: _table.TableHandForHandRoundComplete
+    ) -> None:
+        state.hand_for_hand_status = "complete"
+
+    def end_table_hand_for_hand(
+        self,
+        cmd: _table.EndTableHandForHand,
+        state: _table.TableState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Clear the table's H4H status — back to normal pace. Issued between
+        rounds (re-arm with EnterTableHandForHand) or once after the tournament's
+        HandForHandEnded when the bubble breaks."""
+        if not _exists(state):
+            raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")
+        return _book(_table.TableHandForHandEnded(ended_at=_now()))
+
+    def apply_table_hand_for_hand_ended(
+        self, state: _table.TableState, event: _table.TableHandForHandEnded
+    ) -> None:
+        state.hand_for_hand_status = ""
 
     # --- rejection compensator ---
 
