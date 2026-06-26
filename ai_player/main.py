@@ -54,7 +54,10 @@ def create_server(config: ServiceConfig, port: int, max_workers: int) -> grpc.Se
     Returns:
         Configured gRPC server (not yet started).
     """
-    from ai_player.proto.examples import ai_sidecar_pb2, ai_sidecar_pb2_grpc
+    from ai_player._gen.io.angzarr.examples.v1 import (
+        ai_sidecar_pb2,
+        ai_sidecar_pb2_grpc,
+    )
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
 

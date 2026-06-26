@@ -3,6 +3,6 @@ inputs:
   - directory: ../angzarr-project/proto
 plugins:
   - remote: buf.build/protocolbuffers/python:v28.3
-    out: proto
+    out: _gen
   - remote: buf.build/grpc/python:v1.68.1
-    out: proto
+    out: _gen

@@ -9,7 +9,7 @@ import numpy as np
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from ai_player.proto.examples import ai_sidecar_pb2, poker_types_pb2
+    from ai_player._gen.io.angzarr.examples.v1 import ai_sidecar_pb2, poker_types_pb2
     from ai_player.state.session import SessionState
 
 

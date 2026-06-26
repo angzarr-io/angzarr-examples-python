@@ -54,8 +54,17 @@ COPY ai_player/buf.gen.yaml ./
 # so uv/buf looks at /angzarr-project/proto — provide it in the build context.
 COPY angzarr-project/ /angzarr-project/
 
-# Generate protos from buf registry
-RUN uv run buf generate
+# Generate proto stubs, then rewrite buf's absolute imports to relative ones
+# with protoletariat so the tree is self-contained under ai_player._gen (never
+# shadows stdlib `io`), mirroring the main package's proto-gen. google/* is
+# excluded from generation — google.protobuf well-known types resolve from the
+# protobuf runtime, the same precedent the main package follows. `uv tool run`
+# is uvx without needing the separate uvx binary in the image.
+RUN uv run buf generate --exclude-path ../angzarr-project/proto/google && \
+    uv run buf build ../angzarr-project/proto -o .gen-image.binpb && \
+    uv tool run --from protoletariat protol --create-package --in-place \
+        --python-out _gen --exclude-imports-glob 'google/*' raw .gen-image.binpb && \
+    rm -f .gen-image.binpb
 
 # =============================================================================
 # Production stage
@@ -66,7 +75,7 @@ FROM dependencies AS production
 COPY ai_player/ ./ai_player/
 
 # Copy generated protos into the ai_player package
-COPY --from=proto /app/proto ./ai_player/proto/
+COPY --from=proto /app/_gen ./ai_player/_gen/
 
 # Create models directory
 RUN mkdir -p /models/current /models/versions
@@ -74,8 +83,8 @@ RUN mkdir -p /models/current /models/versions
 ENV PORT=50500
 ENV DEVICE=cpu
 ENV LOG_LEVEL=INFO
-# Add proto directory to PYTHONPATH so generated imports work
-ENV PYTHONPATH=/app/ai_player/proto
+# /app is the package root so `import ai_player` and its _gen protos resolve.
+ENV PYTHONPATH=/app
 
 EXPOSE 50500
 
@@ -98,11 +107,11 @@ RUN uv sync --group training --no-install-project
 COPY ai_player/ ./ai_player/
 
 # Copy generated protos into the ai_player package
-COPY --from=proto /app/proto ./ai_player/proto/
+COPY --from=proto /app/_gen ./ai_player/_gen/
 
 ENV DEVICE=cpu
-# Add proto directory to PYTHONPATH so generated imports work
-ENV PYTHONPATH=/app/ai_player/proto
+# /app is the package root so `import ai_player` and its _gen protos resolve.
+ENV PYTHONPATH=/app
 
 CMD ["uv", "run", "python", "-m", "ai_player.training.train_rl"]
 
@@ -117,7 +126,7 @@ COPY prj_training/ ./prj_training/
 
 # Set mode to use K8s DNS for aggregate connections
 ENV ANGZARR_MODE=distributed
-# Add prj_training to PYTHONPATH for training dependencies
-ENV PYTHONPATH=/app/ai_player/proto:/app
+# /app is the package root for ai_player, prj_training, run_game, and client.
+ENV PYTHONPATH=/app
 
 CMD ["uv", "run", "python", "-m", "ai_player.training.self_play"]

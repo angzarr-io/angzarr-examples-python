@@ -27,10 +27,20 @@ proto-gen:
         --exclude-imports-glob 'google/*' raw .gen-image.binpb
     rm -f .gen-image.binpb
 
-# Generate AI Player protos (runs buf inside ai_player/). Generated files are
-# gitignored; regenerate here whenever the ai_sidecar.proto contract changes.
+# Generate AI Player protos: buf generate, then protoletariat rewrites buf's
+# absolute imports to relative so the tree is self-contained under
+# ai_player._gen (never shadows stdlib `io`), mirroring proto-gen. google/* is
+# excluded — google.protobuf well-known types resolve from the protobuf runtime.
+# Generated files are gitignored; regenerate whenever ai_sidecar.proto changes.
 ai-proto:
-    cd ai_player && buf generate
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd ai_player
+    buf generate --exclude-path ../angzarr-project/proto/google
+    buf build ../angzarr-project/proto -o .gen-image.binpb
+    uvx --from protoletariat protol --create-package --in-place \
+        --python-out _gen --exclude-imports-glob 'google/*' raw .gen-image.binpb
+    rm -f .gen-image.binpb
 
 # Install dependencies AND regenerate protos (generated code is not committed).
 install *FLAGS: proto-gen ai-proto

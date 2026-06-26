@@ -8,9 +8,9 @@ from dataclasses import dataclass
 import grpc
 import structlog
 
+from ai_player._gen.io.angzarr.examples.v1 import ai_sidecar_pb2 as pb
 from ai_player.models.encoder import ActionContextEncoder
 from ai_player.models.poker_net import PokerNet
-from ai_player.proto.examples import ai_sidecar_pb2 as pb
 from ai_player.state.persistence import ExperienceStore, OpponentProfileStore
 from ai_player.state.session import SessionManager
 

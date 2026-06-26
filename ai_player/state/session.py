@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import structlog
 
-from ai_player.proto.examples import ai_sidecar_pb2 as pb
+from ai_player._gen.io.angzarr.examples.v1 import ai_sidecar_pb2 as pb
 
 logger = structlog.get_logger()
 
@@ -182,7 +182,7 @@ class SessionState:
             amount: Amount bet/raised.
             phase: Betting phase enum value.
         """
-        from ai_player.proto.examples import poker_types_pb2
+        from ai_player._gen.io.angzarr.examples.v1 import poker_types_pb2
 
         # Track own pot commitment
         if player_root == self.player_root:

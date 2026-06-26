@@ -10,8 +10,8 @@ import structlog
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
+from ai_player._gen.io.angzarr.examples.v1 import ai_sidecar_pb2 as pb
 from ai_player.db.schema import Base, ExperienceReplay, HandHistory, PlayerProfile
-from ai_player.proto.examples import ai_sidecar_pb2 as pb
 
 if TYPE_CHECKING:
     from ai_player.state.session import SessionState
