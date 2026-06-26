@@ -130,6 +130,29 @@ def _next_active_position(state: _hand.HandState, after: int) -> int:
     return live[0]
 
 
+def _player_at(state: _hand.HandState, position: int):
+    for p in state.players:
+        if p.position == position:
+            return p
+    return None
+
+
+def _turn_assigned(state: _hand.HandState, next_pos: int) -> _hand.TurnAssigned:
+    """Announce the next-to-act seat and the raise-tracking surface it faces:
+    ``amount_to_call`` is the absolute level to match (== current_bet) and
+    ``min_raise`` the minimum legal raise increment (== state.min_raise). Read
+    off the POST-event state the caller has already folded into a copy."""
+    player = _player_at(state, next_pos)
+    return _hand.TurnAssigned(
+        player_root=player.player_root if player is not None else b"",
+        seat_position=next_pos,
+        amount_to_call=state.current_bet,
+        min_raise=state.min_raise,
+        phase=state.current_phase,
+        assigned_at=_now(),
+    )
+
+
 class HandAggregate:
     """Implements ``HandAggregateHandler`` for the dealing + blinds subset."""
 
@@ -227,6 +250,16 @@ class HandAggregate:
             pot_total=_pot_total(state) + posted,
             posted_at=_now(),
         )
+        # The big blind opens the betting: announce the first actor and the
+        # call/min-raise level it faces (raise-tracking surface). The small
+        # blind doesn't open betting, so it assigns no turn.
+        if cmd.blind_type == "big":
+            after = _hand.HandState()
+            after.CopyFrom(state)
+            self.apply_blind_posted(after, event)
+            nxt = _next_active_position(after, after.big_blind_position)
+            if nxt >= 0:
+                return _book(event, _turn_assigned(after, nxt))
         return _book(event)
 
     # --- event appliers ---
@@ -389,6 +422,16 @@ class HandAggregate:
             amount_to_call=max(state.current_bet, player.bet_this_round + chips_put_in),
             action_at=_now(),
         )
+        # Hand action to the next live seat with the post-action call/min-raise
+        # level. Round-completion (no live seat left to match) is the engine's
+        # BettingRoundComplete path, not yet ported; until then we always assign
+        # the next live seat.
+        after = _hand.HandState()
+        after.CopyFrom(state)
+        self.apply_action_taken(after, event)
+        nxt = after.action_on_position
+        if nxt >= 0:
+            return _book(event, _turn_assigned(after, nxt))
         return _book(event)
 
     def deal_community_cards(
@@ -497,6 +540,14 @@ class HandAggregate:
         state.action_on_position = _next_active_position(
             state, player.position if player is not None else -1
         )
+
+    def apply_turn_assigned(
+        self, state: _hand.HandState, event: _hand.TurnAssigned
+    ) -> None:
+        """Notification event — the action marker follows the announced seat;
+        no other state changes (current_bet/min_raise are set by the action
+        that triggered the assignment)."""
+        state.action_on_position = event.seat_position
 
     def apply_betting_round_complete(
         self, state: _hand.HandState, event: _hand.BettingRoundComplete
