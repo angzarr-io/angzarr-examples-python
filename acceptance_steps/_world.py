@@ -33,6 +33,11 @@ class World:
         # Child roots discovered mid-scenario (e.g. a hand_root read off the
         # table's HandStarted), keyed by a caller-chosen label.
         self.roots: dict[str, bytes] = {}
+        # Entity names created this scenario, in creation order — so a bulk step
+        # ("every player registers", "trigger table balancing") can enumerate
+        # the players/tables the scenario set up without re-listing them.
+        self.players: list[str] = []
+        self.tables: list[str] = []
 
     def root(self, name: str) -> bytes:
         """The scenario-unique 16-byte root for entity ``name``."""

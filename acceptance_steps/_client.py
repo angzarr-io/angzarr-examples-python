@@ -179,16 +179,36 @@ class ClusterClient:
                 self._seq[key] = self.event_book(domain, root).next_sequence
             except grpc.RpcError:
                 self._seq[key] = 0
-        req = _t.CommandRequest()
-        req.command.cover.domain = domain
-        req.command.cover.root.value = root
-        req.command.cover.correlation_id = correlation_id
-        page = req.command.pages.add()
-        page.header.sequence = self._seq.get(key, 0)
-        page.command.type_url = type_url(P + name)
-        page.command.value = message.SerializeToString()
-        req.sync_mode = sync_mode
-        resp = self._cmd[domain].HandleCommand(req, timeout=timeout)
+
+        def _build(seq: int) -> _t.CommandRequest:
+            req = _t.CommandRequest()
+            req.command.cover.domain = domain
+            req.command.cover.root.value = root
+            req.command.cover.correlation_id = correlation_id
+            page = req.command.pages.add()
+            page.header.sequence = seq
+            page.command.type_url = type_url(P + name)
+            page.command.value = message.SerializeToString()
+            req.sync_mode = sync_mode
+            return req
+
+        try:
+            resp = self._cmd[domain].HandleCommand(
+                _build(self._seq.get(key, 0)), timeout=timeout
+            )
+        except grpc.RpcError as exc:
+            # A saga may have advanced this aggregate out-of-band (e.g. the
+            # TournamentTableSaga parking a table for hand-for-hand), leaving our
+            # optimistic cursor stale. On a sequence mismatch, re-seed from the
+            # aggregate's persisted head and retry once before giving up.
+            if exc.code() != grpc.StatusCode.FAILED_PRECONDITION or (
+                "Sequence mismatch" not in (exc.details() or "")
+            ):
+                raise
+            self._seq[key] = self.event_book(domain, root).next_sequence
+            resp = self._cmd[domain].HandleCommand(
+                _build(self._seq[key]), timeout=timeout
+            )
         # Advance our optimistic-concurrency cursor to the aggregate's new head
         # so the next command to this root carries the right expected sequence.
         if resp.events.next_sequence:
