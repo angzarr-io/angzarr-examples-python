@@ -2,11 +2,15 @@
 # Uses custom base image from ghcr.io/angzarr
 
 ARG PYTHON_IMAGE=ghcr.io/angzarr-io/angzarr-python:latest
-ARG UV_VERSION=0.10.3
 FROM ${PYTHON_IMAGE}
 
-# Install uv system-wide (accessible to non-root users)
-RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+# The base image already ships uv on PATH (/usr/local/bin/uv) and runs as the
+# non-root `angzarr` user. We deliberately do NOT reinstall it: writing to
+# /usr/local/bin needs root (which breaks under rootless docker) and the astral
+# installer pulls the latest uv rather than the version the base pins. Assert
+# the base still provides uv so a future base that drops it fails the build
+# loudly instead of surfacing as a confusing "uv: not found" at run time.
+RUN uv --version
 
 # Mark as devcontainer for justfile detection
 ENV DEVCONTAINER=true
