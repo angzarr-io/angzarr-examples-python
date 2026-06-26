@@ -29,7 +29,9 @@ def _set_event(context, source_domain, fq, msg):
 
 
 def _dispatch_translation(context):
-    context.world.dispatch_saga(context.saga_source, P + context.saga_fq, context.saga_event)
+    context.world.dispatch_saga(
+        context.saga_source, P + context.saga_fq, context.saga_event
+    )
 
 
 def _emitted_cmds(context):
@@ -92,7 +94,9 @@ def _given_active_players(context):
 
 @when("the saga handles the event")
 def _when_saga_handles(context):
-    context.world.dispatch_saga("table", P + "HandStarted", context.saga_event, {"hand": 0})
+    context.world.dispatch_saga(
+        "table", P + "HandStarted", context.saga_event, {"hand": 0}
+    )
 
 
 @then("the saga emits a Shuffle command to hand domain")
@@ -155,7 +159,9 @@ use_step_matcher("parse")
 @given('a hand at table "{name}" completes with pot total {total:d}')
 @given('a hand at table "{name}" completes')
 def _given_hand_complete(context, name, total=0):
-    _set_event(context, "hand", "HandComplete", hand.HandComplete(table_root=uuid_for(name)))
+    _set_event(
+        context, "hand", "HandComplete", hand.HandComplete(table_root=uuid_for(name))
+    )
 
 
 def _add_winners(context, detail):
@@ -209,7 +215,9 @@ def _given_hand_ended_empty(context, h):
 def _given_pot_awarded(context, total):
     ev = hand.PotAwarded()
     for row in context.table:
-        ev.winners.add(player_root=uuid_for(row["player_root"]), amount=int(row["amount"]))
+        ev.winners.add(
+            player_root=uuid_for(row["player_root"]), amount=int(row["amount"])
+        )
     _set_event(context, "hand", "PotAwarded", ev)
 
 
@@ -218,7 +226,9 @@ def _given_pot_awarded_empty(context, total):
     _set_event(context, "hand", "PotAwarded", hand.PotAwarded())
 
 
-@given('a hand "{h}" begins as hand number {num:d} with {variant} and dealer at position {pos:d}')
+@given(
+    'a hand "{h}" begins as hand number {num:d} with {variant} and dealer at position {pos:d}'
+)
 def _given_hand_begins(context, h, num, variant, pos):
     _set_event(
         context,
@@ -287,7 +297,7 @@ def _end_hand(context):
 
 
 @then("the table ends the round with {n:d} result")
-@then("the table ends the round with {n:d} result for \"{pid}\" with amount {amt:d}")
+@then('the table ends the round with {n:d} result for "{pid}" with amount {amt:d}')
 def _then_end_round(context, n, pid=None, amt=None):
     ev = _end_hand(context)
     assert len(ev.results) == n, f"results = {len(ev.results)}, want {n}"
@@ -304,14 +314,18 @@ def _then_end_no_results(context):
 @then('the result records "{pid}" winning {amt:d}')
 def _then_result_records(context, pid, amt):
     ev = _end_hand(context)
-    match = [r for r in ev.results if r.winner_root == uuid_for(pid) and r.amount == amt]
+    match = [
+        r for r in ev.results if r.winner_root == uuid_for(pid) and r.amount == amt
+    ]
     assert match, f"no result for {pid} winning {amt}"
 
 
 @then("the table's first end-of-round result records the winning hand")
 def _then_winning_hand_detail(context):
     ev = _end_hand(context)
-    assert ev.results and ev.results[0].HasField("winning_hand"), "winning hand not carried"
+    assert ev.results and ev.results[0].HasField(
+        "winning_hand"
+    ), "winning hand not carried"
 
 
 # --- Then: table -> player (ReleaseFunds) ---
@@ -319,9 +333,9 @@ def _then_winning_hand_detail(context):
 
 @then("{n:d} players have their reserved chips released")
 def _then_released(context, n):
-    assert len(_cmds_of(context, "ReleaseFunds")) == n, (
-        f"released = {len(_cmds_of(context, 'ReleaseFunds'))}, want {n}"
-    )
+    assert (
+        len(_cmds_of(context, "ReleaseFunds")) == n
+    ), f"released = {len(_cmds_of(context, 'ReleaseFunds'))}, want {n}"
 
 
 @then("no chips are released")
@@ -336,9 +350,9 @@ def _then_no_action(context):
 @then("{n:d} players receive deposits")
 @then("{n:d} player receives a deposit")
 def _then_deposits(context, n):
-    assert len(_cmds_of(context, "DepositFunds")) == n, (
-        f"deposits = {len(_cmds_of(context, 'DepositFunds'))}, want {n}"
-    )
+    assert (
+        len(_cmds_of(context, "DepositFunds")) == n
+    ), f"deposits = {len(_cmds_of(context, 'DepositFunds'))}, want {n}"
 
 
 def _assert_deposit_at(context, idx, pid, amt):
@@ -350,8 +364,10 @@ def _assert_deposit_at(context, idx, pid, amt):
 @then('"{pid}" is credited {amt:d}')
 def _then_credited(context, pid, amt):
     match = [
-        d for d in _cmds_of(context, "DepositFunds")
-        if d[1] == uuid_for(pid) and player.DepositFunds.FromString(d[3]).amount.amount == amt
+        d
+        for d in _cmds_of(context, "DepositFunds")
+        if d[1] == uuid_for(pid)
+        and player.DepositFunds.FromString(d[3]).amount.amount == amt
     ]
     assert match, f"{pid} not credited {amt}"
 

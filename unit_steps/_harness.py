@@ -104,20 +104,28 @@ class World:
         from angzarr_poker._gen.io.angzarr.examples.v1.hand_player_saga_angzarr import (
             register_hand_player_saga,
         )
-        from angzarr_poker.hand.handler import HandAggregate
-        from angzarr_poker.player.handler import PlayerAggregate
-        from angzarr_poker.process_managers.hand_flow import HandFlowProcessManager
-        from angzarr_poker.process_managers.reservation import ReservationProcessManager
-        from angzarr_poker.projectors.output import OutputProjector
-        from angzarr_poker.reservation.handler import ReservationAggregate
-        from angzarr_poker.sagas.hand_player import HandPlayerSaga
-        from angzarr_poker.sagas.hand_table import HandTableSaga
-        from angzarr_poker.sagas.table_hand import TableHandSaga
-        from angzarr_poker.sagas.table_player import TablePlayerSaga
-        from angzarr_poker.sagas.table_tournament import TableTournamentSaga
-        from angzarr_poker.sagas.tournament_table import TournamentTableSaga
-        from angzarr_poker.table.handler import TableAggregate
-        from angzarr_poker.tournament.handler import TournamentAggregate
+        from angzarr_poker.hand.aggregate.handler import HandAggregate
+        from angzarr_poker.player.aggregate.handler import PlayerAggregate
+        from angzarr_poker.hand.process_managers.hand_flow.handler import (
+            HandFlowProcessManager,
+        )
+        from angzarr_poker.reservation.process_managers.reservation.handler import (
+            ReservationProcessManager,
+        )
+        from angzarr_poker._shared.projectors.output.handler import OutputProjector
+        from angzarr_poker.reservation.aggregate.handler import ReservationAggregate
+        from angzarr_poker.hand.sagas.hand_player.handler import HandPlayerSaga
+        from angzarr_poker.hand.sagas.hand_table.handler import HandTableSaga
+        from angzarr_poker.table.sagas.table_hand.handler import TableHandSaga
+        from angzarr_poker.table.sagas.table_player.handler import TablePlayerSaga
+        from angzarr_poker.table.sagas.table_tournament.handler import (
+            TableTournamentSaga,
+        )
+        from angzarr_poker.tournament.sagas.tournament_table.handler import (
+            TournamentTableSaga,
+        )
+        from angzarr_poker.table.aggregate.handler import TableAggregate
+        from angzarr_poker.tournament.aggregate.handler import TournamentAggregate
 
         register_table_aggregate(self.router, TableAggregate())
         register_hand_aggregate(self.router, HandAggregate())

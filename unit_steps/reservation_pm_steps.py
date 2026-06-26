@@ -20,7 +20,6 @@ from angzarr_poker._gen.io.angzarr.examples.v1 import buy_in_pb2 as buy_in
 from angzarr_poker._gen.io.angzarr.examples.v1 import rebuy_pb2 as rebuy
 from angzarr_poker._gen.io.angzarr.examples.v1 import registration_pb2 as registration
 from angzarr_poker._gen.io.angzarr.examples.v1 import tournament_pb2 as tournament
-from angzarr_poker._gen.io.angzarr.examples.v1 import player_pb2 as player
 from angzarr_poker._gen.io.angzarr.examples.v1 import poker_types_pb2 as poker
 from unit_steps._harness import uuid_for
 

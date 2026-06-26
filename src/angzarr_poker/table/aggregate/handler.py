@@ -43,7 +43,6 @@ from angzarr_poker._gen.io.angzarr.examples.v1.table_aggregate_angzarr import (
     TableAggregateHandler,
 )
 
-
 # --- module-level helpers operating on the proto TableState ---
 #
 # The baseline carried these as _TableState/_SeatState dataclass methods. Here
@@ -91,7 +90,9 @@ def _occupied_positions(state: _table.TableState) -> set[int]:
     return {seat.position for seat in state.seats}
 
 
-def _find_available_seat(state: _table.TableState, preferred: int = -1) -> Optional[int]:
+def _find_available_seat(
+    state: _table.TableState, preferred: int = -1
+) -> Optional[int]:
     """Lowest free position, honoring ``preferred`` when valid and open."""
     occupied = _occupied_positions(state)
     if 0 <= preferred < state.max_players and preferred not in occupied:
@@ -238,7 +239,9 @@ class TableAggregate:
             raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")
         if state.halted_for_balancing:
             # TDA Rule 11D: a halted table starts no new hands until resumed.
-            raise _az.reject("TABLE_HALTED_FOR_BALANCING", "Table is halted for balancing")
+            raise _az.reject(
+                "TABLE_HALTED_FOR_BALANCING", "Table is halted for balancing"
+            )
         if state.status == "in_hand":
             raise _az.reject("HAND_IN_PROGRESS", "Hand already in progress")
 
@@ -393,9 +396,7 @@ class TableAggregate:
             raise _az.reject("INVALID_ARGUMENT", "amount must be positive")
         seat = _find_player_seat(state, cmd.player_root)
         if seat is None:
-            raise _az.reject(
-                "PLAYER_NOT_SEATED", "Player is not seated at this table"
-            )
+            raise _az.reject("PLAYER_NOT_SEATED", "Player is not seated at this table")
         if seat.position != cmd.seat:
             raise _az.reject("SEAT_MISMATCH", "Seat position mismatch")
 
@@ -497,7 +498,10 @@ class TableAggregate:
     # --- Rule 11A balancing (source-table BB-next decision) ---
 
     def balance_tables(
-        self, cmd: _table.BalanceTables, state: _table.TableState, cctx: _az.CommandContext
+        self,
+        cmd: _table.BalanceTables,
+        state: _table.TableState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")
@@ -532,7 +536,10 @@ class TableAggregate:
     # --- RP-9 / WSOP Rule 68 final-table combination ---
 
     def combine_final_table(
-        self, cmd: _table.CombineFinalTable, state: _table.TableState, cctx: _az.CommandContext
+        self,
+        cmd: _table.CombineFinalTable,
+        state: _table.TableState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         # Issued to the FINAL table (which the combine establishes). The caller
         # collected the active set from the breaking tables; the final table
@@ -565,14 +572,22 @@ class TableAggregate:
     # --- Rule 11D halt/resume execution (coordinator-issued) ---
 
     def halt_for_balancing(
-        self, cmd: _table.HaltForBalancing, state: _table.TableState, cctx: _az.CommandContext
+        self,
+        cmd: _table.HaltForBalancing,
+        state: _table.TableState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")
-        return _book(_table.TableHaltedForBalancing(deficit=cmd.deficit, halted_at=_now()))
+        return _book(
+            _table.TableHaltedForBalancing(deficit=cmd.deficit, halted_at=_now())
+        )
 
     def resume_play_at_table(
-        self, cmd: _table.ResumePlayAtTable, state: _table.TableState, cctx: _az.CommandContext
+        self,
+        cmd: _table.ResumePlayAtTable,
+        state: _table.TableState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _az.reject("TABLE_NOT_FOUND", "Table does not exist")

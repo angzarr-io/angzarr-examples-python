@@ -221,7 +221,7 @@ def _then_remaining_deck(context, n):
 
 @then('player "{pid}" holds the cards expected for seed "{seed}"')
 def _then_holds_expected(context, pid, seed):
-    from angzarr_poker.hand.handler import _HOLE_CARDS, _deck_from_seed
+    from angzarr_poker.hand.aggregate.handler import _HOLE_CARDS, _deck_from_seed
 
     ev = context.seed_deal
     deck = _deck_from_seed(seed.encode())

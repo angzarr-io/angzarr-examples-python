@@ -33,18 +33,27 @@ class TournamentTableSaga:
     """Implements ``TournamentTableSagaHandler``."""
 
     def table_halt_ordered(
-        self, event: _trn.TableHaltOrdered, dests: _az.Destinations, source_cover: _t.Cover
+        self,
+        event: _trn.TableHaltOrdered,
+        dests: _az.Destinations,
+        source_cover: _t.Cover,
     ) -> tuple[list, list]:
         cmd = _table.HaltForBalancing(deficit=event.deficit)
         return (_to_table(event.target_table_root, cmd), [])
 
     def table_resume_ordered(
-        self, event: _trn.TableResumeOrdered, dests: _az.Destinations, source_cover: _t.Cover
+        self,
+        event: _trn.TableResumeOrdered,
+        dests: _az.Destinations,
+        source_cover: _t.Cover,
     ) -> tuple[list, list]:
         return (_to_table(event.target_table_root, _table.ResumePlayAtTable()), [])
 
     def player_moved_between_tables(
-        self, event: _trn.PlayerMovedBetweenTables, dests: _az.Destinations, source_cover: _t.Cover
+        self,
+        event: _trn.PlayerMovedBetweenTables,
+        dests: _az.Destinations,
+        source_cover: _t.Cover,
     ) -> tuple[list, list]:
         # Option A balancing chain (dest SeatPlayer) — ported with B3.
         return ([], [])

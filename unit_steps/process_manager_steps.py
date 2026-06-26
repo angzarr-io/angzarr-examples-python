@@ -53,7 +53,9 @@ def _folded_state(context):
     applier — exercising the event-sourced path (the PM emits an event; the
     applier folds it), not just the snapshot."""
     if getattr(context, "flow_state", None) is None:
-        event = context.world.process_event(P + "HandFlowStarted", hand.HandFlowStarted())
+        event = context.world.process_event(
+            P + "HandFlowStarted", hand.HandFlowStarted()
+        )
         state = hand.HandFlowState()
         context.world.hand_flow_pm.apply_hand_flow_started(state, event)
         context.flow_state = state

@@ -8,6 +8,6 @@ registration lifecycles do NOT live here — after the reservation refactor they
 moved to the reservation aggregate; ``player.feature`` drives those through it.
 """
 
-from .handler import PlayerAggregate
+from .aggregate.handler import PlayerAggregate
 
 __all__ = ["PlayerAggregate"]

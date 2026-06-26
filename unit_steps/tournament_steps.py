@@ -43,7 +43,9 @@ def _seed_enrolled(context, pid):
         DOMAIN,
         P + "TournamentPlayerEnrolled",
         trn.TournamentPlayerEnrolled(
-            player_root=uuid_for(pid), fee_paid=_DEF["buy_in"], starting_stack=_DEF["starting_stack"]
+            player_root=uuid_for(pid),
+            fee_paid=_DEF["buy_in"],
+            starting_stack=_DEF["starting_stack"],
         ),
     )
 
@@ -62,7 +64,12 @@ def _given_uncreated(context):
 )
 def _given_exists(context, name, buy_in, stack, max_p, min_p):
     _seed_created(
-        context, name, buy_in=buy_in, starting_stack=stack, max_players=max_p, min_players=min_p
+        context,
+        name,
+        buy_in=buy_in,
+        starting_stack=stack,
+        max_players=max_p,
+        min_players=min_p,
     )
 
 
@@ -115,7 +122,9 @@ def _when_create(context, name, buy_in, stack, max_p, min_p):
 
 @when(r'player "(?P<pid>[^"]*)" enrolls with reservation "(?P<res>[^"]*)"')
 def _when_enroll(context, pid, res):
-    cmd = trn.EnrollPlayer(player_root=_root_or_empty(pid), reservation_id=_root_or_empty(res))
+    cmd = trn.EnrollPlayer(
+        player_root=_root_or_empty(pid), reservation_id=_root_or_empty(res)
+    )
     context.world.dispatch(DOMAIN, P + "EnrollPlayer", cmd)
 
 
@@ -184,7 +193,9 @@ def _then_create_min_max(context, min_p, max_p):
 @then('the command is rejected with code "{code}"')
 def _then_rejected_code(context, code):
     assert context.world.err is not None, "expected a coded rejection, got acceptance"
-    assert context.world.err.code == code, f"code = {context.world.err.code!r}, want {code!r}"
+    assert (
+        context.world.err.code == code
+    ), f"code = {context.world.err.code!r}, want {code!r}"
 
 
 @then('the rejection field "{field}" equals "{value}"')
@@ -221,7 +232,9 @@ def _then_close_not_open(context):
 
 @then('player "{pid}" is enrolled paying a fee of {n:d}')
 def _then_enrolled_fee(context, pid, n):
-    ev = context.world.emitted(P + "TournamentPlayerEnrolled", trn.TournamentPlayerEnrolled())
+    ev = context.world.emitted(
+        P + "TournamentPlayerEnrolled", trn.TournamentPlayerEnrolled()
+    )
     assert ev.player_root == uuid_for(pid), "enrolled a different player"
     assert ev.fee_paid == n, f"fee_paid = {ev.fee_paid}, want {n}"
 
@@ -231,9 +244,9 @@ def _then_enroll_no_identity(context):
     ev = context.world.emitted(
         P + "TournamentEnrollmentRejected", trn.TournamentEnrollmentRejected()
     )
-    assert "player identity" in ev.reason.lower(), (
-        f"rejection reason = {ev.reason!r}, want the player-identity-required reason"
-    )
+    assert (
+        "player identity" in ev.reason.lower()
+    ), f"rejection reason = {ev.reason!r}, want the player-identity-required reason"
 
 
 @then('the enrollment is rejected because of "{reason}"')
@@ -241,9 +254,9 @@ def _then_enroll_rejected(context, reason):
     ev = context.world.emitted(
         P + "TournamentEnrollmentRejected", trn.TournamentEnrollmentRejected()
     )
-    assert reason.lower() in ev.reason.lower(), (
-        f"rejection reason = {ev.reason!r}, want keyword {reason!r}"
-    )
+    assert (
+        reason.lower() in ev.reason.lower()
+    ), f"rejection reason = {ev.reason!r}, want keyword {reason!r}"
 
 
 # ===========================================================================
@@ -253,16 +266,36 @@ def _then_enroll_rejected(context, reason):
 # A two-level blind structure; level 2 is small blind 50 / ante 10 (EU-0825).
 _TWO_LEVELS = [
     trn.BlindLevel(level=1, small_blind=25, big_blind=50, ante=0, duration_minutes=20),
-    trn.BlindLevel(level=2, small_blind=50, big_blind=100, ante=10, duration_minutes=20),
+    trn.BlindLevel(
+        level=2, small_blind=50, big_blind=100, ante=10, duration_minutes=20
+    ),
 ]
 
 
 # The poker example's standard player-name sequence (matches the features).
-_NAMES = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"]
+_NAMES = [
+    "Alice",
+    "Bob",
+    "Carol",
+    "Dave",
+    "Eve",
+    "Frank",
+    "Grace",
+    "Henry",
+    "Ivy",
+    "Jack",
+]
 
 
 def _seed_running(
-    context, enrolled=2, min_p=2, max_p=10, levels=None, rebuy_config=None, starting_stack=None, cutoff=None
+    context,
+    enrolled=2,
+    min_p=2,
+    max_p=10,
+    levels=None,
+    rebuy_config=None,
+    starting_stack=None,
+    cutoff=None,
 ):
     """Seed a RUNNING tournament: created (+ optional blind structure / rebuy
     config / starting stack / late-reg cutoff) → open → ``enrolled`` players from
@@ -357,7 +390,9 @@ def _when_eliminate_hand(context, pid, hand):
 
 @when('the tournament is paused with reason "{reason}"')
 def _when_pause(context, reason):
-    context.world.dispatch(DOMAIN, P + "PauseTournament", trn.PauseTournament(reason=reason))
+    context.world.dispatch(
+        DOMAIN, P + "PauseTournament", trn.PauseTournament(reason=reason)
+    )
 
 
 @when("the tournament resumes")
@@ -387,9 +422,9 @@ def _then_rebuy_not_running(context):
 @then('the rebuy is denied because of "{reason}"')
 def _then_rebuy_denied(context, reason):
     ev = context.world.emitted(P + "RebuyDenied", trn.RebuyDenied())
-    assert reason.lower() in ev.reason.lower(), (
-        f"denial reason = {ev.reason!r}, want keyword {reason!r}"
-    )
+    assert (
+        reason.lower() in ev.reason.lower()
+    ), f"denial reason = {ev.reason!r}, want keyword {reason!r}"
 
 
 @then("the elimination is refused because the tournament is not running")
@@ -423,7 +458,9 @@ def _then_enroll_no_tourney(context):
     assert_rejected(context, "TOURNAMENT_NOT_FOUND")
 
 
-@then("the tournament is at blind level {lvl:d} with small blind {sb:d} and ante {ante:d}")
+@then(
+    "the tournament is at blind level {lvl:d} with small blind {sb:d} and ante {ante:d}"
+)
 def _then_blind_level(context, lvl, sb, ante):
     ev = context.world.emitted(P + "BlindLevelAdvanced", trn.BlindLevelAdvanced())
     assert ev.level == lvl, f"level = {ev.level}, want {lvl}"
@@ -436,18 +473,26 @@ def _then_advance_not_running(context):
     assert_rejected(context, "TOURNAMENT_NOT_RUNNING")
 
 
-@then("advancing the blind level is refused because level {current:d} is the last of {max_v:d} defined levels")
+@then(
+    "advancing the blind level is refused because level {current:d} is the last of {max_v:d} defined levels"
+)
 def _then_advance_last_level(context, current, max_v):
     assert_rejected(context, "BLIND_STRUCTURE_EXHAUSTED")
     extras = context.world.err.extras
-    assert extras.get("current") == str(current), f"current = {extras.get('current')!r}, want {current}"
-    assert extras.get("max_value") == str(max_v), f"max_value = {extras.get('max_value')!r}, want {max_v}"
+    assert extras.get("current") == str(
+        current
+    ), f"current = {extras.get('current')!r}, want {current}"
+    assert extras.get("max_value") == str(
+        max_v
+    ), f"max_value = {extras.get('max_value')!r}, want {max_v}"
 
 
 @then("advancing the blind level is refused because no blind levels are defined")
 def _then_advance_no_levels(context):
     assert_rejected(context, "BLIND_STRUCTURE_EXHAUSTED")
-    assert context.world.err.extras.get("max_value") == "0", "expected zero defined levels"
+    assert (
+        context.world.err.extras.get("max_value") == "0"
+    ), "expected zero defined levels"
 
 
 # ===========================================================================
@@ -500,17 +545,23 @@ def _given_rebuys_disabled(context, n):
     "now at blind level {level:d}, with {n:d} enrolled player"
 )
 def _given_rebuy_cutoff(context, cutoff, level, n):
-    _seed_running(context, enrolled=n, rebuy_config=_rebuy_cfg(rebuy_level_cutoff=cutoff))
+    _seed_running(
+        context, enrolled=n, rebuy_config=_rebuy_cfg(rebuy_level_cutoff=cutoff)
+    )
     _seed_at_level(context, level)
 
 
-@given("a running tournament with no rebuy level cutoff, now at blind level {level:d}, with {n:d} enrolled player")
+@given(
+    "a running tournament with no rebuy level cutoff, now at blind level {level:d}, with {n:d} enrolled player"
+)
 def _given_rebuy_no_cutoff(context, level, n):
     _seed_running(context, enrolled=n, rebuy_config=_rebuy_cfg(rebuy_level_cutoff=0))
     _seed_at_level(context, level)
 
 
-@given("a running tournament allowing at most {max_r:d} rebuys per player, where Alice has used {used:d}")
+@given(
+    "a running tournament allowing at most {max_r:d} rebuys per player, where Alice has used {used:d}"
+)
 def _given_rebuy_max(context, max_r, used):
     _seed_running(context, enrolled=1, rebuy_config=_rebuy_cfg(max_rebuys=max_r))
     _seed_alice_rebuys(context, used)
@@ -562,7 +613,7 @@ def _rebuild(context):
     same projection the core does on rebuild — and stash the resulting state.
     Each event's applier is resolved by convention: ``TournamentCreated`` →
     ``apply_tournament_created``."""
-    from angzarr_poker.tournament.handler import TournamentAggregate
+    from angzarr_poker.tournament.aggregate.handler import TournamentAggregate
 
     state = trn.TournamentState()
     handler = TournamentAggregate()
@@ -607,7 +658,9 @@ def _g_was_enrolled(context, pid, fee):
         DOMAIN,
         P + "TournamentPlayerEnrolled",
         trn.TournamentPlayerEnrolled(
-            player_root=uuid_for(pid), fee_paid=fee, starting_stack=_DEF["starting_stack"]
+            player_root=uuid_for(pid),
+            fee_paid=fee,
+            starting_stack=_DEF["starting_stack"],
         ),
     )
 
@@ -665,7 +718,9 @@ def _g_was_resumed(context):
 
 @given("the tournament was completed")
 def _g_was_completed(context):
-    context.world.seed_event(DOMAIN, P + "TournamentCompleted", trn.TournamentCompleted())
+    context.world.seed_event(
+        DOMAIN, P + "TournamentCompleted", trn.TournamentCompleted()
+    )
 
 
 # --- When ---
@@ -681,9 +736,9 @@ def _when_rebuild(context):
 
 @then('the rebuilt tournament is identified as "{name}"')
 def _t_id(context, name):
-    assert _rebuilt(context).tournament_id == f"tournament_{name}", (
-        f"tournament_id = {_rebuilt(context).tournament_id!r}"
-    )
+    assert (
+        _rebuilt(context).tournament_id == f"tournament_{name}"
+    ), f"tournament_id = {_rebuilt(context).tournament_id!r}"
 
 
 @then('the rebuilt tournament is named "{name}"')
@@ -738,7 +793,9 @@ def _t_min(context, n):
 
 @then("the rebuilt blind level is {n:d}")
 def _t_level(context, n):
-    assert _rebuilt(context).current_level == n, f"current_level = {_rebuilt(context).current_level}"
+    assert (
+        _rebuilt(context).current_level == n
+    ), f"current_level = {_rebuilt(context).current_level}"
 
 
 @then("the rebuilt tournament has no blind levels")
@@ -748,23 +805,23 @@ def _t_no_levels(context):
 
 @then("the rebuilt prize pool is {n:d}")
 def _t_pool(context, n):
-    assert _rebuilt(context).total_prize_pool == n, (
-        f"total_prize_pool = {_rebuilt(context).total_prize_pool}, want {n}"
-    )
+    assert (
+        _rebuilt(context).total_prize_pool == n
+    ), f"total_prize_pool = {_rebuilt(context).total_prize_pool}, want {n}"
 
 
 @then("the rebuilt tournament has {n:d} registered players")
 def _t_reg_count(context, n):
-    assert len(_rebuilt(context).registered_players) == n, (
-        f"registered = {len(_rebuilt(context).registered_players)}, want {n}"
-    )
+    assert (
+        len(_rebuilt(context).registered_players) == n
+    ), f"registered = {len(_rebuilt(context).registered_players)}, want {n}"
 
 
 @then("the rebuilt tournament has {n:d} players remaining")
 def _t_remaining(context, n):
-    assert _rebuilt(context).players_remaining == n, (
-        f"players_remaining = {_rebuilt(context).players_remaining}, want {n}"
-    )
+    assert (
+        _rebuilt(context).players_remaining == n
+    ), f"players_remaining = {_rebuilt(context).players_remaining}, want {n}"
 
 
 @then("the rebuilt tournament shows {pid} has used {n:d} rebuys")
@@ -784,7 +841,9 @@ def _t_no_reg(context, pid):
 # ===========================================================================
 
 
-@given('a running tournament "{name}" with a prize pool of {pool:d} and {n:d} enrolled players')
+@given(
+    'a running tournament "{name}" with a prize pool of {pool:d} and {n:d} enrolled players'
+)
 def _given_running_pool(context, name, pool, n):
     """Seed a running tournament whose prize pool is exactly ``pool`` — ``n``
     players each paying ``pool/n`` into the pool."""
@@ -797,7 +856,9 @@ def _given_running_pool(context, name, pool, n):
             P + "TournamentPlayerEnrolled",
             trn.TournamentPlayerEnrolled(player_root=uuid_for(nm), fee_paid=fee),
         )
-    context.world.seed_event(DOMAIN, P + "TournamentStarted", trn.TournamentStarted(total_players=n))
+    context.world.seed_event(
+        DOMAIN, P + "TournamentStarted", trn.TournamentStarted(total_players=n)
+    )
 
 
 @given("a payout schedule paying positions {positions} at percentages {pcts}")
@@ -828,12 +889,15 @@ def _given_finishing_order(context, order):
 use_step_matcher("re")
 
 
-@when(r'the tournament completes with winner "(?P<winner>[^"]+)"(?: and finishing order "(?P<order>[^"]*)")?')
+@when(
+    r'the tournament completes with winner "(?P<winner>[^"]+)"(?: and finishing order "(?P<order>[^"]*)")?'
+)
 def _when_complete(context, winner, order=None):
     if order is not None:
         context.finishing_order = [uuid_for(n) for n in order.split(",")]
     cmd = trn.CompleteTournament(
-        winner_root=uuid_for(winner), finishing_order=getattr(context, "finishing_order", [])
+        winner_root=uuid_for(winner),
+        finishing_order=getattr(context, "finishing_order", []),
     )
     context.world.dispatch(DOMAIN, P + "CompleteTournament", cmd)
 
@@ -864,7 +928,9 @@ def _then_position_pays(context, pos, pid, amt):
     match = [
         r for r in ev.results if r.position == pos and r.player_root == uuid_for(pid)
     ]
-    assert match, f"no result at position {pos} for {pid}; got {[(r.position) for r in ev.results]}"
+    assert (
+        match
+    ), f"no result at position {pos} for {pid}; got {[(r.position) for r in ev.results]}"
     assert match[0].payout == amt, f"payout = {match[0].payout}, want {amt}"
 
 
@@ -882,9 +948,9 @@ def _then_no_payout(context, pid):
 def _then_payouts_mismatch(context, got, bound):
     assert_rejected(context, "PAYOUTS_DO_NOT_SUM_TO_POOL")
     extras = context.world.err.extras
-    assert extras.get("got") == str(got) and extras.get("bound") == str(bound), (
-        f"got/bound = {extras.get('got')}/{extras.get('bound')}, want {got}/{bound}"
-    )
+    assert extras.get("got") == str(got) and extras.get("bound") == str(
+        bound
+    ), f"got/bound = {extras.get('got')}/{extras.get('bound')}, want {got}/{bound}"
 
 
 @then(
@@ -894,9 +960,9 @@ def _then_payouts_mismatch(context, got, bound):
 def _then_order_too_short(context, got, bound):
     assert_rejected(context, "FINISHING_ORDER_SHORTER_THAN_PAYOUT_POSITIONS")
     extras = context.world.err.extras
-    assert extras.get("got") == str(got) and extras.get("bound") == str(bound), (
-        f"got/bound = {extras.get('got')}/{extras.get('bound')}, want {got}/{bound}"
-    )
+    assert extras.get("got") == str(got) and extras.get("bound") == str(
+        bound
+    ), f"got/bound = {extras.get('got')}/{extras.get('bound')}, want {got}/{bound}"
 
 
 # ===========================================================================
@@ -933,7 +999,9 @@ def _given_running_cutoff(context, cutoff, level, n):
 
 @then('player "{pid}" is enrolled with starting stack {n:d}')
 def _then_enrolled_stack(context, pid, n):
-    ev = context.world.emitted(P + "TournamentPlayerEnrolled", trn.TournamentPlayerEnrolled())
+    ev = context.world.emitted(
+        P + "TournamentPlayerEnrolled", trn.TournamentPlayerEnrolled()
+    )
     assert ev.player_root == uuid_for(pid), "enrolled a different player"
     assert ev.starting_stack == n, f"starting_stack = {ev.starting_stack}, want {n}"
 
@@ -960,7 +1028,9 @@ def _given_two_left(context, a, sa, b, sb):
     context.heads_up = {a: sa, b: sb}
 
 
-@when("both players go all-in and lose at the same showdown (split-pot push not applicable)")
+@when(
+    "both players go all-in and lose at the same showdown (split-pot push not applicable)"
+)
 def _when_simultaneous_bust(context):
     pass  # the eliminator is decided by the next step's pre-hand-stack tiebreak
 
@@ -993,11 +1063,11 @@ def _then_bounty_awarded(context, amt, elim, ko):
     assert ev.knocked_out_root == uuid_for(ko), "different knocked-out player"
 
 
-@then("\"{name}\"'s bounty total increases by {amt:d}")
+@then('"{name}"\'s bounty total increases by {amt:d}')
 def _then_bounty_total(context, name, amt):
-    assert _rebuilt(context).bounty_totals.get(uuid_for(name).hex()) == amt, (
-        f"bounty total for {name} = {_rebuilt(context).bounty_totals.get(uuid_for(name).hex())}"
-    )
+    assert (
+        _rebuilt(context).bounty_totals.get(uuid_for(name).hex()) == amt
+    ), f"bounty total for {name} = {_rebuilt(context).bounty_totals.get(uuid_for(name).hex())}"
 
 
 @then('no bounty is awarded for "{name}"')
@@ -1005,4 +1075,6 @@ def _then_no_bounty_for(context, name):
     for page in context.world.emitted_pages():
         if page.event.type_url.rsplit("/", 1)[-1] == P + "BountyAwarded":
             ev = trn.BountyAwarded.FromString(page.event.value)
-            assert ev.knocked_out_root != uuid_for(name), f"a bounty was paid for {name}"
+            assert ev.knocked_out_root != uuid_for(
+                name
+            ), f"a bounty was paid for {name}"

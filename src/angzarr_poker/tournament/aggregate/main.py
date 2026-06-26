@@ -1,0 +1,43 @@
+"""Tournament aggregate service entrypoint."""
+
+from __future__ import annotations
+
+import structlog
+
+import angzarr_router_ffi as _az
+from angzarr_poker._runtime.server import configure_logging, run_server
+from angzarr_poker._runtime.servicers import CommandHandlerServicer
+
+from angzarr_poker._gen.io.angzarr.v1 import command_handler_pb2_grpc
+from angzarr_poker._gen.io.angzarr.examples.v1.tournament_aggregate_angzarr import (
+    register_tournament_aggregate,
+)
+from angzarr_poker.tournament.aggregate.handler import TournamentAggregate
+
+DOMAIN = "tournament"
+DEFAULT_PORT = "50404"
+
+
+def build_router() -> _az.Router:
+    """An FFI router with the TournamentAggregate registered. Caller owns close()."""
+    router = _az.Router()
+    register_tournament_aggregate(router, TournamentAggregate())
+    return router
+
+
+def main() -> None:
+    configure_logging()
+    logger = structlog.get_logger()
+    with build_router() as router:
+        run_server(
+            command_handler_pb2_grpc.add_CommandHandlerServiceServicer_to_server,
+            CommandHandlerServicer(router),
+            service_name="tournament-agg",
+            domain=DOMAIN,
+            default_port=DEFAULT_PORT,
+            logger=logger,
+        )
+
+
+if __name__ == "__main__":
+    main()

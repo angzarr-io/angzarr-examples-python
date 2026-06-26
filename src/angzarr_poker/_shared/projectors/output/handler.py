@@ -36,8 +36,16 @@ _ACTION = {1: "folds", 2: "checks", 3: "calls", 4: "bets", 5: "raises to", 6: "a
 _AUTO = {1: "folds", 2: "checks"}
 _PHASE = {2: "Flop", 3: "Turn", 4: "River"}
 _HANDRANK = {
-    1: "High Card", 2: "Pair", 3: "Two Pair", 4: "Three of a Kind", 5: "Straight",
-    6: "Flush", 7: "Full House", 8: "Four of a Kind", 9: "Straight Flush", 10: "Royal Flush",
+    1: "High Card",
+    2: "Pair",
+    3: "Two Pair",
+    4: "Three of a Kind",
+    5: "Straight",
+    6: "Flush",
+    7: "Full House",
+    8: "Four of a Kind",
+    9: "Straight Flush",
+    10: "Royal Flush",
 }
 
 
@@ -55,10 +63,26 @@ def _cards(cards) -> str:
 
 # Event short-names the display recognises (everything else is noted as unknown).
 _KNOWN = {
-    "CardsDealt", "BlindPosted", "ActionTaken", "CommunityCardsDealt", "CardsRevealed",
-    "CardsMucked", "ShowdownStarted", "PotAwarded", "HandComplete", "PlayerTimedOut",
-    "PlayerSeated", "PlayerRegistered", "FundsDeposited", "FundsWithdrawn", "FundsReserved",
-    "TableCreated", "PlayerJoined", "PlayerLeft", "HandStarted", "HandEnded",
+    "CardsDealt",
+    "BlindPosted",
+    "ActionTaken",
+    "CommunityCardsDealt",
+    "CardsRevealed",
+    "CardsMucked",
+    "ShowdownStarted",
+    "PotAwarded",
+    "HandComplete",
+    "PlayerTimedOut",
+    "PlayerSeated",
+    "PlayerRegistered",
+    "FundsDeposited",
+    "FundsWithdrawn",
+    "FundsReserved",
+    "TableCreated",
+    "PlayerJoined",
+    "PlayerLeft",
+    "HandStarted",
+    "HandEnded",
 }
 
 
@@ -97,7 +121,9 @@ class OutputProjector:
     # --- rendered events (append to the display sink) ---
 
     def player_registered(self, projection, event) -> None:
-        self._line(f"{event.display_name} registered ({event.email})", event.registered_at)
+        self._line(
+            f"{event.display_name} registered ({event.email})", event.registered_at
+        )
 
     def funds_deposited(self, projection, event) -> None:
         self.lines.append(
@@ -156,7 +182,9 @@ class OutputProjector:
             self.lines.append("Final stacks")
             for s in event.final_stacks:
                 folded = " (folded)" if s.has_folded else ""
-                self.lines.append(f"{self._name(s.player_root)}: {_chips(s.stack)}{folded}")
+                self.lines.append(
+                    f"{self._name(s.player_root)}: {_chips(s.stack)}{folded}"
+                )
 
     def blind_posted(self, projection, event) -> None:
         self.lines.append(
@@ -184,7 +212,9 @@ class OutputProjector:
         self.lines.append(f"Board: {_cards(event.all_community_cards)}")
 
     def cards_revealed(self, projection, event) -> None:
-        self.lines.append(f"{self._name(event.player_root)} shows {_cards(event.cards)}")
+        self.lines.append(
+            f"{self._name(event.player_root)} shows {_cards(event.cards)}"
+        )
         self.lines.append(_HANDRANK.get(event.ranking.rank_type, "High Card"))
 
     def cards_mucked(self, projection, event) -> None:

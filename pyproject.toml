@@ -71,46 +71,46 @@ extend-exclude = '''
 '''
 
 [tool.mutmut]
+# The aggregate handlers carry the poker business rules (post-reorg layout). The
+# behave bridge (tests/example/test_features.py, the pytest test mutmut drives)
+# folds every feature through these via the in-process FFI router; a surviving
+# mutant breaks a scenario.
 paths_to_mutate = [
-    "player/agg/handlers.py",
-    "table/agg/handlers/table.py",
-    "hand/agg/handlers/hand.py",
-    "hand/agg/handlers/game_rules.py",
-    "tournament/agg/handlers.py",
+    "src/angzarr_poker/player/aggregate/handler.py",
+    "src/angzarr_poker/table/aggregate/handler.py",
+    "src/angzarr_poker/hand/aggregate/handler.py",
+    "src/angzarr_poker/tournament/aggregate/handler.py",
+    "src/angzarr_poker/reservation/aggregate/handler.py",
 ]
-# Copy sibling source files that tests/unit/test_*.py import alongside
-# the mutated handlers — without these, mutmut's ``mutants/`` workdir
-# can't resolve ``from player.agg.state import ...`` etc. at collection.
+# mutmut copies the source into its mutants/ workdir; the bridge runs the behave
+# unit suite against that mutated tree, so the workdir needs the full package +
+# the FFI cdylib + behave steps/features + the uv project files the bridge
+# launches with (the behave run walks up from the submodule features).
 also_copy = [
-    "player/",
-    "table/",
-    "hand/",
-    "tournament/",
+    "src/",
+    "vendor/",
     "tests/",
-    "sagas/",
-    "hand-flow/",
-    "hand-flow-oo/",
-    "prj-output/",
-    "prj_training/",
-    "buy_in/",
-    "rebuy/",
-    "registration/",
-    "reservation/",
-    "angzarr-project/",
-    # behave --stage unit/acceptance walks up from submodule features to
-    # find these; mutmut's mutants/ workdir must contain them or step
-    # discovery fails with "No steps directory".
     "unit_steps/",
     "unit_environment.py",
     "acceptance_steps/",
     "acceptance_environment.py",
-]
-pytest_add_cli_args_test_selection = [
-    "--ignore=tests/integration",
+    "angzarr-project/",
+    "pyproject.toml",
+    "uv.lock",
 ]
 
 [tool.ruff]
-extend-exclude = ["**/*_pb2.py", "**/*_pb2_grpc.py", "**/angzarr-core", "**/angzarr-core/**"]
+# Don't lint vendored / submodule trees: angzarr-project is a submodule with its
+# own repo + standards (matches black's extend-exclude above); angzarr-client-python
+# is EOL. Generated _pb2/_gen are gitignored (ruff skips them) or excluded here.
+extend-exclude = [
+    "**/*_pb2.py",
+    "**/*_pb2_grpc.py",
+    "**/angzarr-core",
+    "**/angzarr-core/**",
+    "angzarr-project",
+    "angzarr-client-python",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # These files require sys.path manipulation before imports

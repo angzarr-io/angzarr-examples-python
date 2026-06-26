@@ -28,7 +28,9 @@ class TablePlayerSaga:
             book = _t.CommandBook()
             book.cover.domain = "player"
             book.cover.root.value = player_root
-            book.pages.add().command.CopyFrom(_az.pack(_player.ReleaseFunds(key=player_root)))
+            book.pages.add().command.CopyFrom(
+                _az.pack(_player.ReleaseFunds(key=player_root))
+            )
             books.append(book)
         return (books, [])
 

@@ -75,13 +75,15 @@ def _when_hand_starts(context, num, seat, sb, bb):
     )
 
 
-@when('the active players are {names} at seats {seats}')
+@when("the active players are {names} at seats {seats}")
 def _when_active_players(context, names, seats):
     name_list = [n.strip().strip('"') for n in names.split(",")]
     seat_list = [int(s) for s in seats.split(",")]
     for nm, st in zip(name_list, seat_list):
         _know(context, nm)
-        context.proj_hand.active_players.add(player_root=uuid_for(nm), position=st, stack=0)
+        context.proj_hand.active_players.add(
+            player_root=uuid_for(nm), position=st, stack=0
+        )
     context.world.dispatch_projector("table", [(P + "HandStarted", context.proj_hand)])
 
 
@@ -141,7 +143,9 @@ def _when_blind(context, name, amt):
 
 @when("the display records {name} folding")
 def _when_fold(context, name):
-    _proj(context, "ActionTaken", hand.ActionTaken(player_root=uuid_for(name), action=1))
+    _proj(
+        context, "ActionTaken", hand.ActionTaken(player_root=uuid_for(name), action=1)
+    )
 
 
 @when("the display records {name} calling {amt:d} with the pot at {pot:d}")
@@ -149,7 +153,9 @@ def _when_call(context, name, amt, pot):
     _proj(
         context,
         "ActionTaken",
-        hand.ActionTaken(player_root=uuid_for(name), action=3, amount=amt, pot_total=pot),
+        hand.ActionTaken(
+            player_root=uuid_for(name), action=3, amount=amt, pot_total=pot
+        ),
     )
 
 
@@ -158,7 +164,9 @@ def _when_raise(context, name, amt, pot):
     _proj(
         context,
         "ActionTaken",
-        hand.ActionTaken(player_root=uuid_for(name), action=5, amount=amt, pot_total=pot),
+        hand.ActionTaken(
+            player_root=uuid_for(name), action=5, amount=amt, pot_total=pot
+        ),
     )
 
 
@@ -167,20 +175,30 @@ def _when_allin(context, name, amt, pot):
     _proj(
         context,
         "ActionTaken",
-        hand.ActionTaken(player_root=uuid_for(name), action=6, amount=amt, pot_total=pot),
+        hand.ActionTaken(
+            player_root=uuid_for(name), action=6, amount=amt, pot_total=pot
+        ),
     )
 
 
 @when("the display records the flop {cards}")
 def _when_flop(context, cards):
     c = _cards(cards)
-    _proj(context, "CommunityCardsDealt", hand.CommunityCardsDealt(cards=c, phase=2, all_community_cards=c))
+    _proj(
+        context,
+        "CommunityCardsDealt",
+        hand.CommunityCardsDealt(cards=c, phase=2, all_community_cards=c),
+    )
 
 
 @when("the display records the turn {card}")
 def _when_turn(context, card):
     c = _cards(card)
-    _proj(context, "CommunityCardsDealt", hand.CommunityCardsDealt(cards=c, phase=3, all_community_cards=c))
+    _proj(
+        context,
+        "CommunityCardsDealt",
+        hand.CommunityCardsDealt(cards=c, phase=3, all_community_cards=c),
+    )
 
 
 @when("the display records the showdown beginning")
@@ -222,7 +240,11 @@ def _when_final_stacks(context):
 
 @when("{name} times out and is auto-folded")
 def _when_timeout(context, name):
-    _proj(context, "PlayerTimedOut", hand.PlayerTimedOut(player_root=uuid_for(name), default_action=1))
+    _proj(
+        context,
+        "PlayerTimedOut",
+        hand.PlayerTimedOut(player_root=uuid_for(name), default_action=1),
+    )
 
 
 @when("cards are shown for each suit:")
@@ -237,7 +259,7 @@ def _when_suits(context):
 @then('a {desc} displays as "{sym}"')
 @then('an {desc} displays as "{sym}"')
 def _then_rank_renders(context, desc, sym):
-    from angzarr_poker.projectors.output import _rank
+    from angzarr_poker._shared.projectors.output.handler import _rank
 
     value = _RANK_NAME.get(desc, int(desc) if desc.isdigit() else 0)
     assert _rank(value) == sym, f"rank {desc} rendered {_rank(value)!r}, want {sym!r}"
@@ -274,7 +296,9 @@ def _then_display_uses(context, name):
 @then('the display falls back to a short label starting with "{label}"')
 def _then_fallback_label(context, label):
     lines = context.world.output_projector.lines
-    assert any(line.startswith(label) for line in lines), f"no line starting {label!r} in {lines}"
+    assert any(
+        line.startswith(label) for line in lines
+    ), f"no line starting {label!r} in {lines}"
 
 
 @given("the game display with timestamps enabled")
@@ -296,7 +320,13 @@ def _when_event_at(context, hh, mm, ss):
     ts = Timestamp()
     ts.FromDatetime(datetime(2024, 1, 1, hh, mm, ss))
     context.world.dispatch_projector(
-        "player", [(P + "PlayerRegistered", player.PlayerRegistered(display_name="X", registered_at=ts))]
+        "player",
+        [
+            (
+                P + "PlayerRegistered",
+                player.PlayerRegistered(display_name="X", registered_at=ts),
+            )
+        ],
     )
 
 
@@ -310,13 +340,17 @@ def _when_event_happens(context):
 @then('the display line starts with "{prefix}"')
 def _then_line_starts(context, prefix):
     lines = context.world.output_projector.lines
-    assert any(line.startswith(prefix) for line in lines), f"no line starts {prefix!r}: {lines}"
+    assert any(
+        line.startswith(prefix) for line in lines
+    ), f"no line starts {prefix!r}: {lines}"
 
 
 @then('the display line does not start with "{prefix}"')
 def _then_line_not_starts(context, prefix):
     lines = context.world.output_projector.lines
-    assert not any(line.startswith(prefix) for line in lines), f"a line starts {prefix!r}: {lines}"
+    assert not any(
+        line.startswith(prefix) for line in lines
+    ), f"a line starts {prefix!r}: {lines}"
 
 
 @when("a batch of a PlayerJoined and a BlindPosted event is rendered")
@@ -324,8 +358,16 @@ def _when_batch(context):
     context.world.dispatch_projector(
         "table",
         [
-            (P + "PlayerJoined", table.PlayerJoined(player_root=b"batchp", seat_position=1, buy_in_amount=100)),
-            (P + "BlindPosted", hand.BlindPosted(player_root=b"batchp", blind_type="SMALL", amount=5)),
+            (
+                P + "PlayerJoined",
+                table.PlayerJoined(
+                    player_root=b"batchp", seat_position=1, buy_in_amount=100
+                ),
+            ),
+            (
+                P + "BlindPosted",
+                hand.BlindPosted(player_root=b"batchp", blind_type="SMALL", amount=5),
+            ),
         ],
     )
 
@@ -335,7 +377,9 @@ def _then_batch_order(context):
     lines = context.world.output_projector.lines
     joined = next((i for i, line in enumerate(lines) if "joined" in line), None)
     posts = next((i for i, line in enumerate(lines) if "posts" in line), None)
-    assert joined is not None and posts is not None and joined < posts, f"out of order: {lines}"
+    assert (
+        joined is not None and posts is not None and joined < posts
+    ), f"out of order: {lines}"
 
 
 @when("the display encounters an unfamiliar event")
@@ -359,13 +403,17 @@ def _when_registers(context, name):
 
 @when("{name} deposits {amt:d} chips bringing her balance to {bal:d}")
 def _when_deposits(context, name, amt, bal):
-    ev = player.FundsDeposited(amount=pt.Currency(amount=amt), new_balance=pt.Currency(amount=bal))
+    ev = player.FundsDeposited(
+        amount=pt.Currency(amount=amt), new_balance=pt.Currency(amount=bal)
+    )
     context.world.dispatch_projector(DOMAIN, [(P + "FundsDeposited", ev)])
 
 
 @when("{name} withdraws {amt:d} chips bringing her balance to {bal:d}")
 def _when_withdraws(context, name, amt, bal):
-    ev = player.FundsWithdrawn(amount=pt.Currency(amount=amt), new_balance=pt.Currency(amount=bal))
+    ev = player.FundsWithdrawn(
+        amount=pt.Currency(amount=amt), new_balance=pt.Currency(amount=bal)
+    )
     context.world.dispatch_projector(DOMAIN, [(P + "FundsWithdrawn", ev)])
 
 

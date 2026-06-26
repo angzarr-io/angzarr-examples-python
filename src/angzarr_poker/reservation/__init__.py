@@ -10,6 +10,6 @@ the reservation process manager drives via ``ReserveFunds`` / ``DeductReservedFu
 / ``ReleaseFunds`` and which rejects on its own when funds are short.
 """
 
-from .handler import ReservationAggregate
+from .aggregate.handler import ReservationAggregate
 
 __all__ = ["ReservationAggregate"]

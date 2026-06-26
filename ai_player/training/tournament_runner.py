@@ -23,8 +23,9 @@ import sys
 root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root))
 
-from ai_player.training.schema import Base, TournamentResult
 from run_game import GameVariant, GatewayClient, PokerGame
+
+from ai_player.training.schema import Base, TournamentResult
 
 logger = structlog.get_logger()
 

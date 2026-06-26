@@ -84,7 +84,10 @@ class PlayerAggregate:
     # --- command handlers ---
 
     def register_player(
-        self, cmd: _player.RegisterPlayer, state: _player.PlayerState, cctx: _az.CommandContext
+        self,
+        cmd: _player.RegisterPlayer,
+        state: _player.PlayerState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if _exists(state):
             raise _reject("PLAYER_ALREADY_EXISTS", "Player already exists")
@@ -103,13 +106,18 @@ class PlayerAggregate:
         )
 
     def deposit_funds(
-        self, cmd: _player.DepositFunds, state: _player.PlayerState, cctx: _az.CommandContext
+        self,
+        cmd: _player.DepositFunds,
+        state: _player.PlayerState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("PLAYER_NOT_FOUND", "Player does not exist")
         amount = cmd.amount.amount
         if amount <= 0:
-            raise _reject("AMOUNT_MUST_BE_POSITIVE", f"Amount must be positive, got {amount}")
+            raise _reject(
+                "AMOUNT_MUST_BE_POSITIVE", f"Amount must be positive, got {amount}"
+            )
         return _book(
             _player.FundsDeposited(
                 amount=_chips(amount),
@@ -119,13 +127,18 @@ class PlayerAggregate:
         )
 
     def withdraw_funds(
-        self, cmd: _player.WithdrawFunds, state: _player.PlayerState, cctx: _az.CommandContext
+        self,
+        cmd: _player.WithdrawFunds,
+        state: _player.PlayerState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("PLAYER_NOT_FOUND", "Player does not exist")
         amount = cmd.amount.amount
         if amount <= 0:
-            raise _reject("AMOUNT_MUST_BE_POSITIVE", f"Amount must be positive, got {amount}")
+            raise _reject(
+                "AMOUNT_MUST_BE_POSITIVE", f"Amount must be positive, got {amount}"
+            )
         available = _available(state)
         if amount > available:
             raise _reject(
@@ -141,13 +154,18 @@ class PlayerAggregate:
         )
 
     def reserve_funds(
-        self, cmd: _player.ReserveFunds, state: _player.PlayerState, cctx: _az.CommandContext
+        self,
+        cmd: _player.ReserveFunds,
+        state: _player.PlayerState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("PLAYER_NOT_FOUND", "Player does not exist")
         amount = cmd.amount.amount
         if amount <= 0:
-            raise _reject("AMOUNT_MUST_BE_POSITIVE", f"Amount must be positive, got {amount}")
+            raise _reject(
+                "AMOUNT_MUST_BE_POSITIVE", f"Amount must be positive, got {amount}"
+            )
         available = _available(state)
         if amount > available:
             raise _reject(
@@ -173,7 +191,10 @@ class PlayerAggregate:
         )
 
     def release_funds(
-        self, cmd: _player.ReleaseFunds, state: _player.PlayerState, cctx: _az.CommandContext
+        self,
+        cmd: _player.ReleaseFunds,
+        state: _player.PlayerState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("PLAYER_NOT_FOUND", "Player does not exist")
@@ -199,7 +220,10 @@ class PlayerAggregate:
         )
 
     def transfer_funds(
-        self, cmd: _player.TransferFunds, state: _player.PlayerState, cctx: _az.CommandContext
+        self,
+        cmd: _player.TransferFunds,
+        state: _player.PlayerState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("PLAYER_NOT_FOUND", "Player does not exist")
@@ -231,7 +255,9 @@ class PlayerAggregate:
             raise _reject("KEY_REQUIRED", "key is required")
         amount = cmd.amount.amount
         if amount <= 0:
-            raise _reject("AMOUNT_MUST_BE_POSITIVE", f"Amount must be positive, got {amount}")
+            raise _reject(
+                "AMOUNT_MUST_BE_POSITIVE", f"Amount must be positive, got {amount}"
+            )
         reserved_for_key = state.table_reservations.get(cmd.key.hex(), 0)
         if amount > reserved_for_key:
             raise _reject(

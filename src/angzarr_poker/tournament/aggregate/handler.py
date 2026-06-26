@@ -55,7 +55,10 @@ def _reject(code: str, message: str, **extras: str) -> _az.CodedError:
     """An invalid-argument business rejection carrying a stable code (and
     optional detail fields, e.g. lhs/rhs for a bound violation)."""
     return _az.CodedError(
-        code=code, message=message, grpc=_az.GrpcCode.INVALID_ARGUMENT, extras=extras or None
+        code=code,
+        message=message,
+        grpc=_az.GrpcCode.INVALID_ARGUMENT,
+        extras=extras or None,
     )
 
 
@@ -65,12 +68,17 @@ def _registration_open(state: _trn.TournamentState) -> bool:
     30) — until registration is explicitly closed or the cutoff level is passed."""
     if state.registration_closed:
         return False
-    if state.registration_cutoff_level > 0 and state.current_level > state.registration_cutoff_level:
+    if (
+        state.registration_cutoff_level > 0
+        and state.current_level > state.registration_cutoff_level
+    ):
         return False
     return state.status in (_trn.TOURNAMENT_REGISTRATION_OPEN, _trn.TOURNAMENT_RUNNING)
 
 
-def _rebuy_denial_reason(state: _trn.TournamentState, player_root: bytes) -> Optional[str]:
+def _rebuy_denial_reason(
+    state: _trn.TournamentState, player_root: bytes
+) -> Optional[str]:
     """Why a rebuy is denied (a stream event, not a coded reject), or None if it
     may proceed. Combines registration with rebuy config (TDA Rule 27): enabled,
     level cutoff, and per-player max."""
@@ -95,20 +103,30 @@ class TournamentAggregate:
     # --- per-table counts (forwarded by TableTournamentSaga) ---
 
     def record_table_player_joined(
-        self, cmd: _trn.RecordTablePlayerJoined, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.RecordTablePlayerJoined,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         return _book(
             _trn.TournamentTablePlayerJoined(
-                table_root=cmd.table_root, player_root=cmd.player_root, recorded_at=_now()
+                table_root=cmd.table_root,
+                player_root=cmd.player_root,
+                recorded_at=_now(),
             )
         )
 
     def record_table_player_left(
-        self, cmd: _trn.RecordTablePlayerLeft, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.RecordTablePlayerLeft,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         return _book(
             _trn.TournamentTablePlayerLeft(
-                table_root=cmd.table_root, player_root=cmd.player_root, recorded_at=_now()
+                table_root=cmd.table_root,
+                player_root=cmd.player_root,
+                recorded_at=_now(),
             )
         )
 
@@ -127,7 +145,10 @@ class TournamentAggregate:
     # --- Rule 11D halt/resume decision ---
 
     def record_table_bb_on_empty(
-        self, cmd: _trn.RecordTableBBOnEmpty, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.RecordTableBBOnEmpty,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         counts = state.table_player_counts
         if not counts:
@@ -168,7 +189,10 @@ class TournamentAggregate:
     # --- lifecycle: create / open-close registration / enroll ---
 
     def create_tournament(
-        self, cmd: _trn.CreateTournament, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.CreateTournament,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if _exists(state):
             raise _reject("TOURNAMENT_EXISTS", "Tournament already exists")
@@ -177,7 +201,9 @@ class TournamentAggregate:
         if cmd.buy_in <= 0:
             raise _reject("BUY_IN_NOT_POSITIVE", "buy_in must be positive")
         if cmd.starting_stack <= 0:
-            raise _reject("STARTING_STACK_NOT_POSITIVE", "starting_stack must be positive")
+            raise _reject(
+                "STARTING_STACK_NOT_POSITIVE", "starting_stack must be positive"
+            )
         if cmd.max_players < 2:
             raise _reject("MAX_PLAYERS_TOO_LOW", "max_players must be at least 2")
         if cmd.min_players < 2:
@@ -227,12 +253,17 @@ class TournamentAggregate:
         state.bounty_per_knockout = event.bounty_per_knockout
 
     def open_registration(
-        self, cmd: _trn.OpenRegistration, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.OpenRegistration,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
         if state.status == _trn.TOURNAMENT_RUNNING:
-            raise _reject("TOURNAMENT_RUNNING", "Cannot open registration on a running tournament")
+            raise _reject(
+                "TOURNAMENT_RUNNING", "Cannot open registration on a running tournament"
+            )
         if state.status == _trn.TOURNAMENT_REGISTRATION_OPEN:
             raise _reject("REGISTRATION_ALREADY_OPEN", "Registration is already open")
         return _book(_trn.RegistrationOpened(opened_at=_now()))
@@ -244,7 +275,10 @@ class TournamentAggregate:
         state.registration_closed = False
 
     def close_registration(
-        self, cmd: _trn.CloseRegistration, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.CloseRegistration,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
@@ -264,7 +298,10 @@ class TournamentAggregate:
         state.registration_closed = True
 
     def enroll_player(
-        self, cmd: _trn.EnrollPlayer, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.EnrollPlayer,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
@@ -318,7 +355,10 @@ class TournamentAggregate:
     # --- lifecycle: start / blind levels / eliminate / pause-resume / rebuy ---
 
     def start_tournament(
-        self, cmd: _trn.StartTournament, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.StartTournament,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
@@ -342,7 +382,10 @@ class TournamentAggregate:
         state.players_remaining = event.total_players
 
     def advance_blind_level(
-        self, cmd: _trn.AdvanceBlindLevel, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.AdvanceBlindLevel,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
@@ -376,7 +419,10 @@ class TournamentAggregate:
         state.current_level = event.level
 
     def eliminate_player(
-        self, cmd: _trn.EliminatePlayer, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.EliminatePlayer,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
@@ -406,7 +452,10 @@ class TournamentAggregate:
             state.players_remaining -= 1
 
     def pause_tournament(
-        self, cmd: _trn.PauseTournament, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.PauseTournament,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
@@ -422,7 +471,10 @@ class TournamentAggregate:
         state.status = _trn.TOURNAMENT_PAUSED
 
     def resume_tournament(
-        self, cmd: _trn.ResumeTournament, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.ResumeTournament,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
@@ -441,7 +493,10 @@ class TournamentAggregate:
         state.status = _trn.TOURNAMENT_COMPLETED
 
     def process_rebuy(
-        self, cmd: _trn.ProcessRebuy, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.ProcessRebuy,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
@@ -466,7 +521,9 @@ class TournamentAggregate:
                 player_root=cmd.player_root,
                 reservation_id=cmd.reservation_id,
                 rebuy_cost=state.rebuy_config.rebuy_cost if has_cfg else state.buy_in,
-                chips_added=state.rebuy_config.rebuy_chips if has_cfg else state.starting_stack,
+                chips_added=(
+                    state.rebuy_config.rebuy_chips if has_cfg else state.starting_stack
+                ),
                 rebuy_count=reg.rebuys_used + 1,
                 processed_at=_now(),
             )
@@ -491,15 +548,21 @@ class TournamentAggregate:
     # --- completion + multi-place payout (RP-9 / WSOP §III) ---
 
     def complete_tournament(
-        self, cmd: _trn.CompleteTournament, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.CompleteTournament,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
         if state.status == _trn.TOURNAMENT_COMPLETED:
-            raise _reject("TOURNAMENT_ALREADY_COMPLETED", "Tournament is already completed")
+            raise _reject(
+                "TOURNAMENT_ALREADY_COMPLETED", "Tournament is already completed"
+            )
         if state.status not in (_trn.TOURNAMENT_RUNNING, _trn.TOURNAMENT_PAUSED):
             raise _reject(
-                "TOURNAMENT_NOT_RUNNING", "Tournament must be running or paused to complete"
+                "TOURNAMENT_NOT_RUNNING",
+                "Tournament must be running or paused to complete",
             )
         results = []
         schedule = sorted(state.payout_structure, key=lambda p: p.position)
@@ -544,7 +607,10 @@ class TournamentAggregate:
     # --- bounty (TDA RP-22 / WSOP Rule 39) ---
 
     def award_bounty(
-        self, cmd: _trn.AwardBounty, state: _trn.TournamentState, cctx: _az.CommandContext
+        self,
+        cmd: _trn.AwardBounty,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not _exists(state):
             raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")

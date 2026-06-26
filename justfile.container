@@ -48,7 +48,7 @@ test-pytest:
 # from the feature files — no symlinks needed. The binding's cdylib is resolved
 # via ANGZARR_ROUTER_LIB or the in-repo build dir.
 test-example-unit:
-    uv run behave --stage unit angzarr-project/features/example/poker angzarr-project/features/example/framework --tags="~@wip"
+    ANGZARR_ROUTER_LIB="$PWD/vendor/angzarr-router-ffi/libangzarr_router_ffi.so" uv run behave --stage unit angzarr-project/features/example/poker angzarr-project/features/example/framework --tags="~@wip"
 
 # Acceptance-example cucumber: poker E2E via CommandClient (gRPC).
 # Drives a DEPLOYED cluster: the harness talks straight to each aggregate
@@ -59,7 +59,7 @@ test-example-unit:
 # point at a different / remote cluster.
 # --stage acceptance resolves acceptance_environment.py + acceptance_steps/.
 test-example-acceptance:
-    uv run behave --stage acceptance angzarr-project/features/example/acceptance/ --tags="~@wip"
+    ANGZARR_ROUTER_LIB="$PWD/vendor/angzarr-router-ffi/libangzarr_router_ffi.so" uv run behave --stage acceptance angzarr-project/features/example/acceptance/ --tags="~@wip"
 
 # Run all tests
 test: test-pytest test-example-unit test-example-acceptance
@@ -78,15 +78,15 @@ typecheck:
 
 # Run player aggregate
 run-player:
-    cd player/agg && uv run python main.py
+    uv run python -m angzarr_poker.player.aggregate.main
 
 # Run table aggregate
 run-table:
-    cd table/agg && uv run python main.py
+    uv run python -m angzarr_poker.table.aggregate.main
 
 # Run hand aggregate
 run-hand:
-    cd hand/agg && uv run python main.py
+    uv run python -m angzarr_poker.hand.aggregate.main
 
 # Run game with AI Player service
 run-game-ai *ARGS:

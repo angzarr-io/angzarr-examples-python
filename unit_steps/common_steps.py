@@ -38,7 +38,9 @@ def _then_timestamped(context, what):
 def assert_accepted(context) -> None:
     """The last command was accepted (no coded rejection)."""
     world = context.world
-    assert world.err is None, f"expected acceptance, got rejection {world.err.code}: {world.err.message}"
+    assert (
+        world.err is None
+    ), f"expected acceptance, got rejection {world.err.code}: {world.err.message}"
     assert world.resp is not None, "expected a BusinessResponse"
 
 
@@ -47,4 +49,6 @@ def assert_rejected(context, code: Optional[str] = None) -> None:
     world = context.world
     assert world.err is not None, "expected a coded rejection, got acceptance"
     if code is not None:
-        assert world.err.code == code, f"rejection code = {world.err.code!r}, want {code!r}"
+        assert (
+            world.err.code == code
+        ), f"rejection code = {world.err.code!r}, want {code!r}"

@@ -25,8 +25,8 @@ sys.path.insert(0, str(root))
 # Import the sidecar client from the parent directory (it is a top-level
 # module, not part of the ai_player package) — path already set above.
 from ai_player_client import AiPlayerClient, AiPlayerConfig
-from ai_player.training.schema import Base, TrainingState
 
+from ai_player.training.schema import Base, TrainingState
 from ai_player.training.trainer import Trainer, TrainerConfig
 
 logger = structlog.get_logger()

@@ -22,10 +22,11 @@ pre-commit:
     fmt:
       run: just fmt-fix
       stage_fixed: true
-    # Runs plain pytest, which now routes the behave (gherkin) tier via
-    # tests/example/test_features.py — exercises every feature file.
+    # The unit test tier is behave (gherkin), driven through the in-process FFI
+    # router. There is no pytest tier in this example, so the gate is the behave
+    # unit suite over the poker + framework feature sets.
     test:
-      run: just test-pytest
+      run: just test-example-unit
 
 pre-push:
   parallel: false

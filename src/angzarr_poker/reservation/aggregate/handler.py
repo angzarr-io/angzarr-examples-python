@@ -39,7 +39,11 @@ from angzarr_poker._gen.io.angzarr.examples.v1.reservation_aggregate_angzarr imp
 
 # Missing-pending rejections are state preconditions; everything else here is
 # input validation.
-_PRECONDITION_CODES = {"NO_PENDING_BUY_IN", "NO_PENDING_REBUY", "NO_PENDING_REGISTRATION"}
+_PRECONDITION_CODES = {
+    "NO_PENDING_BUY_IN",
+    "NO_PENDING_REBUY",
+    "NO_PENDING_REGISTRATION",
+}
 
 
 def _reject(code: str, message: str) -> _az.CodedError:
@@ -78,7 +82,10 @@ class ReservationAggregate:
     # === buy-in ===
 
     def initiate_buy_in(
-        self, cmd: _buy_in.InitiateBuyIn, state: _res.ReservationState, cctx: _az.CommandContext
+        self,
+        cmd: _buy_in.InitiateBuyIn,
+        state: _res.ReservationState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not cmd.player_root:
             raise _reject("PLAYER_ROOT_REQUIRED", "player_root is required")
@@ -86,7 +93,9 @@ class ReservationAggregate:
             raise _reject("TABLE_ROOT_REQUIRED", "a table is required")
         amount = cmd.amount.amount
         if amount <= 0:
-            raise _reject("AMOUNT_MUST_BE_POSITIVE", f"amount must be positive, got {amount}")
+            raise _reject(
+                "AMOUNT_MUST_BE_POSITIVE", f"amount must be positive, got {amount}"
+            )
         return _book(
             _buy_in.BuyInRequested(
                 reservation_id=_new_reservation_id(),
@@ -99,13 +108,20 @@ class ReservationAggregate:
         )
 
     def confirm_buy_in(
-        self, cmd: _buy_in.ConfirmBuyIn, state: _res.ReservationState, cctx: _az.CommandContext
+        self,
+        cmd: _buy_in.ConfirmBuyIn,
+        state: _res.ReservationState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not cmd.reservation_id:
-            raise _reject("RESERVATION_ID_REQUIRED", "a reservation identifier is required")
+            raise _reject(
+                "RESERVATION_ID_REQUIRED", "a reservation identifier is required"
+            )
         pending = state.pending_buy_ins.get(cmd.reservation_id.hex())
         if pending is None:
-            raise _reject("NO_PENDING_BUY_IN", "no buy-in with that reservation is pending")
+            raise _reject(
+                "NO_PENDING_BUY_IN", "no buy-in with that reservation is pending"
+            )
         return _book(
             _buy_in.BuyInConfirmed(
                 reservation_id=cmd.reservation_id,
@@ -118,13 +134,20 @@ class ReservationAggregate:
         )
 
     def release_buy_in(
-        self, cmd: _buy_in.ReleaseBuyIn, state: _res.ReservationState, cctx: _az.CommandContext
+        self,
+        cmd: _buy_in.ReleaseBuyIn,
+        state: _res.ReservationState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not cmd.reservation_id:
-            raise _reject("RESERVATION_ID_REQUIRED", "a reservation identifier is required")
+            raise _reject(
+                "RESERVATION_ID_REQUIRED", "a reservation identifier is required"
+            )
         pending = state.pending_buy_ins.get(cmd.reservation_id.hex())
         if pending is None:
-            raise _reject("NO_PENDING_BUY_IN", "no buy-in with that reservation is pending")
+            raise _reject(
+                "NO_PENDING_BUY_IN", "no buy-in with that reservation is pending"
+            )
         return _book(
             _buy_in.BuyInReservationReleased(
                 reservation_id=cmd.reservation_id,
@@ -180,13 +203,21 @@ class ReservationAggregate:
         )
 
     def confirm_registration_fee(
-        self, cmd: _reg.ConfirmRegistrationFee, state: _res.ReservationState, cctx: _az.CommandContext
+        self,
+        cmd: _reg.ConfirmRegistrationFee,
+        state: _res.ReservationState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not cmd.reservation_id:
-            raise _reject("RESERVATION_ID_REQUIRED", "a reservation identifier is required")
+            raise _reject(
+                "RESERVATION_ID_REQUIRED", "a reservation identifier is required"
+            )
         pending = state.pending_registrations.get(cmd.reservation_id.hex())
         if pending is None:
-            raise _reject("NO_PENDING_REGISTRATION", "no registration with that reservation is pending")
+            raise _reject(
+                "NO_PENDING_REGISTRATION",
+                "no registration with that reservation is pending",
+            )
         return _book(
             _reg.RegistrationFeeConfirmed(
                 reservation_id=cmd.reservation_id,
@@ -198,13 +229,21 @@ class ReservationAggregate:
         )
 
     def release_registration_fee(
-        self, cmd: _reg.ReleaseRegistrationFee, state: _res.ReservationState, cctx: _az.CommandContext
+        self,
+        cmd: _reg.ReleaseRegistrationFee,
+        state: _res.ReservationState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not cmd.reservation_id:
-            raise _reject("RESERVATION_ID_REQUIRED", "a reservation identifier is required")
+            raise _reject(
+                "RESERVATION_ID_REQUIRED", "a reservation identifier is required"
+            )
         pending = state.pending_registrations.get(cmd.reservation_id.hex())
         if pending is None:
-            raise _reject("NO_PENDING_REGISTRATION", "no registration with that reservation is pending")
+            raise _reject(
+                "NO_PENDING_REGISTRATION",
+                "no registration with that reservation is pending",
+            )
         return _book(
             _reg.RegistrationFeeReleased(
                 reservation_id=cmd.reservation_id,
@@ -240,7 +279,10 @@ class ReservationAggregate:
     # === rebuy ===
 
     def initiate_rebuy(
-        self, cmd: _rebuy.InitiateRebuy, state: _res.ReservationState, cctx: _az.CommandContext
+        self,
+        cmd: _rebuy.InitiateRebuy,
+        state: _res.ReservationState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not cmd.player_root:
             raise _reject("PLAYER_ROOT_REQUIRED", "player_root is required")
@@ -260,13 +302,20 @@ class ReservationAggregate:
         )
 
     def confirm_rebuy_fee(
-        self, cmd: _rebuy.ConfirmRebuyFee, state: _res.ReservationState, cctx: _az.CommandContext
+        self,
+        cmd: _rebuy.ConfirmRebuyFee,
+        state: _res.ReservationState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not cmd.reservation_id:
-            raise _reject("RESERVATION_ID_REQUIRED", "a reservation identifier is required")
+            raise _reject(
+                "RESERVATION_ID_REQUIRED", "a reservation identifier is required"
+            )
         pending = state.pending_rebuys.get(cmd.reservation_id.hex())
         if pending is None:
-            raise _reject("NO_PENDING_REBUY", "no rebuy with that reservation is pending")
+            raise _reject(
+                "NO_PENDING_REBUY", "no rebuy with that reservation is pending"
+            )
         return _book(
             _rebuy.RebuyFeeConfirmed(
                 reservation_id=cmd.reservation_id,
@@ -280,13 +329,20 @@ class ReservationAggregate:
         )
 
     def release_rebuy_fee(
-        self, cmd: _rebuy.ReleaseRebuyFee, state: _res.ReservationState, cctx: _az.CommandContext
+        self,
+        cmd: _rebuy.ReleaseRebuyFee,
+        state: _res.ReservationState,
+        cctx: _az.CommandContext,
     ) -> Optional[_t.EventBook]:
         if not cmd.reservation_id:
-            raise _reject("RESERVATION_ID_REQUIRED", "a reservation identifier is required")
+            raise _reject(
+                "RESERVATION_ID_REQUIRED", "a reservation identifier is required"
+            )
         pending = state.pending_rebuys.get(cmd.reservation_id.hex())
         if pending is None:
-            raise _reject("NO_PENDING_REBUY", "no rebuy with that reservation is pending")
+            raise _reject(
+                "NO_PENDING_REBUY", "no rebuy with that reservation is pending"
+            )
         return _book(
             _rebuy.RebuyFeeReleased(
                 reservation_id=cmd.reservation_id,

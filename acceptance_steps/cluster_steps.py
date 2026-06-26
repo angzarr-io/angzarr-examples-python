@@ -117,9 +117,9 @@ def _player_display_bankroll(context, secs, amount):
         f"player projector never reported a balance for {name!r} within {secs}s "
         f"(read model has not observed the deposit)"
     )
-    assert view.balance.amount == amount, (
-        f"player display bankroll = {view.balance.amount}, want {amount}"
-    )
+    assert (
+        view.balance.amount == amount
+    ), f"player display bankroll = {view.balance.amount}, want {amount}"
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +509,12 @@ def _player_book_resilient(context, name, secs=10.0):
     last = None
     while True:
         try:
-            return context.world.client.event_book("player", root)
+            # Short PER-ATTEMPT timeout (not the default 10s): right after a
+            # rolling restart the NodePort may briefly route to the draining old
+            # pod, and a connect to it hangs until timeout. A long per-attempt
+            # timeout would burn the whole deadline on one dead endpoint; a short
+            # one lets us re-dial the new pod and ride out the blip.
+            return context.world.client.event_book("player", root, timeout=2.0)
         except Exception as exc:  # noqa: BLE001 — retry until the deadline
             last = exc
             if time.time() >= deadline:

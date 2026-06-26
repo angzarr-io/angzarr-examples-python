@@ -37,11 +37,24 @@ _build-image:
 [private]
 _container +ARGS: _build-image
     #!/usr/bin/env bash
+    set -euo pipefail
     if [ "${DEVCONTAINER:-}" = "true" ]; then
         just {{ARGS}}
     else
+        # Rootless Docker maps the container's root to the host user, so a file
+        # written in the mounted repo is owned by the host user ONLY when the
+        # container runs as root (-u 0:0). Running as the host UID/GID under
+        # rootless maps to an unprivileged subuid that cannot write the
+        # host-owned tree — uv cache init then fails with EACCES, which is what
+        # broke the lefthook fmt/test/mutation hooks. Rootful Docker is the
+        # opposite: run as the host UID/GID so files aren't left root-owned.
+        if docker info 2>/dev/null | grep -qi rootless; then
+            user_flag=(-u 0:0)
+        else
+            user_flag=(-u {{UID}}:{{GID}})
+        fi
         docker run --rm --network=host \
-            -u {{UID}}:{{GID}} \
+            "${user_flag[@]}" \
             -e UV_CACHE_DIR=/angzarr/examples-python/main/.uv-cache \
             -e PLAYER_URL="${PLAYER_URL:-}" \
             -e TABLE_URL="${TABLE_URL:-}" \
@@ -128,20 +141,12 @@ ANGZARR_CHART_VERSION := "0.5.1"
 # and the coordinator images on the same core ref.
 ANGZARR_CHART := ANGZARR_ROOT + "/core/main/deploy/k8s/helm/angzarr"
 
-# Image names — must match the repositories referenced in values.yaml
-# (the `just up` / deploy-apps path deploys those). One consolidated image per
-# component-type: five aggregates, one all-sagas image, one all-PMs image, one
-# projector image. The Containerfile target names map 1:1 (agg-player, saga,
-# pmg, projector, …).
-PLAYER_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-player"
-TABLE_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-table"
-HAND_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-hand"
-TOURNAMENT_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-tournament"
-RESERVATION_IMAGE := "ghcr.io/angzarr-io/examples-python-agg-reservation"
-SAGA_IMAGE := "ghcr.io/angzarr-io/examples-python-saga"
-PMG_IMAGE := "ghcr.io/angzarr-io/examples-python-pmg"
-PROJECTOR_IMAGE := "ghcr.io/angzarr-io/examples-python-projector"
-PROJECTOR_PLAYER_IMAGE := "ghcr.io/angzarr-io/examples-python-projector-player"
+# Per-component images. One image per component (Containerfile target), named
+# {{IMAGE_PREFIX}}-<target>, matching the repositories referenced in values.yaml.
+# The COMPONENTS list (target == image suffix) drives build-images / load-images;
+# keep it in sync with the Containerfile targets and the values.yaml entries.
+IMAGE_PREFIX := "ghcr.io/angzarr-io/examples-python"
+COMPONENTS := "agg-player agg-table agg-hand agg-tournament agg-reservation saga-table-hand saga-table-player saga-table-tournament saga-hand-table saga-hand-player saga-tournament-table pmg-hand-flow pmg-reservation projector-output projector-player"
 AI_IMAGE := "ghcr.io/angzarr-io/examples-python-ai-player"
 AI_CHART := ROOT + "/deploy/k8s/helm/ai-player"
 
@@ -226,21 +231,16 @@ status:
 # Build targets
 # =============================================================================
 
-# Build all images
+# Build all images — one per component (Containerfile target) plus the AI player.
 build-images:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "=== Building poker aggregates ==="
-    docker build -t {{PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-player {{ROOT}}
-    docker build -t {{TABLE_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-table {{ROOT}}
-    docker build -t {{HAND_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-hand {{ROOT}}
-    docker build -t {{TOURNAMENT_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-tournament {{ROOT}}
-    docker build -t {{RESERVATION_IMAGE}}:latest -f {{ROOT}}/Containerfile --target agg-reservation {{ROOT}}
-    echo "=== Building consolidated saga + PM + projector ==="
-    docker build -t {{SAGA_IMAGE}}:latest -f {{ROOT}}/Containerfile --target saga {{ROOT}}
-    docker build -t {{PMG_IMAGE}}:latest -f {{ROOT}}/Containerfile --target pmg {{ROOT}}
-    docker build -t {{PROJECTOR_IMAGE}}:latest -f {{ROOT}}/Containerfile --target projector {{ROOT}}
-    docker build -t {{PROJECTOR_PLAYER_IMAGE}}:latest -f {{ROOT}}/Containerfile --target projector-player {{ROOT}}
+    echo "=== Building poker component images ==="
+    for target in {{COMPONENTS}}; do
+        echo "--- ${target} ---"
+        docker build -t "{{IMAGE_PREFIX}}-${target}:latest" \
+            -f {{ROOT}}/Containerfile --target "${target}" {{ROOT}}
+    done
     echo "=== Building AI player ==="
     docker build -t {{AI_IMAGE}}:latest -f {{ROOT}}/ai_player/Containerfile --target production {{ROOT}}
 
@@ -249,15 +249,9 @@ load-images:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "=== Loading images into Kind ==="
-    kind load docker-image {{PLAYER_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{TABLE_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{HAND_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{TOURNAMENT_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{RESERVATION_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{SAGA_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{PMG_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{PROJECTOR_IMAGE}}:latest --name {{KIND_CLUSTER}}
-    kind load docker-image {{PROJECTOR_PLAYER_IMAGE}}:latest --name {{KIND_CLUSTER}}
+    for target in {{COMPONENTS}}; do
+        kind load docker-image "{{IMAGE_PREFIX}}-${target}:latest" --name {{KIND_CLUSTER}}
+    done
     kind load docker-image {{AI_IMAGE}}:latest --name {{KIND_CLUSTER}}
 
 # Pull and load coordinator images into kind

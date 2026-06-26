@@ -6,6 +6,6 @@ halt/resume decisions). The tournament's own single-aggregate lifecycle
 (registration, blind levels, eliminations, payouts, …) is a separate port.
 """
 
-from .handler import TournamentAggregate
+from .aggregate.handler import TournamentAggregate
 
 __all__ = ["TournamentAggregate"]

@@ -52,6 +52,14 @@ images:
     tag: "ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:bf96d6a207d9328c3792c6d15d8a06eee2b3711b81beb74809bde41e20cfdf64"
     pullPolicy: IfNotPresent
 
+# The poker component containers launch via `uv run` (uv resolves/paths the
+# locked deps), which needs a writable temp dir. The chart hardens containers
+# with a read-only root filesystem by default; relax it for this dev/kind
+# example so uv can write its scratch under /tmp. (Deep-merged with the chart's
+# securityContext defaults — only this key is overridden.)
+securityContext:
+  readOnlyRootFilesystem: false
+
 storage:
   type: postgres
   postgres:
@@ -138,45 +146,86 @@ applications:
         enabled: true
         nodePort: 31324
 
-  # Sagas — ONE app hosting every poker saga (sagas/main.py registers all six;
-  # the core routes each source event by its cover domain to the saga(s) that
-  # consume it). The saga coordinator subscribes to ALL events (SubscriberAll,
-  # queue `saga-saga`) and the in-process router filters by source domain, so a
-  # SINGLE app covers table/hand/tournament sources. Running one app per source
-  # domain would NOT fan-out usefully — each pod gets every event anyway, so
-  # three pods would each emit the same command (e.g. duplicate DealCards).
-  # Multiple DISTINCT saga services (not replicas of one) would each get their
-  # own queue; that is the real fan-out. Events with no registered saga (e.g.
-  # player) are ACK-skipped by the servicer rather than NACK+requeued.
+  # Sagas — ONE service PER saga (no consolidated host). Each saga runs its own
+  # coordinator + business container (replicas=1), owned by its source (input)
+  # domain. The saga coordinator subscribes to ALL events (SubscriberAll); each
+  # DISTINCT service gets its own queue, so every saga sees every event and the
+  # in-process router handles only its own source domain — events it does not
+  # consume are ACK-skipped by the servicer (not NACK+requeued). Keep replicas=1
+  # per saga: replicas of ONE service share a queue and would duplicate commands.
   sagas:
-    - name: poker-saga
-      domain: saga
-      port: 50410
-      topics:
-        - "table"   # advisory only; SubscriberAll ignores it and binds all
+    - name: saga-table-hand
+      domain: table-hand
+      port: 50411
+      topics: ["table-hand"]   # advisory; SubscriberAll binds all
       image:
-        repository: ghcr.io/angzarr-io/examples-python-saga
+        repository: ghcr.io/angzarr-io/examples-python-saga-table-hand
+        tag: latest
+        pullPolicy: IfNotPresent
+    - name: saga-table-player
+      domain: table-player
+      port: 50412
+      topics: ["table-player"]
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-saga-table-player
+        tag: latest
+        pullPolicy: IfNotPresent
+    - name: saga-table-tournament
+      domain: table-tournament
+      port: 50413
+      topics: ["table-tournament"]
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-saga-table-tournament
+        tag: latest
+        pullPolicy: IfNotPresent
+    - name: saga-hand-table
+      domain: hand-table
+      port: 50414
+      topics: ["hand-table"]
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-saga-hand-table
+        tag: latest
+        pullPolicy: IfNotPresent
+    - name: saga-hand-player
+      domain: hand-player
+      port: 50415
+      topics: ["hand-player"]
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-saga-hand-player
+        tag: latest
+        pullPolicy: IfNotPresent
+    - name: saga-tournament-table
+      domain: tournament-table
+      port: 50416
+      topics: ["tournament-table"]
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-saga-tournament-table
         tag: latest
         pullPolicy: IfNotPresent
 
-  # Process managers — ONE consolidated image (examples-python-pmg) hosts both
-  # poker PMs (hand_flow + reservation; process_managers/main.py registers
-  # both). The PM coordinator supports multiple source domains per app (chart
-  # maps `.topics | join ","` → ANGZARR__MESSAGING__AMQP__DOMAIN and emits
-  # ANGZARR_SUBSCRIPTIONS), so a single app binds every source the two PMs
-  # consume. The core routes each trigger to every co-resident PM that
-  # consumes its domain (see commit "route triggers to co-resident PMs").
+  # Process managers — ONE service PER PM (no consolidated host), owned by its
+  # source domain. hand_flow consumes table/tournament/hand triggers; reservation
+  # consumes the reservation lifecycle. Each runs its own coordinator (replicas=1)
+  # and ACK-skips triggers it does not consume.
   processManagers:
-    - name: poker-pmg
-      domain: pmg
+    - name: pmg-hand-flow
+      domain: hand
       port: 50395
       topics:
-        - "reservation"  # reservation PM lifecycle events
         - "table"        # seating + chip-add confirmations; hand-flow table events
         - "tournament"   # enrollment + rebuy results
         - "hand"         # hand-flow lifecycle triggers
       image:
-        repository: ghcr.io/angzarr-io/examples-python-pmg
+        repository: ghcr.io/angzarr-io/examples-python-pmg-hand-flow
+        tag: latest
+        pullPolicy: IfNotPresent
+    - name: pmg-reservation
+      domain: reservation
+      port: 50396
+      topics:
+        - "reservation"  # reservation PM lifecycle events
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-pmg-reservation
         tag: latest
         pullPolicy: IfNotPresent
 
@@ -199,7 +248,7 @@ applications:
       topics:
         - "hand"
       image:
-        repository: ghcr.io/angzarr-io/examples-python-projector
+        repository: ghcr.io/angzarr-io/examples-python-projector-output
         tag: latest
         pullPolicy: IfNotPresent
     - name: player
