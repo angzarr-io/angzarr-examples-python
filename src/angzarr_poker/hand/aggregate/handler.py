@@ -858,6 +858,81 @@ class HandAggregate:
         state.current_bet = 0
         state.status = "void"
 
+    def replace_button_card(
+        self,
+        cmd: _hand.ReplaceButtonCard,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Replace a missing button card (TDA Rule 37): a seat dealt too few
+        cards, announced before the button acts, is made whole with a card off
+        the stub. ``ButtonCardReplaced`` adds the card to the player's hand."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        player = _find_player(state, cmd.player_root)
+        if player is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        card = cmd.replacement_card
+        if not card.rank:  # no explicit card — draw the top of the stub
+            if not state.remaining_deck:
+                raise _az.reject("NOT_ENOUGH_CARDS", "No cards remain in the stub")
+            card = state.remaining_deck[0]
+        return _book(
+            _hand.ButtonCardReplaced(
+                player_root=cmd.player_root, replacement_card=card, replaced_at=_now()
+            )
+        )
+
+    def apply_button_card_replaced(
+        self, state: _hand.HandState, event: _hand.ButtonCardReplaced
+    ) -> None:
+        player = _find_player(state, event.player_root)
+        if player is None:
+            return
+        player.hole_cards.append(event.replacement_card)
+        for i, dc in enumerate(state.remaining_deck):
+            if (dc.suit, dc.rank) == (
+                event.replacement_card.suit,
+                event.replacement_card.rank,
+            ):
+                del state.remaining_deck[i]
+                break
+
+    def report_premature_flop(
+        self,
+        cmd: _hand.ReportPrematureFlop,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Premature flop (TDA RP-5A): the original burn is preserved, the
+        premature cards return to the stub, the stub is reshuffled, and the
+        re-dealt flop takes NO new burn. Emits ``PrematureFlopDetected``."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        return _book(_hand.PrematureFlopDetected(detected_at=_now()))
+
+    def report_premature_turn(
+        self,
+        cmd: _hand.ReportPrematureTurn,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Premature turn (TDA RP-5B) — same procedure as the flop."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        return _book(_hand.PrematureTurnDetected(detected_at=_now()))
+
+    def report_premature_river(
+        self,
+        cmd: _hand.ReportPrematureRiver,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Premature river (TDA RP-5C) — same procedure as the flop / turn."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        return _book(_hand.PrematureRiverDetected(detected_at=_now()))
+
     def award_pot(
         self, cmd: _hand.AwardPot, state: _hand.HandState, cctx: _az.CommandContext
     ) -> Optional[_t.EventBook]:

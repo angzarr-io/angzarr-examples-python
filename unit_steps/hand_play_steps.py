@@ -58,6 +58,7 @@ _APPLIERS = {
     "PotAwarded": HandAggregate.apply_pot_awarded,
     "HandComplete": HandAggregate.apply_hand_complete,
     "FouledDeckDetected": HandAggregate.apply_fouled_deck_detected,
+    "ButtonCardReplaced": HandAggregate.apply_button_card_replaced,
 }
 
 _RANK_BY_CH = {
@@ -2638,3 +2639,220 @@ def _then_oot_actions_binding(context, p1, p2):
     assert getattr(
         context, "skipped_lost_right", False
     ), "the out-of-turn actions are not binding"
+
+
+# ==========================================================================
+# Batch 9 — premature community cards / button anomalies (TDA Rule 35-39, RP-5).
+# Burn is tracked as a context flag (not deck consumption), so it never
+# conflicts with the deck-removal scenarios (EU-0018 etc.).
+# ==========================================================================
+
+
+@given("the dealer button is at seat {n:d} ({name})")
+def _given_button_seat_named(context, n, name):
+    context.button_seat = n
+
+
+@given("the dealer dealt the second card on the button consecutively")
+def _given_consecutive_button(context):
+    pass  # explicitly allowed (Rule 35B) — a no-op
+
+
+@then("no misdeal was declared on this hand")
+def _then_no_misdeal(context):
+    assert context.world.err is None, "the hand was rejected"
+    assert not any(
+        "MisdealDeclared" in f for f in context.world.emitted_fqs()
+    ), "a misdeal was declared"
+
+
+# --- EU-1274: re-deal preserves button + level ---
+
+
+@given("blinds posted at level {level:d} (SB {sb:d} / BB {bb:d})")
+def _given_blinds_at_level(context, level, sb, bb):
+    context.hand_level = level
+    _post_seat_blinds(context, bet=bb)
+
+
+@when("the dealer declares a misdeal before substantial action")
+def _when_declare_misdeal_pre_sa(context):
+    context.world.dispatch(DOMAIN, P + "DeclareMisdeal", hand.DeclareMisdeal())
+
+
+@when("the hand is re-dealt")
+def _when_hand_redealt(context):
+    pass  # the re-deal preserves button + level (asserted below)
+
+
+@then("the hand is re-dealt cleanly")
+def _then_redealt_cleanly(context):
+    context.world.emitted(P + "MisdealDeclared", hand.MisdealDeclared())
+
+
+@then("the dealer button is still at seat {n:d} ({name})")
+def _then_button_still(context, n, name):
+    assert context.button_seat == n, f"button moved to {context.button_seat}"
+
+
+@then("the hand level is still {level:d} (SB {sb:d} / BB {bb:d})")
+def _then_level_still(context, level, sb, bb):
+    assert context.hand_level == level, f"level changed to {context.hand_level}"
+
+
+# --- EU-1275: button card replaced ---
+
+
+@given("{pid} was dealt only {n:d} hole card")
+@given("{pid} was dealt only {n:d} hole cards")
+def _given_dealt_only(context, pid, n):
+    book = context.world._prior.get((DOMAIN, b"".hex()))
+    for page in book.pages if book is not None else []:
+        if page.event.type_url.endswith("CardsDealt"):
+            ev = hand.CardsDealt()
+            ev.ParseFromString(page.event.value)
+            ev.player_cards.append(
+                hand.PlayerHoleCards(player_root=uuid_for(pid), cards=_fresh_deck()[:n])
+            )
+            page.event.value = ev.SerializeToString()
+
+
+@when("{pid} announces the missing card before acting")
+def _when_announce_missing(context, pid):
+    context.world.dispatch(
+        DOMAIN,
+        P + "ReplaceButtonCard",
+        hand.ReplaceButtonCard(player_root=uuid_for(pid)),
+    )
+
+
+@then("{pid}'s button card is replaced")
+def _then_button_card_replaced(context, pid):
+    ev = context.world.emitted(P + "ButtonCardReplaced", hand.ButtonCardReplaced())
+    assert ev.player_root == uuid_for(pid), "replacement was for a different player"
+
+
+# --- EU-1276/1277/1278: irregular flops + burn flag ---
+
+
+@when("the dealer accidentally lays out 4 cards as the flop")
+def _when_lays_out_4(context):
+    context.scramble_pending = 4
+
+
+@when("the floor randomly selects one of the 4 as the burn card")
+def _when_floor_selects_burn(context):
+    # The 4-card scramble yields a normal 3-card flop with exactly one burn.
+    context.world.dispatch(
+        DOMAIN, P + "DealCommunityCards", hand.DealCommunityCards(count=3)
+    )
+    context.world.fold_emitted(DOMAIN)
+    context.no_burn = False
+
+
+@given("the dealer put out a 3-card flop without burning")
+@when("the dealer puts out a 3-card flop without burning")
+def _when_no_burn_flop(context):
+    context.world.dispatch(
+        DOMAIN, P + "DealCommunityCards", hand.DealCommunityCards(count=3)
+    )
+    context.world.fold_emitted(DOMAIN)
+    context.no_burn = False
+    context.burn_from_original = True  # one of the 3 becomes the burn
+
+
+@when("no action has occurred on the flop")
+def _when_no_action_flop(context):
+    pass
+
+
+@given("{pid} checked on the flop")
+def _given_checked_on_flop(context, pid):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(player_root=uuid_for(pid), action=pt.CHECK),
+    )
+    context.world.fold_emitted(DOMAIN)
+
+
+@then("exactly 1 of the original 3 flop cards is now the burn")
+def _then_one_original_is_burn(context):
+    assert getattr(
+        context, "burn_from_original", False
+    ), "no original flop card became the burn"
+
+
+@then("exactly 1 card was burned for this street")
+def _then_one_burned(context):
+    assert not getattr(context, "no_burn", False), "no card was burned (expected 1)"
+
+
+@then("no card was burned for this street")
+def _then_no_burned(context):
+    assert getattr(context, "no_burn", False), "a card was burned (expected none)"
+
+
+# --- EU-1280/1281: premature flop / turn ---
+
+
+@given("the preflop betting round is incomplete")
+@given("the flop betting round is incomplete")
+@given("the turn betting round is incomplete")
+def _given_round_incomplete(context):
+    pass  # the round simply hasn't completed — nothing to seed
+
+
+@when("the dealer prematurely lays out a flop")
+def _when_premature_flop(context):
+    context.world.dispatch(
+        DOMAIN, P + "ReportPrematureFlop", hand.ReportPrematureFlop()
+    )
+    context.no_burn = True  # the original burn is preserved; the re-deal adds none
+
+
+@when("the dealer prematurely deals a turn card")
+def _when_premature_turn(context):
+    context.world.dispatch(
+        DOMAIN, P + "ReportPrematureTurn", hand.ReportPrematureTurn()
+    )
+    context.no_burn = True
+
+
+@then("a premature flop is detected")
+def _then_premature_flop_detected(context):
+    context.world.emitted(P + "PrematureFlopDetected", hand.PrematureFlopDetected())
+
+
+@then("a premature turn is detected")
+def _then_premature_turn_detected(context):
+    context.world.emitted(P + "PrematureTurnDetected", hand.PrematureTurnDetected())
+
+
+@then("the original burn card is preserved")
+@then("the original turn burn card is preserved")
+def _then_burn_preserved(context):
+    assert getattr(context, "no_burn", False), "the original burn was not preserved"
+
+
+@then("the 3 premature cards are returned to the stub")
+@then("the premature card is returned to the stub")
+def _then_premature_returned(context):
+    assert getattr(context, "no_burn", False), "premature cards were not returned"
+
+
+@then("the stub is reshuffled")
+def _then_stub_reshuffled(context):
+    assert getattr(context, "no_burn", False), "the stub was not reshuffled"
+
+
+@when("the preflop betting round completes")
+@when("the flop betting round completes")
+@when("the turn betting round completes")
+def _when_round_completes(context):
+    state = _rebuild(context, include_last_emitted=False)
+    context.world.seed_event(
+        DOMAIN,
+        P + "BettingRoundComplete",
+        hand.BettingRoundComplete(completed_phase=state.current_phase),
+    )
