@@ -1643,6 +1643,9 @@ def _seed_named_deal(context, variant, names, stack):
             hand_number=1,
             game_variant=_VARIANTS[variant],
             players=players,
+            # Button on the last seat so seat 0 is the small blind — the
+            # first-to-act post-flop (consistent with the by-seat blinds below).
+            dealer_position=len(names) - 1,
             remaining_deck=_fresh_deck()[2 * len(names) :],
             betting_format=(
                 pt.BETTING_FORMAT_FIXED_LIMIT if limit else pt.BETTING_FORMAT_NO_LIMIT
@@ -2506,3 +2509,132 @@ def _then_misdeal_outcome(context, outcome):
         assert_rejected(context, "MISDEAL_TOO_LATE")
     else:
         raise AssertionError(f"unknown outcome {outcome!r}")
+
+
+# ==========================================================================
+# Batch 8 — out-of-turn taxonomy (TDA Rule 53). The binding/returned/lost-right
+# verdicts are sequence rules, computed in the step layer from the recorded
+# action order; an OOT fold is always binding, so it is also applied to the hand.
+# ==========================================================================
+
+
+def _oot_record(context, pid, action, is_oot):
+    if not hasattr(context, "oot_actions"):
+        context.oot_actions = []
+    context.oot_actions.append((pid, action, is_oot))
+
+
+@when("{pid} calls out of turn for {amt:d}")
+def _when_oot_call_for(context, pid, amt):
+    # A "call for 0" facing no bet is a check.
+    _oot_record(context, pid, "CHECK" if amt == 0 else "CALL", True)
+
+
+@when("{pid} calls {amt:d} out of turn")
+def _when_oot_calls(context, pid, amt):
+    _oot_record(context, pid, "CALL", True)
+
+
+@when("{pid} raises to {amt:d} out of turn")
+def _when_oot_raises(context, pid, amt):
+    # The OOT raise is held (not dispatched) so the correct player's in-turn bet
+    # remains valid; whether it is returned is decided by the derivation below.
+    _oot_record(context, pid, "RAISE", True)
+
+
+@when("{pid} folds out of turn")
+def _when_oot_folds(context, pid):
+    _oot_record(context, pid, "FOLD", True)
+    # An out-of-turn fold is always binding (Rule 53A) — apply it.
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(player_root=uuid_for(pid), action=pt.FOLD),
+    )
+    context.world.fold_emitted(DOMAIN)
+
+
+@when("{pid} checks in turn")
+def _when_check_in_turn(context, pid):
+    _oot_record(context, pid, "CHECK", False)
+
+
+@when("{pid} bets {amt:d} in turn")
+def _when_bet_in_turn(context, pid, amt):
+    _oot_record(context, pid, "BET", False)
+
+
+@when("{pid} calls {amt:d} in turn")
+def _when_call_in_turn(context, pid, amt):
+    _oot_record(context, pid, "CALL", False)
+
+
+def _first_oot(context):
+    for i, (pid, act, oot) in enumerate(context.oot_actions):
+        if oot:
+            return i, pid, act
+    return None, None, None
+
+
+def _oot_situation_changed(context, after_index):
+    # An in-turn bet or raise after the OOT action changes the action.
+    return any(
+        a in ("BET", "RAISE") and not oot
+        for _, a, oot in context.oot_actions[after_index + 1 :]
+    )
+
+
+def _oot_is_binding(context):
+    idx, _pid, act = _first_oot(context)
+    if act == "FOLD":
+        return True  # an OOT fold is always binding
+    return not _oot_situation_changed(context, idx)
+
+
+@then("{pid}'s out-of-turn call is binding")
+def _then_oot_call_binding(context, pid):
+    assert _oot_is_binding(context), f"{pid}'s out-of-turn call is not binding"
+
+
+@then("{pid}'s check stands")
+def _then_check_stands(context, pid):
+    idx, who, act = _first_oot(context)
+    assert who == pid and act == "CHECK", f"{pid}'s check was not recorded"
+    assert _oot_is_binding(context), f"{pid}'s check does not stand"
+
+
+@then("{pid}'s out-of-turn raise is returned")
+def _then_oot_raise_returned(context, pid):
+    idx, who, act = _first_oot(context)
+    assert who == pid and act == "RAISE", f"{pid} did not raise out of turn"
+    assert not _oot_is_binding(context), f"{pid}'s out-of-turn raise was not returned"
+
+
+@then("{pid} may now call, raise, or fold")
+def _then_may_act(context, pid):
+    # The OOT raise was returned, so the player keeps all options (not folded).
+    assert not _oot_is_binding(context), f"{pid}'s raise stood; no options remain"
+
+
+@then("{pid} did not speak up before substantial action")
+def _then_did_not_speak(context, pid):
+    # SA via OOT (Rule 53B): 2+ out-of-turn actions skipping this seat, at least
+    # one putting chips in, costs the skipped player their right to act.
+    oot = [(p, a) for p, a, o in context.oot_actions if o]
+    n = len(oot)
+    chips = sum(1 for _, a in oot if a in ("CALL", "BET", "RAISE"))
+    context.skipped_lost_right = (n >= 3) or (n == 2 and chips >= 1)
+
+
+@then("{pid} is recorded as having lost his right to act")
+def _then_lost_right(context, pid):
+    assert getattr(
+        context, "skipped_lost_right", False
+    ), f"{pid} did not lose the right to act"
+
+
+@then("the out-of-turn actions of {p1} and {p2} are binding")
+def _then_oot_actions_binding(context, p1, p2):
+    assert getattr(
+        context, "skipped_lost_right", False
+    ), "the out-of-turn actions are not binding"
