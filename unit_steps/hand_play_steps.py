@@ -1504,7 +1504,12 @@ def _given_showdown_with_order(context, names):
             all_community_cards=_cards("Qs Js Ts 2c 3d"),
         ),
     )
-    context.world.seed_event(DOMAIN, P + "ShowdownStarted", hand.ShowdownStarted())
+    # Carry the table order so reveal_cards can enforce it (TDA Rule 17A).
+    context.world.seed_event(
+        DOMAIN,
+        P + "ShowdownStarted",
+        hand.ShowdownStarted(players_to_show=[uuid_for(nm) for nm in order]),
+    )
 
 
 @then("the next player to show is {pid}")
@@ -1617,7 +1622,11 @@ def _then_pid_receives(context, pid, amt):
 def _seed_named_deal(context, variant, names, stack):
     """Seed a CardsDealt for explicitly named players (Alice, Bob, …) at seats
     0..n with real per-name roots, so name-specific and name-agnostic assertions
-    both resolve."""
+    both resolve. A "limit <variant>" prefix selects fixed-limit play (raise cap
+    4)."""
+    limit = variant.startswith("limit ")
+    if limit:
+        variant = variant[len("limit ") :]
     context.dealt_stack = stack
     players = [
         hand.PlayerInHand(player_root=uuid_for(nm), position=i, stack=stack)
@@ -1632,6 +1641,10 @@ def _seed_named_deal(context, variant, names, stack):
             game_variant=_VARIANTS[variant],
             players=players,
             remaining_deck=_fresh_deck()[2 * len(names) :],
+            betting_format=(
+                pt.BETTING_FORMAT_FIXED_LIMIT if limit else pt.BETTING_FORMAT_NO_LIMIT
+            ),
+            raise_cap_per_round=4 if limit else 0,
         ),
     )
 
@@ -2122,3 +2135,254 @@ def _when_action_clock_expires(context, pid):
 @then("the clock is refused because the action is not on {pid}")
 def _then_clock_refused_not_on(context, pid):
     assert_rejected(context, "ACTION_NOT_ON_PLAYER")
+
+
+# ==========================================================================
+# Batch 6 — proto+codegen clusters (absent / out-of-order reveal / limit cap).
+# ==========================================================================
+
+
+# --- Absent at the initial deal (EU-1146) ---
+
+
+@given("{pid} was absent at the initial deal")
+def _given_was_absent(context, pid):
+    # Mark the seat absent on the already-seeded CardsDealt so the rebuild kills
+    # the hand (TDA Rule 30) and the player can take no action.
+    book = context.world._prior.get((DOMAIN, b"".hex()))
+    for page in book.pages if book is not None else []:
+        if page.event.type_url.endswith("CardsDealt"):
+            ev = hand.CardsDealt()
+            ev.ParseFromString(page.event.value)
+            for p in ev.players:
+                if p.player_root == uuid_for(pid):
+                    p.absent_at_deal = True
+            page.event.value = ev.SerializeToString()
+
+
+@then("the check is refused because {pid} was absent at the deal")
+def _then_check_absent(context, pid):
+    assert_rejected(context, "ABSENT_AT_DEAL")
+
+
+# --- Out-of-order reveal (EU-1123) ---
+
+
+@then("the reveal is refused because it is out of order")
+def _then_reveal_out_of_order(context):
+    assert_rejected(context, "OUT_OF_ORDER")
+
+
+# --- Limit raise cap (EU-1296) ---
+
+
+@given("there has already been {b:d} bet and {r:d} raises this round")
+def _given_b_bet_r_raises(context, b, r):
+    state = _rebuild(context, include_last_emitted=False)
+    n = len(state.players)
+    inc = state.min_raise or state.big_blind or 200
+    roots = {p.position: p.player_root for p in state.players}
+    current = state.current_bet
+    for i in range(r):
+        current += inc
+        context.world.dispatch(
+            DOMAIN,
+            P + "PlayerAction",
+            hand.PlayerAction(
+                player_root=roots[i % n], action=pt.RAISE, amount=current
+            ),
+        )
+        context.world.fold_emitted(DOMAIN)
+
+
+@when("{pid} attempts to raise")
+def _when_attempts_raise_no_amount(context, pid):
+    state = _rebuild(context, include_last_emitted=False)
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid),
+            action=pt.RAISE,
+            amount=state.current_bet + (state.min_raise or 200),
+        ),
+    )
+
+
+@then("the raise is refused because the raise cap has been reached")
+def _then_raise_cap(context):
+    assert_rejected(context, "RAISE_CAP_REACHED")
+
+
+@then("the rejection notes the round cap of {n:d} raises")
+def _then_rejection_cap_note(context, n):
+    assert context.world.err is not None, "expected a rejection"
+    assert (
+        str(n) in context.world.err.message
+    ), f"rejection {context.world.err.message!r} does not note cap {n}"
+
+
+# --- Illegal-bet correction (EU-1250 under-raise, EU-1284 PL over-bet) ---
+
+
+@given("blinds posted at SB {sb:d} / BB {bb:d} bringing the pot to {pot:d}")
+def _given_blinds_sb_bb(context, sb, bb, pot):
+    state = _rebuild(context, include_last_emitted=False)
+    pos0 = next(p.player_root for p in state.players if p.position == 0)
+    pos1 = next(p.player_root for p in state.players if p.position == 1)
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=pos0, blind_type="small", amount=sb),
+    )
+    context.world.fold_emitted(DOMAIN)
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=pos1, blind_type="big", amount=bb),
+    )
+    context.world.fold_emitted(DOMAIN)
+    context.pl_pot_cap = pot
+
+
+@given("the flop has been dealt at blinds {sb:d}/{bb:d}")
+def _given_flop_at_blinds(context, sb, bb):
+    state = _rebuild(context, include_last_emitted=False)
+    pos0 = next(p.player_root for p in state.players if p.position == 0)
+    pos1 = next(p.player_root for p in state.players if p.position == 1)
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=pos0, blind_type="small", amount=sb),
+    )
+    context.world.fold_emitted(DOMAIN)
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=pos1, blind_type="big", amount=bb),
+    )
+    context.world.fold_emitted(DOMAIN)
+    context.world.dispatch(
+        DOMAIN, P + "DealCommunityCards", hand.DealCommunityCards(count=3)
+    )
+    context.world.fold_emitted(DOMAIN)
+
+
+# EU-1250: the bets are Givens; Bob's raise-to is an illegal under-raise that the
+# normal path would reject, so the street's wagers are seeded as ActionTaken.
+def _seed_street_action(context, pid, action, to_amount):
+    state = _rebuild(context, include_last_emitted=False)
+    p = _state_player(state, pid)
+    prior = p.bet_this_round if p is not None else 0
+    stack = p.stack if p is not None else context.dealt_stack
+    chips = to_amount - prior
+    context.world.seed_event(
+        DOMAIN,
+        P + "ActionTaken",
+        hand.ActionTaken(
+            player_root=uuid_for(pid),
+            action=action,
+            amount=chips,
+            player_stack=stack - chips,
+            amount_to_call=to_amount,
+        ),
+    )
+
+
+@given("{pid} bets {amt:d}")
+def _given_bets_street(context, pid, amt):
+    _seed_street_action(context, pid, pt.BET, amt)
+
+
+@given("{pid} raises to {amt:d}")
+def _given_raises_street(context, pid, amt):
+    _seed_street_action(context, pid, pt.RAISE, amt)
+
+
+@given("{pid} calls {amt:d}")
+def _given_calls_street(context, pid, amt):
+    _seed_street_action(context, pid, pt.CALL, amt)
+
+
+@when("the dealer detects the underraise before the turn is dealt")
+def _when_detect_underraise(context):
+    state = _rebuild(context, include_last_emitted=False)
+    bettors = [p.bet_this_round for p in state.players if p.bet_this_round > 0]
+    # Legal minimum raise-to = the opening bet + a full minimum raise (== the
+    # opening bet in no-limit) = twice the smallest street wager.
+    corrected = 2 * min(bettors)
+    context.world.dispatch(
+        DOMAIN,
+        P + "CorrectIllegalBet",
+        hand.CorrectIllegalBet(
+            reason="NL_UNDERRAISE_LATE_CORRECTION", corrected_amount=corrected
+        ),
+    )
+
+
+@then("the underraise is corrected")
+def _then_underraise_corrected(context):
+    ev = context.world.emitted(P + "UnderbetCorrected", hand.UnderbetCorrected())
+    assert ev.adjustments, "no adjustments recorded"
+
+
+@then("the corrected raise-to amount is {amt:d}")
+def _then_corrected_raise_to(context, amt):
+    ev = context.world.emitted(P + "UnderbetCorrected", hand.UnderbetCorrected())
+    assert ev.corrected_amount == amt, f"corrected {ev.corrected_amount}, want {amt}"
+
+
+@then("every bettor's contribution is increased to match")
+def _then_every_bettor_increased(context):
+    ev = context.world.emitted(P + "UnderbetCorrected", hand.UnderbetCorrected())
+    assert ev.adjustments, "no adjustments"
+    for a in ev.adjustments:
+        assert (
+            a.new_contribution == ev.corrected_amount
+        ), f"{a.player_root.hex()} -> {a.new_contribution}, want {ev.corrected_amount}"
+
+
+# EU-1284: PL over-bet — all wagers are valid (drivable), the correction reduces.
+@when("{pid} pot-bets {amt:d} based on the dealer's illegal-high count")
+def _when_pot_bets(context, pid, amt):
+    _action(context, pid, pt.BET, amt)
+    context.world.fold_emitted(DOMAIN)
+
+
+@when("{pid} calls {amt:d}")
+def _when_calls_amt(context, pid, amt):
+    _action(context, pid, pt.CALL, amt)
+    context.world.fold_emitted(DOMAIN)
+
+
+@when("the dealer detects the illegal overbet before the turn is dealt")
+def _when_detect_overbet(context):
+    context.world.dispatch(
+        DOMAIN,
+        P + "CorrectIllegalBet",
+        hand.CorrectIllegalBet(
+            reason="PL_ILLEGAL_OVERBET", corrected_amount=context.pl_pot_cap
+        ),
+    )
+
+
+@then("the bet is corrected because the overbet exceeds the pot-limit cap")
+def _then_bet_corrected_overbet(context):
+    ev = context.world.emitted(P + "UnderbetCorrected", hand.UnderbetCorrected())
+    assert ev.reason == "PL_ILLEGAL_OVERBET", f"reason {ev.reason!r}"
+
+
+@then("the corrected bet amount is {amt:d}")
+def _then_corrected_bet_amount(context, amt):
+    ev = context.world.emitted(P + "UnderbetCorrected", hand.UnderbetCorrected())
+    assert ev.corrected_amount == amt, f"corrected {ev.corrected_amount}, want {amt}"
+
+
+@then("every caller's contribution is reduced to {amt:d}")
+def _then_every_caller_reduced(context, amt):
+    ev = context.world.emitted(P + "UnderbetCorrected", hand.UnderbetCorrected())
+    assert ev.adjustments, "no adjustments"
+    for a in ev.adjustments:
+        assert (
+            a.new_contribution == amt
+        ), f"{a.player_root.hex()} -> {a.new_contribution}, want {amt}"

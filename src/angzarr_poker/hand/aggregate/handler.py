@@ -187,6 +187,18 @@ def _betting_round_complete(state: _hand.HandState) -> _hand.BettingRoundComplet
     )
 
 
+def _next_to_show(state: _hand.HandState):
+    """The next player obliged to table at showdown: the first seat in the
+    established ``showdown_order`` that has neither shown/mucked nor folded.
+    ``None`` once everyone in order has acted."""
+    shown = {p.player_root for p in state.players if p.has_shown}
+    folded = {p.player_root for p in state.players if p.has_folded}
+    for root in state.showdown_order:
+        if root not in shown and root not in folded:
+            return root
+    return None
+
+
 def _interpret_declaration(cmd: _hand.PlayerAction, player, state: _hand.HandState):
     """Map a verbal / chip-only declaration onto a concrete ``(action, amount)``
     before the core betting switch runs (TDA Rules 40-46). The default method
@@ -375,6 +387,11 @@ class HandAggregate:
         state.remaining_deck.extend(event.remaining_deck)
         state.status = "betting"
         state.current_phase = _pt.PREFLOP
+        # Betting-format state carries from the deal (limit raise cap, etc.).
+        state.betting_format = event.betting_format
+        state.small_bet = event.small_bet
+        state.big_bet = event.big_bet
+        state.raise_cap_per_round = event.raise_cap_per_round
         cards_by_player = {pc.player_root: pc.cards for pc in event.player_cards}
         for p in event.players:
             ph = state.players.add()
@@ -382,6 +399,11 @@ class HandAggregate:
             ph.position = p.position
             ph.stack = p.stack
             ph.hole_cards.extend(cards_by_player.get(p.player_root, []))
+            # TDA Rule 30: a seat absent at the deal has its hand killed (folded)
+            # and can take no action this hand.
+            if p.absent_at_deal:
+                ph.absent = True
+                ph.has_folded = True
 
     def apply_blind_posted(
         self, state: _hand.HandState, event: _hand.BlindPosted
@@ -441,6 +463,10 @@ class HandAggregate:
         player = _find_player(state, cmd.player_root)
         if player is None:
             raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        if player.absent:
+            raise _az.reject(
+                "ABSENT_AT_DEAL", "Player was absent at the deal and cannot act"
+            )
         if player.has_folded:
             raise _az.reject("PLAYER_HAS_FOLDED", "Player has already folded")
         if player.is_all_in:
@@ -490,6 +516,17 @@ class HandAggregate:
         elif action == _pt.RAISE:
             if state.current_bet == 0:
                 raise _az.reject("CANNOT_RAISE_NO_BET", "There is no bet to raise")
+            # Fixed-limit raise cap (TDA Rule 48): at most a set number of raises
+            # per round (house standard 4) until the table is heads-up.
+            if (
+                state.betting_format == _pt.BETTING_FORMAT_FIXED_LIMIT
+                and state.raise_cap_per_round > 0
+                and state.raises_this_round >= state.raise_cap_per_round
+            ):
+                raise _az.reject(
+                    "RAISE_CAP_REACHED",
+                    f"The round cap of {state.raise_cap_per_round} raises has been reached",
+                )
             raise_amount = amount - state.current_bet
             to_put_in = amount - player.bet_this_round
             if raise_amount < state.min_raise and to_put_in < player.stack:
@@ -668,6 +705,12 @@ class HandAggregate:
             raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
         if player.has_folded:
             raise _az.reject("PLAYER_HAS_FOLDED", "Player has already folded")
+        # TDA Rule 17A: when a table order was set, players table in that order —
+        # a reveal/muck from anyone but the next-to-show is rejected.
+        if state.showdown_order:
+            nxt = _next_to_show(state)
+            if nxt is not None and cmd.player_root != nxt:
+                raise _az.reject("OUT_OF_ORDER", "It is not this player's turn to show")
 
         if cmd.muck:
             # TDA Rule 16: once any player is all-in and action is closed, every
@@ -709,6 +752,49 @@ class HandAggregate:
             plays_the_board=plays_board,
         )
         return _book(event)
+
+    def correct_illegal_bet(
+        self,
+        cmd: _hand.CorrectIllegalBet,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Correct an illegal bet anywhere on the current street before the next
+        street is dealt (TDA Rule 52A under-raise / 52B PL over-bet). Every player
+        who wagered this street is moved to ``corrected_amount`` — debited up for
+        an under-raise, refunded down for an over-bet — and ``UnderbetCorrected``
+        records the per-player adjustment."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        target = cmd.corrected_amount
+        if target <= 0:
+            raise _az.reject(
+                "CORRECTION_AMOUNT_REQUIRED", "A corrected amount must be given"
+            )
+        adjustments = []
+        for p in state.players:
+            if p.bet_this_round <= 0:
+                continue
+            prior = p.bet_this_round
+            delta = target - prior  # >0 debit up (under-raise), <0 refund (over-bet)
+            adjustments.append(
+                _hand.UnderbetAdjustment(
+                    player_root=p.player_root,
+                    prior_contribution=prior,
+                    new_contribution=target,
+                    refund_to_stack=-delta if delta < 0 else 0,
+                )
+            )
+        if not adjustments:
+            raise _az.reject("NO_BETTORS_TO_CORRECT", "No street wagers to correct")
+        return _book(
+            _hand.UnderbetCorrected(
+                reason=cmd.reason,
+                corrected_amount=target,
+                adjustments=adjustments,
+                corrected_at=_now(),
+            )
+        )
 
     def award_pot(
         self, cmd: _hand.AwardPot, state: _hand.HandState, cctx: _az.CommandContext
@@ -824,10 +910,15 @@ class HandAggregate:
             # A bet/raise/all-in that crosses the current level raises it and
             # sets the new minimum raise increment (NLHE).
             if event.action in (_pt.BET, _pt.RAISE, _pt.ALL_IN):
+                prior_bet = state.current_bet
                 if player.bet_this_round > state.current_bet:
                     raise_increment = player.bet_this_round - state.current_bet
                     state.current_bet = player.bet_this_round
                     state.min_raise = max(state.min_raise, raise_increment)
+                    # Count it as a raise (vs. the opening bet) only when a bet
+                    # already stood — the limit raise-cap counts raises.
+                    if prior_bet > 0:
+                        state.raises_this_round += 1
         # Bookkeeping: advance the action marker to the next live seat.
         state.action_on_position = _next_active_position(
             state, player.position if player is not None else -1
@@ -864,6 +955,7 @@ class HandAggregate:
             p.has_acted = False
         state.current_bet = 0
         state.min_raise = state.big_blind
+        state.raises_this_round = 0
         for snap in event.stacks:
             p = _find_player(state, snap.player_root)
             if p is not None:
@@ -894,6 +986,7 @@ class HandAggregate:
             p.has_acted = False
         state.current_bet = 0
         state.min_raise = state.big_blind
+        state.raises_this_round = 0
 
     def apply_draw_completed(
         self, state: _hand.HandState, event: _hand.DrawCompleted
@@ -919,6 +1012,23 @@ class HandAggregate:
         self, state: _hand.HandState, event: _hand.ShowdownStarted
     ) -> None:
         state.status = "showdown"
+        # Capture the table order so reveal_cards can enforce it (TDA Rule 17A).
+        del state.showdown_order[:]
+        state.showdown_order.extend(event.players_to_show)
+
+    def apply_cards_revealed(
+        self, state: _hand.HandState, event: _hand.CardsRevealed
+    ) -> None:
+        player = _find_player(state, event.player_root)
+        if player is not None:
+            player.has_shown = True
+
+    def apply_cards_mucked(
+        self, state: _hand.HandState, event: _hand.CardsMucked
+    ) -> None:
+        player = _find_player(state, event.player_root)
+        if player is not None:
+            player.has_shown = True
 
     def apply_pot_awarded(
         self, state: _hand.HandState, event: _hand.PotAwarded
