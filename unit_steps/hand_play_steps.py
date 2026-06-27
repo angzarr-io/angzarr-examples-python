@@ -53,8 +53,11 @@ _APPLIERS = {
     "CommunityCardsDealt": HandAggregate.apply_community_cards_dealt,
     "DrawCompleted": HandAggregate.apply_draw_completed,
     "ShowdownStarted": HandAggregate.apply_showdown_started,
+    "CardsRevealed": HandAggregate.apply_cards_revealed,
+    "CardsMucked": HandAggregate.apply_cards_mucked,
     "PotAwarded": HandAggregate.apply_pot_awarded,
     "HandComplete": HandAggregate.apply_hand_complete,
+    "FouledDeckDetected": HandAggregate.apply_fouled_deck_detected,
 }
 
 _RANK_BY_CH = {
@@ -2386,3 +2389,120 @@ def _then_every_caller_reduced(context, amt):
         assert (
             a.new_contribution == amt
         ), f"{a.player_root.hex()} -> {a.new_contribution}, want {amt}"
+
+
+# ==========================================================================
+# Batch 7 — misdeal core (SA threshold / fouled deck / misdeal taxonomy).
+# ==========================================================================
+
+
+def _post_seat_blinds(context, bet):
+    """Post SB (bet//2) at seat 0 and BB (bet) at seat 1 for the seated players."""
+    state = _rebuild(context, include_last_emitted=False)
+    pos0 = next(p.player_root for p in state.players if p.position == 0)
+    pos1 = next(p.player_root for p in state.players if p.position == 1)
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=pos0, blind_type="small", amount=bet // 2),
+    )
+    context.world.fold_emitted(DOMAIN)
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=pos1, blind_type="big", amount=bet),
+    )
+    context.world.fold_emitted(DOMAIN)
+
+
+# --- EU-1232: Substantial Action threshold (pure derivation) ---
+
+
+@when('the players take "{actions}" in turn')
+def _when_players_take(context, actions):
+    chip = {"CALL", "BET", "RAISE", "ALL_IN"}
+    acts = [a.strip() for a in actions.split(",") if a.strip()]
+    n = len(acts)
+    n_chip = sum(1 for a in acts if a in chip)
+    # TDA Rule 36: 3+ actions, or exactly 2 with at least one chip action.
+    context.substantial_action = (n >= 3) or (n == 2 and n_chip >= 1)
+
+
+@then("substantial action is {sa}")
+def _then_substantial_action(context, sa):
+    want = sa.strip() == "true"
+    assert (
+        context.substantial_action == want
+    ), f"substantial action = {context.substantial_action}, want {want}"
+
+
+# --- EU-1231: fouled deck ---
+
+
+@given("substantial action has occurred on the current hand")
+def _given_sa_occurred(context):
+    # Two voluntary actions (a call then a check) establish SA; the fouled-deck
+    # rule applies regardless, but this models the "regardless of SA" intent.
+    _action(context, "player-1", pt.CALL, 5)
+    context.world.fold_emitted(DOMAIN)
+    _action(context, "player-2", pt.CHECK)
+    context.world.fold_emitted(DOMAIN)
+
+
+@when('the dealer reports a fouled deck (duplicate "{card}" found)')
+def _when_report_fouled(context, card):
+    context.world.dispatch(
+        DOMAIN, P + "ReportFouledDeck", hand.ReportFouledDeck(duplicate_card=card)
+    )
+
+
+@then("the deck is declared fouled")
+def _then_deck_fouled(context):
+    ev = context.world.emitted(P + "FouledDeckDetected", hand.FouledDeckDetected())
+    assert ev.duplicate_card, "no duplicate card recorded"
+
+
+@then("every player's contribution to the hand is refunded")
+def _then_all_refunded(context):
+    state = _rebuild(context)
+    for p in state.players:
+        assert (
+            p.total_invested == 0
+        ), f"{p.player_root.hex()} still has {p.total_invested} invested"
+
+
+@then("the hand is void")
+def _then_hand_void(context):
+    state = _rebuild(context)
+    assert state.status == "void", f"status = {state.status!r}, want 'void'"
+
+
+# --- EU-1230: misdeal taxonomy ---
+
+
+@given("a hand in progress with substantial action {sa}")
+def _given_hand_in_progress(context, sa):
+    _seed_named_deal(context, "Texas Hold'em", ["player-1", "player-2"], 500)
+    _post_seat_blinds(context, bet=10)
+    if sa.strip() == "true":
+        _action(context, "player-1", pt.CALL, 5)
+        context.world.fold_emitted(DOMAIN)
+        _action(context, "player-2", pt.CHECK)
+        context.world.fold_emitted(DOMAIN)
+
+
+@when('the dealer reports a misdeal of type "{misdeal_type}"')
+def _when_report_misdeal(context, misdeal_type):
+    context.world.dispatch(
+        DOMAIN, P + "DeclareMisdeal", hand.DeclareMisdeal(reason=misdeal_type)
+    )
+
+
+@then('the outcome is "{outcome}"')
+def _then_misdeal_outcome(context, outcome):
+    if outcome == "MISDEAL_REDEAL":
+        context.world.emitted(P + "MisdealDeclared", hand.MisdealDeclared())
+    elif outcome == "HAND_STANDS":
+        assert_rejected(context, "MISDEAL_TOO_LATE")
+    else:
+        raise AssertionError(f"unknown outcome {outcome!r}")

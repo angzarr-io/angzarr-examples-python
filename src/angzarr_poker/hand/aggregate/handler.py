@@ -187,6 +187,14 @@ def _betting_round_complete(state: _hand.HandState) -> _hand.BettingRoundComplet
     )
 
 
+def _substantial_action(state: _hand.HandState) -> bool:
+    """TDA Rule 36 Substantial Action: any 3+ voluntary actions this hand, or
+    exactly 2 where at least one put chips in the pot. Posted blinds do not
+    count (they are not ActionTaken)."""
+    n = state.actions_this_hand
+    return n >= 3 or (n == 2 and state.chip_actions_this_hand >= 1)
+
+
 def _next_to_show(state: _hand.HandState):
     """The next player obliged to table at showdown: the first seat in the
     established ``showdown_order`` that has neither shown/mucked nor folded.
@@ -796,6 +804,60 @@ class HandAggregate:
             )
         )
 
+    def declare_misdeal(
+        self,
+        cmd: _hand.DeclareMisdeal,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Declare a misdeal (TDA Rule 35). A misdeal can be called only before
+        Substantial Action occurs (Rule 36); once SA has happened the hand stands
+        and the misdeal is rejected. Pre-SA, ``MisdealDeclared`` is emitted (the
+        downstream flow redeals at the same button)."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        if _substantial_action(state):
+            raise _az.reject(
+                "MISDEAL_TOO_LATE",
+                "Substantial action has occurred — the hand stands",
+            )
+        return _book(
+            _hand.MisdealDeclared(
+                reason=cmd.reason,
+                dealer_button_preserved=cmd.dealer_button_preserved,
+                declared_at=_now(),
+            )
+        )
+
+    def report_fouled_deck(
+        self,
+        cmd: _hand.ReportFouledDeck,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Report a fouled deck (TDA Rule 35E): two cards of the same rank+suit.
+        Play stops regardless of Substantial Action — every wager is returned and
+        the hand is voided. ``FouledDeckDetected`` carries the refund."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        return _book(
+            _hand.FouledDeckDetected(
+                duplicate_card=cmd.duplicate_card, detected_at=_now()
+            )
+        )
+
+    def apply_fouled_deck_detected(
+        self, state: _hand.HandState, event: _hand.FouledDeckDetected
+    ) -> None:
+        """Void the hand and refund every wager: each player's invested chips
+        return to their stack and the hand is marked void."""
+        for p in state.players:
+            p.stack += p.total_invested
+            p.total_invested = 0
+            p.bet_this_round = 0
+        state.current_bet = 0
+        state.status = "void"
+
     def award_pot(
         self, cmd: _hand.AwardPot, state: _hand.HandState, cctx: _az.CommandContext
     ) -> Optional[_t.EventBook]:
@@ -894,6 +956,12 @@ class HandAggregate:
     def apply_action_taken(
         self, state: _hand.HandState, event: _hand.ActionTaken
     ) -> None:
+        # Substantial-action tracking (TDA Rule 36): every voluntary action
+        # counts; those that put chips in the pot count again. Blinds are posted
+        # via BlindPosted (not ActionTaken), so they are correctly excluded.
+        state.actions_this_hand += 1
+        if event.action in (_pt.CALL, _pt.BET, _pt.RAISE, _pt.ALL_IN):
+            state.chip_actions_this_hand += 1
         player = _find_player(state, event.player_root)
         if player is not None:
             player.stack = event.player_stack
