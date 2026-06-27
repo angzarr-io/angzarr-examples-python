@@ -1607,3 +1607,474 @@ def _when_split_high_half(context, amt):
 def _then_pid_receives(context, pid, amt):
     got = context.high_half_result[pid]
     assert got == amt, f"{pid} receives {got}, want {amt}"
+
+
+# ==========================================================================
+# Batch 5 — registered-command betting mechanics.
+# ==========================================================================
+
+
+def _seed_named_deal(context, variant, names, stack):
+    """Seed a CardsDealt for explicitly named players (Alice, Bob, …) at seats
+    0..n with real per-name roots, so name-specific and name-agnostic assertions
+    both resolve."""
+    context.dealt_stack = stack
+    players = [
+        hand.PlayerInHand(player_root=uuid_for(nm), position=i, stack=stack)
+        for i, nm in enumerate(names)
+    ]
+    context.world.seed_event(
+        DOMAIN,
+        P + "CardsDealt",
+        hand.CardsDealt(
+            table_root=_TABLE_ROOT,
+            hand_number=1,
+            game_variant=_VARIANTS[variant],
+            players=players,
+            remaining_deck=_fresh_deck()[2 * len(names) :],
+        ),
+    )
+
+
+# Most-specific (more names) first: behave returns the first matching step and a
+# 4-name line also contains the " and " a 2-name pattern keys on.
+@given(
+    "a {variant} hand has been dealt to {p1}, {p2}, {p3}, and {p4} with {stack:d}-chip stacks"
+)
+@given(
+    "an {variant} hand has been dealt to {p1}, {p2}, {p3}, and {p4} with {stack:d}-chip stacks"
+)
+def _given_dealt_4_named(context, variant, p1, p2, p3, p4, stack):
+    _seed_named_deal(context, variant, [p1, p2, p3, p4], stack)
+
+
+@given(
+    "a {variant} hand has been dealt to {p1}, {p2}, and {p3} with {stack:d}-chip stacks"
+)
+@given(
+    "an {variant} hand has been dealt to {p1}, {p2}, and {p3} with {stack:d}-chip stacks"
+)
+def _given_dealt_3_named(context, variant, p1, p2, p3, stack):
+    _seed_named_deal(context, variant, [p1, p2, p3], stack)
+
+
+@given("a {variant} hand has been dealt to {p1} and {p2} with {stack:d}-chip stacks")
+@given("an {variant} hand has been dealt to {p1} and {p2} with {stack:d}-chip stacks")
+def _given_dealt_2_named(context, variant, p1, p2, stack):
+    _seed_named_deal(context, variant, [p1, p2], stack)
+
+
+@given("blinds have been posted bringing the pot to {pot:d} for the named players")
+@given(
+    "blinds have been posted bringing the pot to {pot:d} with the bet at {bet:d} for the named players"
+)
+def _given_named_blinds(context, pot, bet=10):
+    # Post SB/BB by seat so the blinds attach to the seated (named) players.
+    state = _rebuild(context, include_last_emitted=False)
+    pos0 = next(p.player_root for p in state.players if p.position == 0)
+    pos1 = next(p.player_root for p in state.players if p.position == 1)
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=pos0, blind_type="small", amount=bet // 2),
+    )
+    context.world.fold_emitted(DOMAIN)
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=pos1, blind_type="big", amount=bet),
+    )
+    context.world.fold_emitted(DOMAIN)
+
+
+# --- Antes (EU-1110..1115) ---
+
+
+@given("{pid} posts an ante of {amt:d}")
+@when("{pid} posts an ante of {amt:d}")
+def _when_posts_ante(context, pid, amt):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=uuid_for(pid), blind_type="ante", amount=amt),
+    )
+    context.world.fold_emitted(DOMAIN)
+
+
+@when("{pid} attempts to post an ante of {amt:d}")
+def _when_attempts_ante(context, pid, amt):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=uuid_for(pid), blind_type="ante", amount=amt),
+    )
+
+
+@when("{pid} posts the big-blind ante of {amt:d}")
+def _when_posts_bb_ante(context, pid, amt):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=uuid_for(pid), blind_type="ante", amount=amt),
+    )
+
+
+@given("{pid} posts an ante of {amt:d} then folds before the flop")
+def _given_ante_then_folds(context, pid, amt):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PostBlind",
+        hand.PostBlind(player_root=uuid_for(pid), blind_type="ante", amount=amt),
+    )
+    context.world.fold_emitted(DOMAIN)
+    _action(context, pid, pt.FOLD)
+    context.world.fold_emitted(DOMAIN)
+
+
+def _count_blind_type(context, blind_type):
+    book = context.world._prior.get((DOMAIN, b"".hex()))
+    count = 0
+    for page in book.pages if book is not None else []:
+        if page.event.type_url.endswith("BlindPosted"):
+            ev = hand.BlindPosted()
+            ev.ParseFromString(page.event.value)
+            if ev.blind_type == blind_type:
+                count += 1
+    return count
+
+
+@then("{n:d} antes have been posted")
+def _then_n_antes(context, n):
+    got = _count_blind_type(context, "ante")
+    assert got == n, f"{got} antes posted, want {n}"
+
+
+@then("the big-blind ante is posted at {amt:d}")
+def _then_bb_ante_at(context, amt):
+    ev = context.world.emitted(P + "BlindPosted", hand.BlindPosted())
+    assert (
+        ev.blind_type == "ante" and ev.amount == amt
+    ), f"bb ante {ev.amount}/{ev.blind_type}"
+
+
+@then("the ante is posted at {amt:d}")
+def _then_ante_at(context, amt):
+    ev = context.world.emitted(P + "BlindPosted", hand.BlindPosted())
+    assert (
+        ev.blind_type == "ante" and ev.amount == amt
+    ), f"ante {ev.amount}/{ev.blind_type}"
+
+
+@then("the ante is posted")
+def _then_ante_posted(context):
+    ev = context.world.emitted(P + "BlindPosted", hand.BlindPosted())
+    assert ev.blind_type == "ante", f"not an ante: {ev.blind_type!r}"
+
+
+@then("the ante is refused because antes must be posted before the blinds")
+def _then_ante_after_blinds(context):
+    assert_rejected(context, "ANTE_AFTER_BLINDS")
+
+
+@then("the main pot includes {pid}'s ante of {amt:d}")
+def _then_main_includes_ante(context, pid, amt):
+    state = _rebuild(context, include_last_emitted=False)
+    p = _state_player(state, pid)
+    assert (
+        p is not None and p.total_invested == amt
+    ), f"{pid} ante = {p.total_invested if p else None}, want {amt}"
+    main = next(pp for pp in context.side_pots if pp.pot_type == "main")
+    others = sum(
+        q.total_invested for q in state.players if q.player_root != uuid_for(pid)
+    )
+    assert main.amount == others + amt, f"main {main.amount} excludes {pid}'s ante"
+
+
+# --- Play the board / partial muck (EU-1200, 1201) ---
+
+
+@when("{pid} reveals her cards")
+def _when_reveals_her(context, pid):
+    _reveal(context, pid, muck=False)
+
+
+@then("{pid} is playing the board")
+def _then_playing_board(context, pid):
+    ev = _revealed_for(context, pid)
+    assert ev.plays_the_board, f"{pid} is not playing the board"
+
+
+@when("{pid} attempts to reveal while mucking only the card at position {i:d}")
+def _when_reveal_partial(context, pid, i):
+    state = _rebuild(context, include_last_emitted=False)
+    p = _state_player(state, pid)
+    tabled = [k for k in range(len(p.hole_cards)) if k != i]
+    context.world.dispatch(
+        DOMAIN,
+        P + "RevealCards",
+        hand.RevealCards(player_root=uuid_for(pid), muck=False, tabled_indices=tabled),
+    )
+
+
+@then(
+    "the reveal is refused because she cannot claim to play the board after mucking a hole card"
+)
+def _then_reveal_partial_board(context):
+    assert_rejected(context, "CANNOT_PLAY_BOARD_PARTIAL_MUCK")
+
+
+# --- All-in face-up muck (EU-1220) ---
+
+
+@given("a hand at showdown with all-in face-up required")
+def _given_showdown_allin(context):
+    names = ["Alice", "Bob", "Carol"]
+    players = [
+        hand.PlayerInHand(player_root=uuid_for(nm), position=i, stack=0)
+        for i, nm in enumerate(names)
+    ]
+    player_cards = [
+        hand.PlayerHoleCards(player_root=uuid_for(nm), cards=_cards("As Ks"))
+        for nm in names
+    ]
+    context.world.seed_event(
+        DOMAIN,
+        P + "CardsDealt",
+        hand.CardsDealt(
+            table_root=_TABLE_ROOT,
+            hand_number=1,
+            game_variant=pt.TEXAS_HOLDEM,
+            players=players,
+            player_cards=player_cards,
+            remaining_deck=[],
+        ),
+    )
+    # Mark every remaining player all-in (action closed with all-ins).
+    context.world.seed_event(
+        DOMAIN,
+        P + "BettingRoundComplete",
+        hand.BettingRoundComplete(
+            completed_phase=pt.RIVER,
+            stacks=[
+                hand.PlayerStackSnapshot(
+                    player_root=uuid_for(nm), stack=0, is_all_in=True
+                )
+                for nm in names
+            ],
+        ),
+    )
+    context.world.seed_event(
+        DOMAIN, P + "ShowdownStarted", hand.ShowdownStarted(face_up_required=True)
+    )
+
+
+@given("the showdown order is {names}")
+def _given_showdown_order_is(context, names):
+    context.showdown_order = _parse_names(names)
+
+
+@when("{pid} attempts to muck")
+def _when_attempts_muck(context, pid):
+    _reveal(context, pid, muck=True)
+
+
+@then("the muck is refused because the card must be face up")
+def _then_muck_face_up(context):
+    assert_rejected(context, "FACE_UP_REQUIRED")
+
+
+# --- Cumulative short all-ins reopen the bet (EU-1140, 1141) — derivation ---
+
+
+@given("the current bet is {bet:d} and the last raise increment is {inc:d}")
+def _given_bet_increment(context, bet, inc):
+    context.reopen_bet = bet
+    context.reopen_last_full = bet
+    context.reopen_inc = inc
+    context.reopen_reopened = False
+
+
+@when("one player goes all-in to {amt:d}")
+@when("another player goes all-in to {amt:d}")
+def _when_allin_to(context, amt):
+    # TDA 47A: measure the increment from the last FULL bet/raise level; betting
+    # reopens (and the min raise resets to that increment) once the cumulative
+    # increment reaches a full minimum raise.
+    increment = amt - context.reopen_last_full
+    context.reopen_bet = amt
+    if increment >= context.reopen_inc:
+        context.reopen_reopened = True
+        context.reopen_inc = increment
+        context.reopen_last_full = amt
+
+
+@then("the bet is reopened for prior actors")
+def _then_reopened(context):
+    assert context.reopen_reopened, "betting was not reopened"
+
+
+@then("the bet is not reopened for prior actors")
+def _then_not_reopened(context):
+    assert not context.reopen_reopened, "betting was reopened"
+
+
+@then("the last raise increment is {inc:d}")
+def _then_last_increment(context, inc):
+    assert context.reopen_inc == inc, f"increment {context.reopen_inc}, want {inc}"
+
+
+@then("the resulting current bet is {bet:d}")
+def _then_resulting_current_bet(context, bet):
+    assert context.reopen_bet == bet, f"current bet {context.reopen_bet}, want {bet}"
+
+
+# --- Pot-limit pre-flop max raise (EU-1286) — derivation ---
+
+
+@given(
+    "{pid} posted the small blind of {amt:d} from a stack of {stack:d} (short all-in)"
+)
+def _given_short_all_in_sb(context, pid, amt, stack):
+    context.plo_short_sb = amt
+
+
+@given("{pid} posted the big blind of {amt:d}")
+def _given_plo_bb(context, pid, amt):
+    context.plo_bb = amt
+
+
+@when("the pot-limit pre-flop maximum raise-to amount is computed for {pid}")
+def _when_plo_max_raise(context, pid):
+    # TDA 54B: pre-flop pot-limit assumes FULL blinds even with a short SB.
+    bb = context.plo_bb
+    full_sb = bb // 2
+    pot_after_call = full_sb + bb + bb  # SB + BB + the raiser's call of the BB
+    context.plo_max_raise_to = bb + pot_after_call
+
+
+@then("the maximum raise-to is {amt:d}")
+def _then_max_raise_to(context, amt):
+    assert (
+        context.plo_max_raise_to == amt
+    ), f"max raise-to {context.plo_max_raise_to}, want {amt}"
+
+
+# --- Verbal / chip declarations (EU-1133, 1134, 1135, 1346, 1347, 1289) ---
+
+
+def _action_taken(context):
+    return context.world.emitted(P + "ActionTaken", hand.ActionTaken())
+
+
+@given("{pid} has bet {amt:d} (a {inc:d} raise increment)")
+def _given_has_bet(context, pid, amt, inc):
+    state = _rebuild(context, include_last_emitted=False)
+    action = pt.RAISE if state.current_bet > 0 else pt.BET
+    _action(context, pid, action, amt)
+    context.world.fold_emitted(DOMAIN)
+
+
+@when("{pid} silently pushes {amt:d}")
+def _when_silently_pushes(context, pid, amt):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid),
+            action=pt.RAISE,
+            amount=amt,
+            bet_method=pt.BET_METHOD_CHIP_ONLY,
+        ),
+    )
+
+
+@when("{pid} declares a raise to {amt:d}")
+def _when_declares_raise(context, pid, amt):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid),
+            action=pt.RAISE,
+            amount=amt,
+            bet_method=pt.BET_METHOD_VERBAL_FIRST,
+        ),
+    )
+
+
+@when('{pid} verbally declares "raise" without an amount')
+def _when_verbal_raise_no_amount(context, pid):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid),
+            action=pt.RAISE,
+            amount=0,
+            bet_method=pt.BET_METHOD_VERBAL_FIRST,
+        ),
+    )
+
+
+@when('{pid} verbally declares "all-in" with no chips yet pushed')
+def _when_verbal_all_in(context, pid):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid),
+            action=pt.ALL_IN,
+            amount=0,
+            bet_method=pt.BET_METHOD_VERBAL_FIRST,
+        ),
+    )
+
+
+@when("{pid} folds with no bet to call")
+def _when_folds_no_bet(context, pid):
+    _action(context, pid, pt.FOLD)
+
+
+@then("{pid}'s action is recorded as a raise")
+def _then_recorded_as_raise(context, pid):
+    ev = _action_taken(context)
+    assert ev.action in (
+        pt.RAISE,
+        pt.ALL_IN,
+    ), f"action = {pt.ActionType.Name(ev.action)}, want RAISE"
+
+
+@then("{pid}'s raise totals {amt:d} ({note})")
+def _then_raise_totals(context, pid, amt, note):
+    ev = _action_taken(context)
+    assert ev.amount_to_call == amt, f"raise totals {ev.amount_to_call}, want {amt}"
+
+
+@then("{pid}'s all-in is recorded with a {n:d}-chip commit")
+def _then_all_in_commit(context, pid, n):
+    ev = _action_taken(context)
+    assert (
+        ev.action == pt.ALL_IN
+    ), f"action = {pt.ActionType.Name(ev.action)}, want ALL_IN"
+    assert ev.amount == n, f"commit = {ev.amount}, want {n}"
+
+
+@when('{pid} declares "bet the pot" on a no-limit table')
+def _when_declares_bet_the_pot(context, pid):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid),
+            action=pt.BET,
+            amount=0,
+            bet_method=pt.BET_METHOD_VERBAL_FIRST,
+        ),
+    )
+
+
+@then("{pid}'s bet is recorded at the big blind ({amt:d})")
+def _then_bet_at_big_blind(context, pid, amt):
+    ev = _action_taken(context)
+    assert ev.action == pt.BET, f"action = {pt.ActionType.Name(ev.action)}, want BET"
+    assert ev.amount == amt, f"bet = {ev.amount}, want {amt}"

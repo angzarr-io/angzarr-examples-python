@@ -187,6 +187,44 @@ def _betting_round_complete(state: _hand.HandState) -> _hand.BettingRoundComplet
     )
 
 
+def _interpret_declaration(cmd: _hand.PlayerAction, player, state: _hand.HandState):
+    """Map a verbal / chip-only declaration onto a concrete ``(action, amount)``
+    before the core betting switch runs (TDA Rules 40-46). The default method
+    (``BET_METHOD_UNSPECIFIED``) leaves the raw action untouched, so the existing
+    NLHE paths are unaffected.
+
+    - Chip-only (silent) push: a single oversized chip is a call (Rule 44); a
+      multi-chip push that at most covers the call is a call (Rule 41); otherwise
+      the raise increment is a full raise if it clears a minimum raise, promoted
+      up to a full minimum raise if it clears 50% of one (Rule 43A/45), and a
+      plain call below that. ``amount`` is the player's intended total wager this
+      round.
+    - Verbal-first raise: an amount-less or below-minimum verbal raise commits to
+      the minimum legal raise-to (Rules 42 / 52A).
+    """
+    action, amount = cmd.action, cmd.amount
+    min_legal_raise_to = state.current_bet + state.min_raise
+    if cmd.bet_method == _pt.BET_METHOD_CHIP_ONLY:
+        if cmd.chip_count == 1:  # a single oversized chip is always a call
+            return _pt.CALL, 0
+        if amount <= state.current_bet:  # at most covers the call
+            return _pt.CALL, 0
+        raise_increment = amount - state.current_bet
+        if raise_increment >= state.min_raise:
+            return _pt.RAISE, amount
+        if raise_increment * 2 >= state.min_raise:  # >= 50% of a full raise
+            return _pt.RAISE, min_legal_raise_to
+        return _pt.CALL, 0
+    if cmd.bet_method == _pt.BET_METHOD_VERBAL_FIRST:
+        if action == _pt.RAISE and (amount == 0 or amount < min_legal_raise_to):
+            return _pt.RAISE, min_legal_raise_to
+        # An invalid/amount-less verbal bet (e.g. "bet the pot" in no-limit) binds
+        # the player to at least a minimum bet (Rule 54D / 55B).
+        if action == _pt.BET and amount < state.min_raise:
+            return _pt.BET, state.min_raise
+    return action, amount
+
+
 class HandAggregate:
     """Implements ``HandAggregateHandler`` for the dealing + blinds subset."""
 
@@ -286,6 +324,12 @@ class HandAggregate:
             raise _az.reject(
                 "BLIND_AMOUNT_POSITIVE", "The blind amount must be positive"
             )
+        # Antes are collected before the blinds (TDA RP-11). Once the blinds have
+        # opened the betting (current_bet set by the big blind), an ante is late.
+        if cmd.blind_type == "ante" and state.current_bet > 0:
+            raise _az.reject(
+                "ANTE_AFTER_BLINDS", "Antes must be posted before the blinds"
+            )
 
         posted = min(cmd.amount, player.stack)  # all-in cap
         new_stack = player.stack - posted
@@ -346,7 +390,11 @@ class HandAggregate:
         if player is not None:
             player.stack = event.player_stack
             player.total_invested += event.amount
-            player.bet_this_round += event.amount
+            # Antes are forced pre-round bets: they contribute to the pot but do
+            # not count as this round's wager (they never establish a level to
+            # call), so they stay out of bet_this_round.
+            if event.blind_type != "ante":
+                player.bet_this_round += event.amount
             if event.player_stack == 0:
                 player.is_all_in = True
             # Establish the betting level the round opens at. The big blind
@@ -398,8 +446,9 @@ class HandAggregate:
         if player.is_all_in:
             raise _az.reject("PLAYER_IS_ALL_IN", "Player is already all-in")
 
-        action = cmd.action
-        amount = cmd.amount
+        # Reinterpret verbal / chip-only declarations into a concrete action
+        # before the switch (no-op for the default UNSPECIFIED method).
+        action, amount = _interpret_declaration(cmd, player, state)
         call_amount = state.current_bet - player.bet_this_round
         chips_put_in = amount
         event_amount = amount
@@ -621,21 +670,43 @@ class HandAggregate:
             raise _az.reject("PLAYER_HAS_FOLDED", "Player has already folded")
 
         if cmd.muck:
+            # TDA Rule 16: once any player is all-in and action is closed, every
+            # remaining hand must be tabled face up — a muck is not allowed.
+            if any(p.is_all_in for p in state.players):
+                raise _az.reject(
+                    "FACE_UP_REQUIRED",
+                    "All hands must be tabled face up at an all-in showdown",
+                )
             return _book(
                 _hand.CardsMucked(player_root=cmd.player_root, mucked_at=_now())
             )
 
         rules = get_game_rules(state.game_variant)
-        rank_type, score, kickers = rules.evaluate_hand(
-            list(player.hole_cards), list(state.community_cards)
-        )
+        hole = list(player.hole_cards)
+        community = list(state.community_cards)
+        rank_type, score, kickers = rules.evaluate_hand(hole, community)
+        # Plays the board (TDA Rule 19): the player's best five is the board
+        # itself — the hole cards add nothing.
+        plays_board = False
+        if len(community) >= 5:
+            _, board_score, _ = rules.evaluate_hand([], community)
+            plays_board = score == board_score
+        # To play the board a player must table ALL hole cards; tabling only some
+        # (a partial muck) forfeits any claim that rests on the board.
+        tabled = list(cmd.tabled_indices)
+        if tabled and len(set(tabled)) < len(hole) and plays_board:
+            raise _az.reject(
+                "CANNOT_PLAY_BOARD_PARTIAL_MUCK",
+                "Cannot claim to play the board after mucking a hole card",
+            )
         event = _hand.CardsRevealed(
             player_root=cmd.player_root,
-            cards=list(player.hole_cards),
+            cards=hole,
             ranking=_pt.HandRanking(
                 rank_type=rank_type, kickers=list(kickers), score=score
             ),
             revealed_at=_now(),
+            plays_the_board=plays_board,
         )
         return _book(event)
 
