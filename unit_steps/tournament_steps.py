@@ -1078,3 +1078,103 @@ def _then_no_bounty_for(context, name):
             assert ev.knocked_out_root != uuid_for(
                 name
             ), f"a bounty was paid for {name}"
+
+
+# ===========================================================================
+# Slice 8: pause / resume + open/close-registration state-machine guards
+# ===========================================================================
+
+
+@given("a paused tournament")
+def _given_paused(context):
+    """A RUNNING tournament that has since been paused — seeded so a pause-again
+    rejects and a resume transitions back to running."""
+    _seed_running(context)
+    context.world.seed_event(DOMAIN, P + "TournamentPaused", trn.TournamentPaused())
+
+
+@then('the tournament is paused with reason "{reason}"')
+def _then_paused_reason(context, reason):
+    ev = context.world.emitted(P + "TournamentPaused", trn.TournamentPaused())
+    assert ev.reason == reason, f"reason = {ev.reason!r}, want {reason!r}"
+
+
+@then("the pause is refused because the tournament is already paused")
+def _then_pause_already(context):
+    assert_rejected(context, "TOURNAMENT_ALREADY_PAUSED")
+
+
+@then("the tournament has resumed")
+def _then_resumed(context):
+    context.world.emitted(P + "TournamentResumed", trn.TournamentResumed())
+
+
+@then("opening registration is refused because the tournament is running")
+def _then_open_running(context):
+    assert_rejected(context, "TOURNAMENT_RUNNING")
+
+
+@then("registration is closed with {n:d} total registrations")
+def _then_reg_closed_count(context, n):
+    ev = context.world.emitted(P + "RegistrationClosed", trn.RegistrationClosed())
+    assert (
+        ev.total_registrations == n
+    ), f"total_registrations = {ev.total_registrations}, want {n}"
+
+
+# ===========================================================================
+# Slice 9: hand-for-hand level-clock economy (TDA RP-8B / RP-8C)
+# ===========================================================================
+# The level clock is presentation (the aggregate records the per-hand deduction
+# on HandForHandHandRecorded; it holds no running clock). The step therefore
+# tracks level_seconds_remaining in scenario context, subtracting the deduction
+# the handler computes for each H4H hand: a 180s (3-minute) ceiling for a hand
+# that ran long (RP-8B), and a 120s (2-minute) default per hand (RP-8C).
+
+
+def _h4h_hand(context, real_seconds=0):
+    """Record one hand-for-hand hand and apply the handler-computed clock
+    deduction to the context-tracked level clock."""
+    context.world.dispatch(
+        DOMAIN,
+        P + "RecordHandForHandHand",
+        trn.RecordHandForHandHand(real_seconds=real_seconds),
+    )
+    ev = context.world.emitted(
+        P + "HandForHandHandRecorded", trn.HandForHandHandRecorded()
+    )
+    context.level_seconds_remaining -= ev.clock_seconds_deducted
+
+
+@given(
+    'a running tournament "{name}" with hand-for-hand active and '
+    "level_seconds_remaining {secs:d}"
+)
+def _given_h4h_clock(context, name, secs):
+    _seed_running(context)
+    context.world.seed_event(DOMAIN, P + "HandForHandStarted", trn.HandForHandStarted())
+    context.level_seconds_remaining = secs
+
+
+@when("a hand-for-hand hand takes {mins:d} minutes of real time to complete")
+def _when_h4h_real(context, mins):
+    _h4h_hand(context, real_seconds=mins * 60)
+
+
+@when("the {nth} hand-for-hand hand completes")
+def _when_h4h_complete(context, nth):
+    _h4h_hand(context)
+
+
+@then("the level_seconds_remaining after the hand equals {secs:d}")
+def _then_h4h_clock_after(context, secs):
+    assert (
+        context.level_seconds_remaining == secs
+    ), f"level_seconds_remaining = {context.level_seconds_remaining}, want {secs}"
+
+
+@then("the level_seconds_remaining is {secs:d}")
+def _then_h4h_clock_is(context, secs):
+    assert (
+        context.level_seconds_remaining == secs
+    ), f"level_seconds_remaining = {context.level_seconds_remaining}, want {secs}"

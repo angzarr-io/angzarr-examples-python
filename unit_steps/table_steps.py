@@ -15,6 +15,7 @@ from angzarr_poker._gen.io.angzarr.examples.v1 import buy_in_pb2 as buy_in
 from angzarr_poker._gen.io.angzarr.examples.v1 import poker_types_pb2 as pt
 from angzarr_poker._gen.io.angzarr.examples.v1 import rebuy_pb2 as rebuy
 from angzarr_poker._gen.io.angzarr.examples.v1 import table_pb2 as table
+from angzarr_poker.table.aggregate.handler import TableAggregate
 from unit_steps._harness import uuid_for
 from unit_steps.common_steps import assert_rejected
 
@@ -45,6 +46,13 @@ def _use_table(context, name) -> bytes:
     root = uuid_for(name)
     context.current_table_root = root
     return root
+
+
+def _pid_root(pid: str) -> bytes:
+    """A player's root id, or empty bytes when the scenario passes "" to assert
+    the player_root-required guard. ``uuid_for("")`` would hash to non-empty
+    bytes, so the empty-identity case is mapped to ``b""`` explicitly."""
+    return uuid_for(pid) if pid else b""
 
 
 def _seed_table(context, name, **overrides):
@@ -111,6 +119,13 @@ def _given_seated(context, pid, pos):
 
 @given('player "{pid}" is seated at position {pos:d} with a {stack:d}-chip stack')
 def _given_seated_stack(context, pid, pos, stack):
+    _seed_seat(context, pid, pos, stack)
+
+
+@given('player "{pid}" is seated at position {pos:d} with an {stack:d}-chip stack')
+def _given_seated_stack_an(context, pid, pos, stack):
+    """The "an" variant for stacks beginning with a vowel sound (e.g. an
+    800-chip stack); behave's literal "a " matcher would not otherwise match."""
     _seed_seat(context, pid, pos, stack)
 
 
@@ -193,7 +208,7 @@ def _when_create(context, variant, name):
 @when('player "{pid}" joins the table at seat {seat:d} with a buy-in of {amt:d}')
 def _when_join_seat(context, pid, seat, amt):
     cmd = table.JoinTable(
-        player_root=uuid_for(pid), preferred_seat=seat, buy_in_amount=amt
+        player_root=_pid_root(pid), preferred_seat=seat, buy_in_amount=amt
     )
     context.world.dispatch(DOMAIN, P + "JoinTable", cmd, root=_table_root(context))
 
@@ -211,7 +226,7 @@ def _when_leave(context, pid):
     context.world.dispatch(
         DOMAIN,
         P + "LeaveTable",
-        table.LeaveTable(player_root=uuid_for(pid)),
+        table.LeaveTable(player_root=_pid_root(pid)),
         root=_table_root(context),
     )
 
@@ -446,7 +461,7 @@ def _assert_seating_rejected(context, reason_keyword=None):
 )
 def _when_seat_player(context, pid, seat, res, amt):
     cmd = buy_in.SeatPlayer(
-        player_root=uuid_for(pid), reservation_id=uuid_for(res), seat=seat, amount=amt
+        player_root=_pid_root(pid), reservation_id=uuid_for(res), seat=seat, amount=amt
     )
     context.world.dispatch(DOMAIN, P + "SeatPlayer", cmd, root=_table_root(context))
 
@@ -504,7 +519,7 @@ def _then_seat_no_table(context):
 @when('player "{pid}" re-buys {amt:d} chips with reservation "{res}" at seat {seat:d}')
 def _when_rebuy(context, pid, amt, res, seat):
     cmd = rebuy.AddRebuyChips(
-        player_root=uuid_for(pid), reservation_id=uuid_for(res), seat=seat, amount=amt
+        player_root=_pid_root(pid), reservation_id=uuid_for(res), seat=seat, amount=amt
     )
     context.world.dispatch(DOMAIN, P + "AddRebuyChips", cmd, root=_table_root(context))
 
@@ -542,3 +557,313 @@ def _then_rebuy_no_table(context):
 @then("the re-buy is refused because a player identity is required")
 def _then_rebuy_no_player(context):
     assert_rejected(context, "INVALID_ARGUMENT")
+
+
+# =============================================================================
+# State reconstruction + Phase-2 validation
+#   EU-0119/0120 (rebuild), EU-0531/0532 (create validation),
+#   EU-0535/0537/0538 (join/leave guards), EU-0541/0542 (end-hand lifecycle),
+#   EU-0543/0544 (blind placement), EU-0545 (table-id derivation)
+# =============================================================================
+#
+# Reconstruction scenarios carry no When: they seed a prior-events history and
+# assert the rebuilt TableState. The FFI seam exposes no state query, so we fold
+# the seeded (and, for lifecycle scenarios, the just-emitted) events through the
+# real ``TableAggregate`` appliers — the same fold the core runs — and assert on
+# the resulting proto state.
+
+_EVENT_APPLIERS = {
+    "TableCreated": (table.TableCreated, "apply_table_created"),
+    "PlayerJoined": (table.PlayerJoined, "apply_player_joined"),
+    "PlayerLeft": (table.PlayerLeft, "apply_player_left"),
+    "PlayerSatOut": (table.PlayerSatOut, "apply_player_sat_out"),
+    "PlayerSatIn": (table.PlayerSatIn, "apply_player_sat_in"),
+    "HandStarted": (table.HandStarted, "apply_hand_started"),
+    "HandEnded": (table.HandEnded, "apply_hand_ended"),
+    "ChipsAdded": (table.ChipsAdded, "apply_chips_added"),
+}
+
+
+def _rebuild_state(context) -> table.TableState:
+    """Fold the current table's seeded prior events through the TableAggregate
+    appliers into a fresh proto ``TableState`` — mirrors the core's rebuild."""
+    agg = TableAggregate()
+    state = table.TableState()
+    for page in context.world.prior_pages(DOMAIN, _table_root(context)):
+        short = page.event.type_url.rsplit("/", 1)[-1].rsplit(".", 1)[-1]
+        entry = _EVENT_APPLIERS.get(short)
+        if entry is None:
+            continue
+        cls, method = entry
+        getattr(agg, method)(state, cls.FromString(page.event.value))
+    return state
+
+
+# --- When: end-hand mismatch / start-then-end lifecycle ---
+
+
+@when("the hand ends but the hand identity does not match the one in progress")
+def _when_end_hand_wrong_root(context):
+    cmd = table.EndHand(
+        hand_root=uuid_for("not-the-current-hand"),
+        results=[table.PotResult(winner_root=uuid_for("player-1"), amount=50)],
+    )
+    context.world.dispatch(DOMAIN, P + "EndHand", cmd, root=_table_root(context))
+
+
+@when('a hand is started and then ended with "{pid}" winning {amt:d}')
+def _when_start_then_end(context, pid, amt):
+    """Run StartHand then EndHand in sequence, reusing the emitted hand_root and
+    folding each emitted event back into the history so the EndHand command (and
+    the rebuilt-state Then steps) observe the lifecycle progress."""
+    root = _table_root(context)
+    context.world.dispatch(DOMAIN, P + "StartHand", table.StartHand(), root=root)
+    started = context.world.emitted(P + "HandStarted", table.HandStarted())
+    context.world.fold_emitted(DOMAIN, root)
+    cmd = table.EndHand(
+        hand_root=started.hand_root,
+        results=[table.PotResult(winner_root=uuid_for(pid), amount=amt)],
+    )
+    context.world.dispatch(DOMAIN, P + "EndHand", cmd, root=root)
+    context.world.fold_emitted(DOMAIN, root)
+
+
+# --- Then: rebuilt-state assertions ---
+
+
+@then("the table has {n:d} seated players")
+def _then_seated_count(context, n):
+    state = _rebuild_state(context)
+    assert len(state.seats) == n, f"seated = {len(state.seats)}, want {n}"
+
+
+@then('seat {seat:d} is occupied by "{pid}"')
+def _then_seat_occupied_by(context, seat, pid):
+    state = _rebuild_state(context)
+    occupant = next((s for s in state.seats if s.position == seat), None)
+    assert occupant is not None, f"seat {seat} is empty"
+    assert occupant.player_root == uuid_for(
+        pid
+    ), f"seat {seat} occupant = {occupant.player_root!r}, want {uuid_for(pid)!r}"
+
+
+@then("the table is waiting for a hand to start")
+def _then_waiting(context):
+    state = _rebuild_state(context)
+    assert state.status == "waiting", f"status = {state.status!r}, want 'waiting'"
+
+
+@then("a hand is in progress at the table")
+def _then_hand_in_progress(context):
+    state = _rebuild_state(context)
+    assert state.status == "in_hand", f"status = {state.status!r}, want 'in_hand'"
+
+
+@then("the table has played {n:d} hand")
+def _then_played_hands(context, n):
+    state = _rebuild_state(context)
+    assert state.hand_count == n, f"hand_count = {state.hand_count}, want {n}"
+
+
+@then("no hand is currently in progress at the table")
+def _then_no_hand_in_progress(context):
+    state = _rebuild_state(context)
+    assert state.status != "in_hand", f"status = {state.status!r}, want not in_hand"
+    assert (
+        state.current_hand_root == b""
+    ), f"current_hand_root = {state.current_hand_root!r}, want empty"
+
+
+@then('the table carries the identity derived from its name "{name}"')
+def _then_identity_from_name(context, name):
+    state = _rebuild_state(context)
+    expected = f"table_{name}"
+    assert (
+        state.table_id == expected
+    ), f"table_id = {state.table_id!r}, want {expected!r}"
+
+
+# --- Then: heads-up / 3-handed blind placement (emitted HandStarted) ---
+
+
+@then("the dealer is the small blind for the heads-up hand")
+def _then_dealer_is_sb(context):
+    ev = context.world.emitted(P + "HandStarted", table.HandStarted())
+    assert ev.small_blind_position == ev.dealer_position, (
+        f"SB = {ev.small_blind_position}, dealer = {ev.dealer_position}; "
+        "heads-up dealer must post the small blind"
+    )
+
+
+@then("the small blind is in a different seat from the dealer")
+def _then_sb_differs(context):
+    ev = context.world.emitted(P + "HandStarted", table.HandStarted())
+    assert ev.small_blind_position != ev.dealer_position, (
+        f"SB and dealer both at {ev.small_blind_position}; with 3+ players the "
+        "small blind is left of the dealer"
+    )
+
+
+# --- Then: identity-required / table-existence rejections ---
+
+
+@then("the join is refused because a player identity is required")
+def _then_join_no_player(context):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+@then("the leave is refused because a player identity is required")
+def _then_leave_no_player(context):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+@then("the leave is refused because the table does not exist")
+def _then_leave_no_table(context):
+    assert_rejected(context, "TABLE_NOT_FOUND")
+
+
+# --- Then: CreateTable validation rejections (all coded INVALID_ARGUMENT) ---
+
+
+@then("the create-table is refused because a table name is required")
+def _then_create_no_name(context):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+@then("the create-table is refused because the minimum buy-in must be positive")
+def _then_create_min_buyin(context):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+@then(
+    "the create-table is refused because the maximum buy-in of {hi:d} must "
+    "exceed the minimum buy-in of {lo:d}"
+)
+def _then_create_max_below_min(context, hi, lo):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+@then("the create-table is refused because the small blind must be positive")
+def _then_create_small_blind(context):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+@then(
+    "the create-table is refused because the big blind of {bb:d} must exceed "
+    "the small blind of {sb:d}"
+)
+def _then_create_big_blind(context, bb, sb):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+@then(
+    "the create-table is refused because max_players of {n:d} is out of the "
+    "allowed 2-10 range"
+)
+def _then_create_max_players(context, n):
+    assert_rejected(context, "INVALID_ARGUMENT")
+
+
+# --- When: empty-quote inputs (required-field guards) ---
+#
+# behave's parse ``{field}`` will not bind an empty ``""`` capture, so these
+# regex steps match only the empty-quote forms and exercise the same handler
+# dispatch as their non-empty parse siblings (which still own the populated
+# inputs, so there is no ambiguity).
+use_step_matcher("re")
+
+
+@when('a Texas Hold\'em table named "" is created with:')
+def _when_create_empty_name(context):
+    _when_create(context, "Texas Hold'em", "")
+
+
+@when(r'player "" joins the table at seat (?P<seat>\d+) with a buy-in of (?P<amt>\d+)')
+def _when_join_empty(context, seat, amt):
+    _when_join_seat(context, "", int(seat), int(amt))
+
+
+@when(r'player "" leaves the table')
+def _when_leave_empty(context):
+    _when_leave(context, "")
+
+
+@when(
+    r'player "" is seated at position (?P<seat>-?\d+) with reservation '
+    r'"(?P<res>[^"]+)" for (?P<amt>\d+) chips'
+)
+def _when_seat_player_empty(context, seat, res, amt):
+    _when_seat_player(context, "", int(seat), res, int(amt))
+
+
+@when(
+    r'player "" re-buys (?P<amt>\d+) chips with reservation '
+    r'"(?P<res>[^"]+)" at seat (?P<seat>-?\d+)'
+)
+def _when_rebuy_empty(context, amt, res, seat):
+    _when_rebuy(context, "", int(amt), res, int(seat))
+
+
+use_step_matcher("parse")
+
+
+# --- Given: sit-out / sit-in / re-buy facts (seeded prior events) ---
+
+
+@given('player "{pid}" is sitting out')
+def _given_sitting_out(context, pid):
+    context.world.seed_event(
+        DOMAIN,
+        P + "PlayerSatOut",
+        table.PlayerSatOut(player_root=uuid_for(pid)),
+        root=_table_root(context),
+    )
+
+
+@given('player "{pid}" sits back in')
+def _given_sits_back_in(context, pid):
+    context.world.seed_event(
+        DOMAIN,
+        P + "PlayerSatIn",
+        table.PlayerSatIn(player_root=uuid_for(pid)),
+        root=_table_root(context),
+    )
+
+
+@given('player "{pid}" re-buys to bring the stack to {total:d}')
+def _given_rebuy_to(context, pid, total):
+    context.world.seed_event(
+        DOMAIN,
+        P + "ChipsAdded",
+        table.ChipsAdded(player_root=uuid_for(pid), new_stack=total),
+        root=_table_root(context),
+    )
+
+
+# --- Then: state accessors (rebuilt TableState) ---
+
+
+@then("the table is full")
+def _then_full(context):
+    state = _rebuild_state(context)
+    assert len(state.seats) >= state.max_players, (
+        f"seated {len(state.seats)} < max_players {state.max_players}; "
+        "expected the table to be full"
+    )
+
+
+@then("{n:d} player is currently active at the table")
+def _then_active_count(context, n):
+    state = _rebuild_state(context)
+    active = sum(1 for s in state.seats if not s.is_sitting_out)
+    assert active == n, f"active = {active}, want {n}"
+
+
+@then("the player at seat {seat:d} has an {stack:d}-chip stack")
+def _then_seat_stack(context, seat, stack):
+    state = _rebuild_state(context)
+    occupant = next((s for s in state.seats if s.position == seat), None)
+    assert occupant is not None, f"seat {seat} is empty"
+    assert (
+        occupant.stack.amount == stack
+    ), f"seat {seat} stack = {occupant.stack.amount}, want {stack}"

@@ -28,6 +28,7 @@ from angzarr_poker._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_poker._gen.io.angzarr.examples.v1.hand_aggregate_angzarr import (
     HandAggregateHandler,
 )
+from angzarr_poker.hand.game_rules import get_game_rules
 
 # Hole cards dealt per player by variant (the dealing subset).
 _HOLE_CARDS = {
@@ -269,9 +270,22 @@ class HandAggregate:
     def post_blind(
         self, cmd: _hand.PostBlind, state: _hand.HandState, cctx: _az.CommandContext
     ) -> Optional[_t.EventBook]:
+        # Pre-condition gates (TDA Rule 30: folded/absent players cannot act).
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        if state.status == "complete":
+            raise _az.reject("HAND_ALREADY_COMPLETE", "The hand is already complete")
+        if not cmd.player_root:
+            raise _az.reject("PLAYER_ROOT_REQUIRED", "A player must be identified")
         player = _find_player(state, cmd.player_root)
         if player is None:
             raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        if player.has_folded:
+            raise _az.reject("PLAYER_HAS_FOLDED", "Player has already folded")
+        if cmd.amount <= 0:
+            raise _az.reject(
+                "BLIND_AMOUNT_POSITIVE", "The blind amount must be positive"
+            )
 
         posted = min(cmd.amount, player.stack)  # all-in cap
         new_stack = player.stack - posted
@@ -368,6 +382,8 @@ class HandAggregate:
         must reach. Advanced TDA behaviours (string-bet, chip-motion, verbal
         declarations, fixed-limit caps, turn-order enforcement) are out of scope.
         """
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
         if state.status != "betting":
             raise _az.reject(
                 "NOT_IN_BETTING_PHASE", "The hand is not in a betting phase"
@@ -523,11 +539,105 @@ class HandAggregate:
             return _book(event, _turn_assigned(after, nxt))
         return _book(event)
 
-    def request_draw(self, cmd, state, cctx):
-        raise NotImplementedError("request_draw not ported")
+    def request_draw(
+        self, cmd: _hand.RequestDraw, state: _hand.HandState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        """Five Card Draw discard/draw (WSOP IX draw mechanics / TDA RP-17): the
+        player names the positions to discard and gets fresh cards off the top of
+        the deck in exactly those slots; the kept positions stay put. Standing pat
+        is an empty discard list — a no-op draw that still records the turn.
+        Drawing is legal only in Five Card Draw; other variants are rejected.
 
-    def reveal_cards(self, cmd, state, cctx):
-        raise NotImplementedError("reveal_cards not ported")
+        ``DrawCompleted`` carries the full post-draw hand in ``new_cards`` (in seat
+        order) so the applier swaps exactly the drawn slots, plus the discarded /
+        drawn counts (equal — every discard is replaced)."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        if state.status == "complete":
+            raise _az.reject("HAND_ALREADY_COMPLETE", "The hand is already complete")
+        if not cmd.player_root:
+            raise _az.reject("PLAYER_ROOT_REQUIRED", "A player must be identified")
+        player = _find_player(state, cmd.player_root)
+        if player is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        if player.has_folded:
+            raise _az.reject("PLAYER_HAS_FOLDED", "Player has already folded")
+        if state.game_variant != _pt.FIVE_CARD_DRAW:
+            raise _az.reject(
+                "DRAW_NOT_SUPPORTED", "This game variant does not support drawing"
+            )
+
+        indices = list(cmd.card_indices)
+        if len(set(indices)) != len(indices):
+            raise _az.reject(
+                "DUPLICATE_CARD_INDICES", "A card position was listed more than once"
+            )
+        if len(indices) > len(player.hole_cards):
+            raise _az.reject(
+                "TOO_MANY_DISCARDS", "Cannot discard more cards than are held"
+            )
+        for idx in indices:
+            if idx < 0 or idx >= len(player.hole_cards):
+                raise _az.reject(
+                    "INVALID_CARD_INDEX", f"Card position {idx} is out of range"
+                )
+        if len(state.remaining_deck) < len(indices):
+            raise _az.reject("NOT_ENOUGH_CARDS", "Not enough cards remain in the deck")
+
+        # Draw replacements off the top of the deck and slot them into exactly the
+        # discarded positions; everything else is kept in place.
+        drawn = list(state.remaining_deck[: len(indices)])
+        new_hand = list(player.hole_cards)
+        for slot, idx in enumerate(sorted(indices)):
+            new_hand[idx] = drawn[slot]
+
+        event = _hand.DrawCompleted(
+            player_root=cmd.player_root,
+            cards_discarded=len(indices),
+            cards_drawn=len(indices),
+            new_cards=new_hand,
+            drawn_at=_now(),
+        )
+        return _book(event)
+
+    def reveal_cards(
+        self, cmd: _hand.RevealCards, state: _hand.HandState, cctx: _az.CommandContext
+    ) -> Optional[_t.EventBook]:
+        """Showdown reveal or muck (TDA Rules 13A/14). Mucking concedes without
+        showing — emit ``CardsMucked``. Revealing tables the hole cards and runs
+        the evaluator over the player's hole cards plus the board, emitting
+        ``CardsRevealed`` with the resolved ``HandRanking`` (rank type, kickers,
+        and a comparison score)."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        if state.status != "showdown":
+            raise _az.reject("NOT_IN_SHOWDOWN", "The hand is not at showdown")
+        if not cmd.player_root:
+            raise _az.reject("PLAYER_ROOT_REQUIRED", "A player must be identified")
+        player = _find_player(state, cmd.player_root)
+        if player is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        if player.has_folded:
+            raise _az.reject("PLAYER_HAS_FOLDED", "Player has already folded")
+
+        if cmd.muck:
+            return _book(
+                _hand.CardsMucked(player_root=cmd.player_root, mucked_at=_now())
+            )
+
+        rules = get_game_rules(state.game_variant)
+        rank_type, score, kickers = rules.evaluate_hand(
+            list(player.hole_cards), list(state.community_cards)
+        )
+        event = _hand.CardsRevealed(
+            player_root=cmd.player_root,
+            cards=list(player.hole_cards),
+            ranking=_pt.HandRanking(
+                rank_type=rank_type, kickers=list(kickers), score=score
+            ),
+            revealed_at=_now(),
+        )
+        return _book(event)
 
     def award_pot(
         self, cmd: _hand.AwardPot, state: _hand.HandState, cctx: _az.CommandContext
@@ -535,14 +645,54 @@ class HandAggregate:
         """Fast-forward hand completion: pay the named winners and finish the
         hand. Tournament acceptance uses this to close a hand without scripting
         every betting action — the pot award is the observable outcome the
-        downstream saga (PotAwarded → DepositFunds) and read models react to."""
+        downstream saga (PotAwarded → DepositFunds) and read models react to.
+
+        Ledger-conservation guards (TDA Rules 12/21): only eligible (un-folded,
+        in-hand) players can be paid; the award sum may not exceed the pot. An
+        under-award is auto-corrected up to the pot (the first winner absorbs the
+        difference); an over-award is rejected outright. Pot total is taken from
+        what players have invested — when nothing is invested (a fast-forwarded
+        showdown with no betting history) the bound is 0 and amounts pass through
+        untouched."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        if state.status == "complete":
+            raise _az.reject("HAND_ALREADY_COMPLETE", "The hand is already complete")
         if not cmd.awards:
             raise _az.reject("NO_AWARDS", "AwardPot must name at least one winner")
+        for a in cmd.awards:
+            player = _find_player(state, a.player_root)
+            if player is None:
+                raise _az.reject("PLAYER_NOT_IN_HAND", "Winner is not in this hand")
+            if player.has_folded:
+                raise _az.reject(
+                    "PLAYER_HAS_FOLDED", "A folded player cannot win the pot"
+                )
+
+        pot_total = _pot_total(state)
+        total_awarded = sum(a.amount for a in cmd.awards)
+        if pot_total > 0 and total_awarded > pot_total:
+            raise _az.reject(
+                "AWARDS_EXCEED_POT",
+                f"Awards total {total_awarded} exceed the pot of {pot_total}",
+            )
+
+        awards = [
+            _hand.PotAward(
+                player_root=a.player_root, amount=a.amount, pot_type=a.pot_type
+            )
+            for a in cmd.awards
+        ]
+        # Under-award correction: the first winner absorbs the shortfall so the
+        # payout conserves the pot exactly (skipped when the pot bound is 0).
+        if pot_total > 0 and total_awarded != pot_total:
+            awards[0].amount = pot_total - sum(a.amount for a in awards[1:])
+
         winners = [
             _hand.PotWinner(
                 player_root=a.player_root, amount=a.amount, pot_type=a.pot_type
             )
-            for a in cmd.awards
+            for a in awards
         ]
         return _book(_hand.PotAwarded(winners=winners, awarded_at=_now()))
 
@@ -637,8 +787,25 @@ class HandAggregate:
         state.current_bet = 0
         state.min_raise = state.big_blind
 
-    def apply_draw_completed(self, state, event):
-        raise NotImplementedError("apply_draw_completed not ported")
+    def apply_draw_completed(
+        self, state: _hand.HandState, event: _hand.DrawCompleted
+    ) -> None:
+        """Swap the player's hand for the post-draw hand the event carries, and
+        burn the freshly drawn cards from the remaining deck (those now held that
+        the player did not hold before)."""
+        player = _find_player(state, event.player_root)
+        if player is None:
+            return
+        prior = {(c.suit, c.rank) for c in player.hole_cards}
+        del player.hole_cards[:]
+        player.hole_cards.extend(event.new_cards)
+        for card in event.new_cards:
+            if (card.suit, card.rank) in prior:
+                continue
+            for i, dc in enumerate(state.remaining_deck):
+                if dc.suit == card.suit and dc.rank == card.rank:
+                    del state.remaining_deck[i]
+                    break
 
     def apply_showdown_started(
         self, state: _hand.HandState, event: _hand.ShowdownStarted
