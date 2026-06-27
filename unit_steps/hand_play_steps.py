@@ -2078,3 +2078,47 @@ def _then_bet_at_big_blind(context, pid, amt):
     ev = _action_taken(context)
     assert ev.action == pt.BET, f"action = {pt.ActionType.Name(ev.action)}, want BET"
     assert ev.amount == amt, f"bet = {ev.amount}, want {amt}"
+
+
+# --- Action clock (TDA Rule 29) — EU-1130..1132 -----------------------------
+# The clock may only run on the seat currently to act; expiry is not its own
+# command — per the rule it resolves to the auto-action (FOLD when facing a bet,
+# CHECK otherwise), which the driver issues as a normal PlayerAction.
+
+
+@given("the action is on {pid}")
+def _given_action_on(context, pid):
+    state = _rebuild(context, include_last_emitted=False)
+    player = next((p for p in state.players if p.player_root == uuid_for(pid)), None)
+    assert player is not None, f"{pid} is not in the hand"
+    assert state.action_on_position == player.position, (
+        f"action is on seat {state.action_on_position}, "
+        f"want {pid} at seat {player.position}"
+    )
+
+
+@when("the action clock is started on {pid} for {seconds:d} seconds")
+def _when_start_action_clock(context, pid, seconds):
+    context.world.dispatch(
+        DOMAIN,
+        P + "StartActionClock",
+        hand.StartActionClock(player_root=uuid_for(pid), seconds=seconds),
+    )
+    # Success folds ActionClockStarted into history; a rejection leaves
+    # world.err set for the refusal Then.
+    if context.world.err is None:
+        context.world.fold_emitted(DOMAIN)
+
+
+@when("{pid}'s action clock expires")
+def _when_action_clock_expires(context, pid):
+    state = _rebuild(context, include_last_emitted=False)
+    player = next((p for p in state.players if p.player_root == uuid_for(pid)), None)
+    call_amount = state.current_bet - (player.bet_this_round if player else 0)
+    _action(context, pid, pt.FOLD if call_amount > 0 else pt.CHECK)
+    context.world.fold_emitted(DOMAIN)
+
+
+@then("the clock is refused because the action is not on {pid}")
+def _then_clock_refused_not_on(context, pid):
+    assert_rejected(context, "ACTION_NOT_ON_PLAYER")

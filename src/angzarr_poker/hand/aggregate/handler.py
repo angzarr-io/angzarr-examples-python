@@ -778,6 +778,33 @@ class HandAggregate:
         the production blind sequence use. Emits nothing rather than guessing."""
         return None
 
+    def start_action_clock(
+        self,
+        cmd: _hand.StartActionClock,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA Rule 29 — put a seat on the clock. A clock can only run on the
+        player whose turn it is; nominating any other seat is rejected. Emits
+        ``ActionClockStarted`` recording the seat and duration. Expiry itself is
+        not a command: per the rule it resolves to the auto-action (FOLD when
+        facing a bet, CHECK otherwise), which the caller issues as a normal
+        ``PlayerAction``."""
+        if state.status != "betting":
+            raise _az.reject(
+                "NOT_IN_BETTING_PHASE", "The hand is not in a betting phase"
+            )
+        player = _find_player(state, cmd.player_root)
+        if player is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        if state.action_on_position != player.position:
+            raise _az.reject("ACTION_NOT_ON_PLAYER", "The action is not on this player")
+        return _book(
+            _hand.ActionClockStarted(
+                player_root=cmd.player_root, seconds=cmd.seconds, started_at=_now()
+            )
+        )
+
     def apply_action_taken(
         self, state: _hand.HandState, event: _hand.ActionTaken
     ) -> None:
@@ -813,6 +840,16 @@ class HandAggregate:
         no other state changes (current_bet/min_raise are set by the action
         that triggered the assignment)."""
         state.action_on_position = event.seat_position
+
+    def apply_action_clock_started(
+        self, state: _hand.HandState, event: _hand.ActionClockStarted
+    ) -> None:
+        """Pin the action marker to the clocked seat. It is already the seat to
+        act (the command rejects otherwise); this records it explicitly for the
+        clock's duration."""
+        player = _find_player(state, event.player_root)
+        if player is not None:
+            state.action_on_position = player.position
 
     def apply_betting_round_complete(
         self, state: _hand.HandState, event: _hand.BettingRoundComplete
