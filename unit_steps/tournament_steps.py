@@ -296,6 +296,7 @@ def _seed_running(
     rebuy_config=None,
     starting_stack=None,
     cutoff=None,
+    buy_in=None,
 ):
     """Seed a RUNNING tournament: created (+ optional blind structure / rebuy
     config / starting stack / late-reg cutoff) → open → ``enrolled`` players from
@@ -311,6 +312,8 @@ def _seed_running(
         overrides["starting_stack"] = starting_stack
     if cutoff is not None:
         overrides["registration_cutoff_level"] = cutoff
+    if buy_in is not None:
+        overrides["buy_in"] = buy_in
     _seed_created(context, "Test Tournament", **overrides)
     context.world.seed_event(DOMAIN, P + "RegistrationOpened", trn.RegistrationOpened())
     for name in _NAMES[:enrolled]:
@@ -1499,3 +1502,155 @@ def _then_order_max_handed(context, mh):
 @then("the order is refused")
 def _then_order_refused(context):
     assert_rejected(context, "TOURNAMENT_NOT_RUNNING")
+
+
+# ===========================================================================
+# Slice 12: simultaneous busts / no-show removal / seat redraw
+# ===========================================================================
+
+
+# --- simultaneous busts (TDA RP-8A / WSOP Rule 126b) ---
+
+
+@given("hand-for-hand is active")
+def _given_h4h_active(context):
+    context.world.seed_event(DOMAIN, P + "HandForHandStarted", trn.HandForHandStarted())
+
+
+@given("the current hand started with stacks: {spec}")
+def _given_pre_hand_stacks(context, spec):
+    stacks = {}
+    for part in spec.split(","):
+        name, value = part.rsplit(" ", 1)
+        stacks[name.strip()] = int(value)
+    context.pre_hand_stacks = stacks
+
+
+def _record_busts(context, names, same_table):
+    pre = {
+        uuid_for(nm).hex(): v
+        for nm, v in getattr(context, "pre_hand_stacks", {}).items()
+    }
+    context.world.dispatch(
+        DOMAIN,
+        P + "RecordSimultaneousBusts",
+        trn.RecordSimultaneousBusts(
+            player_roots=[uuid_for(n) for n in names.split(",")],
+            same_table=same_table,
+            pre_hand_stacks=pre,
+        ),
+    )
+    # Fold so the subsequent CompleteTournament rebuilds over the bust group.
+    context.world.fold_emitted(DOMAIN)
+
+
+@when('players "{names}" both bust on the same hand-for-hand hand')
+def _when_bust_different_table(context, names):
+    _record_busts(context, names, same_table=False)
+
+
+@when('players "{names}" both bust on the same hand at the same table')
+def _when_bust_same_table(context, names):
+    _record_busts(context, names, same_table=True)
+
+
+@then("the tie for position {pos:d} is broken by pre-hand stack")
+def _then_tiebreak(context, pos):
+    ev = context.world.emitted(P + "TournamentCompleted", trn.TournamentCompleted())
+    match = [r for r in ev.results if r.position == pos]
+    assert match, f"no result at position {pos}"
+    assert (
+        match[0].tiebreak_reason == "PRE_HAND_STACK"
+    ), f"tiebreak_reason = {match[0].tiebreak_reason!r}, want 'PRE_HAND_STACK'"
+
+
+# --- no-show chip removal (WSOP Rule 16) ---
+
+
+@given('a running tournament "{name}" with a starting stack of {stack:d}')
+def _given_running_starting_stack(context, name, stack):
+    # buy_in 500 so the no-show buy-in-held assertion has a concrete value.
+    _seed_running(context, enrolled=1, starting_stack=stack, buy_in=500)
+    context.no_show_stack = stack
+
+
+@given('player "{pid}" enrolled but never took a hand before the first break ended')
+def _given_no_show_player(context, pid):
+    _seed_chips(context, pid, context.no_show_stack)
+    context.no_show_pid = pid
+    context.total_before = context.no_show_stack
+
+
+@given("the new level after the first break has begun")
+def _given_after_break(context):
+    pass  # narrative — the deadline is what the When fires on
+
+
+@when('the no-show deadline for "{name}" expires')
+def _when_no_show_deadline(context, name):
+    context.world.dispatch(
+        DOMAIN,
+        P + "DetectNoShow",
+        trn.DetectNoShow(player_root=uuid_for(context.no_show_pid)),
+    )
+
+
+@then('player "{pid}" is marked a no-show')
+def _then_marked_no_show(context, pid):
+    ev = context.world.emitted(P + "NoShowDetected", trn.NoShowDetected())
+    assert ev.player_root == uuid_for(pid), "marked a different player"
+
+
+@then('player "{pid}" chips are removed from total chips in play')
+def _then_no_show_chips_removed(context, pid):
+    ev = context.world.emitted(P + "NoShowDetected", trn.NoShowDetected())
+    assert ev.chips_removed > 0, "no chips were removed"
+    assert (
+        _rebuilt(context).total_chips_in_play == context.total_before - ev.chips_removed
+    ), "total chips in play does not reflect the removal"
+
+
+@then('player "{pid}" buy-in {n:d} is held in safekeeping')
+def _then_buy_in_held(context, pid, n):
+    ev = context.world.emitted(P + "NoShowDetected", trn.NoShowDetected())
+    assert ev.buy_in_held == n, f"buy_in_held = {ev.buy_in_held}, want {n}"
+
+
+@then('player "{pid}" is no longer among the players remaining')
+def _then_not_among_remaining(context, pid):
+    assert (
+        uuid_for(pid).hex() not in _rebuilt(context).registered_players
+    ), f"{pid} is still registered"
+
+
+# --- seat redraw at table thresholds (WSOP Rule 67c) ---
+
+
+@given(
+    'a running tournament "{name}" with original_field {of:d} and {tr:d} tables remaining'
+)
+def _given_redraw_field(context, name, of, tr):
+    _seed_running(context)
+    context.original_field = of
+
+
+@when("the field collapses to {tr:d} table(s)")
+def _when_field_collapses(context, tr):
+    context.world.dispatch(
+        DOMAIN,
+        P + "TriggerSeatRedraw",
+        trn.TriggerSeatRedraw(
+            tables_remaining=tr, original_field=context.original_field
+        ),
+    )
+
+
+@then("a seat redraw is triggered")
+def _then_redraw_triggered(context):
+    context.world.emitted(P + "SeatRedrawTriggered", trn.SeatRedrawTriggered())
+
+
+@then('the redraw is triggered by "{trigger}"')
+def _then_redraw_trigger(context, trigger):
+    ev = context.world.emitted(P + "SeatRedrawTriggered", trn.SeatRedrawTriggered())
+    assert ev.trigger == trigger, f"trigger = {ev.trigger!r}, want {trigger!r}"

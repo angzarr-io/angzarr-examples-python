@@ -147,6 +147,69 @@ def _chip_race_outcome(stacks, new_denom: int, seed: bytes):
     return awards, rescue_total, removed_total
 
 
+def _distribute_with_busts(
+    schedule, order, pos_payout, group, same_table, pre_hand_stacks
+):
+    """Build the ``TournamentResult`` entries when a simultaneous-bust group
+    occupies a contiguous block of finishing positions.
+
+    ``same_table`` is False (TDA RP-8A — busts at different tables): the group
+    shares the pooled payout of the positions it occupies, split as evenly as
+    possible, each member booked at the best (lowest) of those positions.
+
+    ``same_table`` is True (WSOP Rule 126b — busts at the same table): no split;
+    the group is ordered by ``pre_hand_stacks`` (highest first) and assigned to
+    its block positions in that order, so the higher-stacked buster takes the
+    better finish. The tiebreak is recorded on the affected results.
+    """
+    group_positions = sorted(order.index(pr) + 1 for pr in group if pr in order)
+    results = []
+    if same_table:
+        ordered = sorted(
+            group, key=lambda pr: pre_hand_stacks.get(pr.hex(), 0), reverse=True
+        )
+        assign = dict(zip(group_positions, ordered))
+        for p in schedule:
+            if p.position in assign:
+                results.append(
+                    _trn.TournamentResult(
+                        position=p.position,
+                        player_root=assign[p.position],
+                        payout=pos_payout[p.position],
+                        tiebreak_reason="PRE_HAND_STACK",
+                    )
+                )
+            else:
+                results.append(
+                    _trn.TournamentResult(
+                        position=p.position,
+                        player_root=order[p.position - 1],
+                        payout=pos_payout[p.position],
+                    )
+                )
+        return results
+    # RP-8A split.
+    best = min(group_positions)
+    pooled = sum(pos_payout.get(pos, 0) for pos in group_positions)
+    shares = [pooled // len(group)] * len(group)
+    for i in range(pooled % len(group)):  # spread any remainder deterministically
+        shares[i] += 1
+    for p in schedule:
+        if p.position not in group_positions:
+            results.append(
+                _trn.TournamentResult(
+                    position=p.position,
+                    player_root=order[p.position - 1],
+                    payout=pos_payout[p.position],
+                )
+            )
+    for pr, share in zip(group, shares):
+        results.append(
+            _trn.TournamentResult(position=best, player_root=pr, payout=share)
+        )
+    return results
+
+
 class TournamentAggregate:
     """Coordination slice of ``TournamentAggregateHandler``."""
 
@@ -848,17 +911,31 @@ class TournamentAggregate:
                     got=str(len(cmd.finishing_order)),
                     bound=str(len(schedule)),
                 )
-            total = 0
-            for p in schedule:
-                payout = state.total_prize_pool * p.percentage // 100
-                results.append(
-                    _trn.TournamentResult(
-                        position=p.position,
-                        player_root=cmd.finishing_order[p.position - 1],
-                        payout=payout,
-                    )
+            pool = state.total_prize_pool
+            order = list(cmd.finishing_order)
+            pos_payout = {p.position: pool * p.percentage // 100 for p in schedule}
+            group = list(state.simultaneous_bust_players)
+            if group:
+                # A simultaneous-bust group on the bubble shares or tiebreaks the
+                # paid positions it occupies (TDA RP-8A / WSOP Rule 126b).
+                results = _distribute_with_busts(
+                    schedule,
+                    order,
+                    pos_payout,
+                    group,
+                    state.simultaneous_bust_same_table,
+                    state.simultaneous_bust_pre_hand_stacks,
                 )
-                total += payout
+            else:
+                for p in schedule:
+                    results.append(
+                        _trn.TournamentResult(
+                            position=p.position,
+                            player_root=order[p.position - 1],
+                            payout=pos_payout[p.position],
+                        )
+                    )
+            total = sum(r.payout for r in results)
             # The schedule must distribute the whole pool (guards the chip ledger).
             if total != state.total_prize_pool:
                 raise _reject(
@@ -1103,4 +1180,118 @@ class TournamentAggregate:
         self, state: _trn.TournamentState, event: _trn.FinalTableCombineOrdered
     ) -> None:
         # Order-of-record; the combine is realised at the table aggregate.
+        pass
+
+    # --- simultaneous busts (TDA RP-8A / WSOP Rule 126b) ---
+
+    def record_simultaneous_busts(
+        self,
+        cmd: _trn.RecordSimultaneousBusts,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Record that two or more players busted on the same hand. The group
+        folds into state so CompleteTournament can share the bubble payout (RP-8A,
+        different tables) or tiebreak the finish by pre-hand stack (Rule 126b,
+        same table)."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        return _book(
+            _trn.SimultaneousBustsRecorded(
+                player_roots=list(cmd.player_roots),
+                hand_root=cmd.hand_root,
+                same_table=cmd.same_table,
+                pre_hand_stacks=dict(cmd.pre_hand_stacks),
+                recorded_at=_now(),
+            )
+        )
+
+    def apply_simultaneous_busts_recorded(
+        self, state: _trn.TournamentState, event: _trn.SimultaneousBustsRecorded
+    ) -> None:
+        del state.simultaneous_bust_players[:]
+        state.simultaneous_bust_players.extend(event.player_roots)
+        state.simultaneous_bust_same_table = event.same_table
+        state.simultaneous_bust_pre_hand_stacks.clear()
+        for key, value in event.pre_hand_stacks.items():
+            state.simultaneous_bust_pre_hand_stacks[key] = value
+
+    # --- no-show chip removal (WSOP Rule 16) ---
+
+    def detect_no_show(
+        self,
+        cmd: _trn.DetectNoShow,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """A player who never took a hand by the post-first-break deadline is a
+        no-show (WSOP Rule 16): their chips are removed from play and their buy-in
+        is held in safekeeping."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        chips = state.player_chip_stacks.get(cmd.player_root.hex(), 0)
+        return _book(
+            _trn.NoShowDetected(
+                player_root=cmd.player_root,
+                chips_removed=chips,
+                buy_in_held=state.buy_in,
+                detected_at=_now(),
+            )
+        )
+
+    def apply_no_show_detected(
+        self, state: _trn.TournamentState, event: _trn.NoShowDetected
+    ) -> None:
+        key = event.player_root.hex()
+        state.total_chips_in_play -= event.chips_removed
+        if key in state.player_chip_stacks:
+            del state.player_chip_stacks[key]
+        if key in state.registered_players:
+            del state.registered_players[key]
+        if state.players_remaining > 0:
+            state.players_remaining -= 1
+
+    # --- seat redraw at table thresholds (WSOP Rule 67c) ---
+
+    def trigger_seat_redraw(
+        self,
+        cmd: _trn.TriggerSeatRedraw,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Trigger a seat redraw at a table-count threshold (WSOP Rule 67c): three
+        tables, two tables, and the final table (the last only for 100+ entrant
+        events). The trigger label records which threshold tripped."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        n = cmd.tables_remaining
+        if n == 3:
+            trigger = "THREE_TABLES"
+        elif n == 2:
+            trigger = "TWO_TABLES"
+        elif n == 1 and cmd.original_field >= 100:
+            trigger = "FINAL_TABLE"
+        else:
+            raise _reject(
+                "NO_REDRAW_THRESHOLD",
+                "no seat-redraw threshold for this table count",
+                tables_remaining=str(n),
+            )
+        return _book(
+            _trn.SeatRedrawTriggered(
+                trigger=trigger,
+                tables_remaining=n,
+                original_field=cmd.original_field,
+                triggered_at=_now(),
+            )
+        )
+
+    def apply_seat_redraw_triggered(
+        self, state: _trn.TournamentState, event: _trn.SeatRedrawTriggered
+    ) -> None:
+        # Order-of-record; the redraw is realised at the table aggregates.
         pass
