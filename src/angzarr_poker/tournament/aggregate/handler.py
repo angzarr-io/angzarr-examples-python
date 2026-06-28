@@ -27,11 +27,20 @@ from typing import Optional
 import angzarr_router_ffi as _az
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from angzarr_poker._gen.io.angzarr.examples.v1 import poker_types_pb2 as _pt
 from angzarr_poker._gen.io.angzarr.examples.v1 import tournament_pb2 as _trn
 from angzarr_poker._gen.io.angzarr.v1 import types_pb2 as _t
 
 # Rule 11D: a table 3 or more players short of the largest table halts.
 _HALT_DEFICIT_THRESHOLD = 3
+
+# IssuePenalty.type string -> PenaltySeverity (TDA Rule 71 register).
+_PENALTY_SEVERITY = {
+    "VERBAL_WARNING": _pt.VERBAL_WARNING,
+    "MISSED_HAND": _pt.MISSED_HAND,
+    "MISSED_ROUND": _pt.MISSED_ROUND,
+    "DISQUALIFIED": _pt.DISQUALIFICATION,
+}
 
 
 def _now() -> Timestamp:
@@ -960,3 +969,138 @@ class TournamentAggregate:
         self, state: _trn.TournamentState, event: _trn.BountyAwarded
     ) -> None:
         state.bounty_totals[event.eliminator_root.hex()] += event.amount
+
+    # --- penalties (TDA Rule 71 / WSOP Rule 113-114) ---
+
+    def issue_penalty(
+        self,
+        cmd: _trn.IssuePenalty,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Issue a penalty (TDA Rule 71A). The missed-hand count translates the
+        penalty type: a verbal warning or disqualification misses none, a
+        missed-hand penalty misses one, and a missed-round penalty misses one
+        hand per player at the table (Rule 71A) for each penalty round."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if cmd.type == "MISSED_HAND":
+            missed_hands = 1
+        elif cmd.type == "MISSED_ROUND":
+            missed_hands = cmd.rounds * cmd.table_size
+        else:  # VERBAL_WARNING / DISQUALIFIED — no hands missed
+            missed_hands = 0
+        return _book(
+            _trn.PenaltyIssued(
+                player_root=cmd.player_root,
+                type=cmd.type,
+                rounds=cmd.rounds,
+                missed_hands=missed_hands,
+                issued_at=_now(),
+            )
+        )
+
+    def apply_penalty_issued(
+        self, state: _trn.TournamentState, event: _trn.PenaltyIssued
+    ) -> None:
+        # A player serving a missed-hand/round penalty is held in the active
+        # register until the rounds are decremented away (TDA Rule 71).
+        severity = _PENALTY_SEVERITY.get(event.type)
+        if event.missed_hands > 0 and severity is not None:
+            state.active_penalties[event.player_root.hex()] = severity
+
+    def disqualify_player(
+        self,
+        cmd: _trn.DisqualifyPlayer,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Disqualify a player (TDA Rule 71D / WSOP Rule 114). Unlike an
+        elimination — which keeps the busted player's chips on the table for
+        redistribution — a DQ removes the player's chips from play entirely."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        chips = state.player_chip_stacks.get(cmd.player_root.hex(), 0)
+        return _book(
+            _trn.PlayerDisqualified(
+                player_root=cmd.player_root,
+                reason=cmd.reason,
+                chips_removed=chips,
+                disqualified_at=_now(),
+            )
+        )
+
+    def apply_player_disqualified(
+        self, state: _trn.TournamentState, event: _trn.PlayerDisqualified
+    ) -> None:
+        key = event.player_root.hex()
+        state.total_chips_in_play -= event.chips_removed
+        if key in state.player_chip_stacks:
+            del state.player_chip_stacks[key]
+        if key in state.registered_players:
+            del state.registered_players[key]
+        if key in state.active_penalties:
+            del state.active_penalties[key]
+        if state.players_remaining > 0:
+            state.players_remaining -= 1
+
+    # --- re-entry (TDA Rule 8B) ---
+
+    def re_entry_player(
+        self,
+        cmd: _trn.ReEntryPlayer,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Re-enter a busted player (TDA Rule 8B). The chips they forfeited at
+        bust are removed from play and a fresh starting stack is added — the net
+        chip-economy change is ``starting_stack - chips_forfeited``."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        return _book(
+            _trn.PlayerReEntered(
+                player_root=cmd.player_root,
+                chips_forfeited=cmd.chips_forfeited,
+                chips_added=state.starting_stack,
+                re_entered_at=_now(),
+            )
+        )
+
+    def apply_player_re_entered(
+        self, state: _trn.TournamentState, event: _trn.PlayerReEntered
+    ) -> None:
+        # Forfeited chips leave play; the fresh stack re-seats the player.
+        state.total_chips_in_play += event.chips_added - event.chips_forfeited
+        state.player_chip_stacks[event.player_root.hex()] = event.chips_added
+
+    # --- final-table combination (operator order of record) ---
+
+    def order_combine_final_table(
+        self,
+        cmd: _trn.OrderCombineFinalTable,
+        state: _trn.TournamentState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Record the operator's order to combine the named source tables into a
+        final table. The tournament stamps the order of record; the fan-out to
+        the table aggregate is the saga's job (TournamentTableSaga)."""
+        if not _exists(state):
+            raise _reject("TOURNAMENT_NOT_FOUND", "Tournament does not exist")
+        if state.status != _trn.TOURNAMENT_RUNNING:
+            raise _reject("TOURNAMENT_NOT_RUNNING", "Tournament is not running")
+        return _book(
+            _trn.FinalTableCombineOrdered(
+                final_table_name=cmd.final_table_name,
+                source_table_names=list(cmd.source_table_names),
+                max_handed=cmd.max_handed,
+                ordered_at=_now(),
+            )
+        )
+
+    def apply_final_table_combine_ordered(
+        self, state: _trn.TournamentState, event: _trn.FinalTableCombineOrdered
+    ) -> None:
+        # Order-of-record; the combine is realised at the table aggregate.
+        pass

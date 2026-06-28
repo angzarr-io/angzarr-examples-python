@@ -1293,3 +1293,209 @@ def _then_total_conserved(context, before):
     expected = before + ev.chips_added_by_rescue - ev.chips_removed_by_race
     actual = _rebuilt(context).total_chips_in_play
     assert actual == expected, f"total chips after = {actual}, want {expected}"
+
+
+# ===========================================================================
+# Slice 11: penalties / disqualification / re-entry / final-table combine
+# ===========================================================================
+
+
+@given(
+    'a running tournament "{name}" for {min_p:d} to {max_p:d} players with {n:d} enrolled'
+)
+def _given_named_running_enrolled(context, name, min_p, max_p, n):
+    _seed_running(context, enrolled=n, min_p=min_p, max_p=max_p)
+    context.active_players = _NAMES[:n]
+
+
+# --- penalties (TDA Rule 71 / WSOP Rule 113) ---
+
+
+@given('player "{pid}" is at a table with {n:d} active players')
+def _given_player_at_table(context, pid, n):
+    # The table size is what a missed-round penalty multiplies by (Rule 71A).
+    context.penalty_table_size = n
+
+
+@when('player "{pid}" is issued a "{ptype}" penalty for {rounds:d} rounds')
+def _when_issue_penalty(context, pid, ptype, rounds):
+    context.world.dispatch(
+        DOMAIN,
+        P + "IssuePenalty",
+        trn.IssuePenalty(
+            player_root=uuid_for(pid),
+            type=ptype,
+            rounds=rounds,
+            table_size=getattr(context, "penalty_table_size", 0),
+        ),
+    )
+
+
+@then('the penalty issued is of type "{ptype}" with {missed:d} missed hands')
+def _then_penalty_issued(context, ptype, missed):
+    ev = context.world.emitted(P + "PenaltyIssued", trn.PenaltyIssued())
+    assert ev.type == ptype, f"type = {ev.type!r}, want {ptype!r}"
+    assert ev.missed_hands == missed, f"missed_hands = {ev.missed_hands}, want {missed}"
+
+
+# --- disqualification (TDA Rule 71D / WSOP Rule 114) ---
+
+
+@given(
+    'player "{pid}" has stack {stack:d} and tournament total chips in play is {total:d}'
+)
+def _given_player_stack_total(context, pid, stack, total):
+    _seed_chips(context, pid, stack)
+    others = [nm for nm in context.active_players if nm != pid]
+    remaining = total - stack
+    if others:
+        share = remaining // len(others)
+        for nm in others:
+            _seed_chips(context, nm, share)
+
+
+@when('player "{pid}" is disqualified for "{reason}"')
+def _when_disqualify(context, pid, reason):
+    context.world.dispatch(
+        DOMAIN,
+        P + "DisqualifyPlayer",
+        trn.DisqualifyPlayer(player_root=uuid_for(pid), reason=reason),
+    )
+
+
+@then('player "{pid}" is disqualified forfeiting {chips:d} chips')
+def _then_disqualified(context, pid, chips):
+    ev = context.world.emitted(P + "PlayerDisqualified", trn.PlayerDisqualified())
+    assert ev.player_root == uuid_for(pid), "disqualified a different player"
+    assert (
+        ev.chips_removed == chips
+    ), f"chips_removed = {ev.chips_removed}, want {chips}"
+
+
+@then("total chips in play is {n:d}")
+def _then_total_chips(context, n):
+    actual = _rebuilt(context).total_chips_in_play
+    assert actual == n, f"total chips in play = {actual}, want {n}"
+
+
+@then('player "{pid}" is no longer registered')
+def _then_not_registered(context, pid):
+    assert (
+        uuid_for(pid).hex() not in _rebuilt(context).registered_players
+    ), f"{pid} is still registered"
+
+
+# --- re-entry (TDA Rule 8B) ---
+
+
+@given(
+    'a running tournament "{name}" with a starting stack of {stack:d} and '
+    "{n:d} enrolled players"
+)
+def _given_running_reentry(context, name, stack, n):
+    _seed_running(context, enrolled=n, starting_stack=stack)
+    context.active_players = _NAMES[:n]
+
+
+@given("total chips in play is {n:d}")
+def _given_total_chips(context, n):
+    # Seed the chip-race ledger so the tracked total starts at n, split evenly
+    # across the enrolled players.
+    players = getattr(context, "active_players", _NAMES[:1])
+    share = n // len(players)
+    for nm in players:
+        _seed_chips(context, nm, share)
+
+
+@given('player "{pid}" has {chips:d} chips remaining and elects to re-enter')
+def _given_elects_reentry(context, pid, chips):
+    # Narrative: the forfeit amount rides on the re-entry command (next When).
+    context.reentry_forfeit = chips
+
+
+@when('player "{pid}" re-enters forfeiting {chips:d} chips')
+def _when_reenter(context, pid, chips):
+    context.world.dispatch(
+        DOMAIN,
+        P + "ReEntryPlayer",
+        trn.ReEntryPlayer(player_root=uuid_for(pid), chips_forfeited=chips),
+    )
+
+
+@then('player "{pid}" forfeits {forf:d} chips and receives {recv:d} chips')
+def _then_reentered(context, pid, forf, recv):
+    ev = context.world.emitted(P + "PlayerReEntered", trn.PlayerReEntered())
+    assert ev.player_root == uuid_for(pid), "re-entered a different player"
+    assert (
+        ev.chips_forfeited == forf
+    ), f"chips_forfeited = {ev.chips_forfeited}, want {forf}"
+    assert ev.chips_added == recv, f"chips_added = {ev.chips_added}, want {recv}"
+
+
+# --- final-table combine (operator order of record) ---
+
+
+@given('a running tournament with two semifinal tables "{a}" and "{b}"')
+def _given_running_semifinals(context, a, b):
+    _seed_running(context)
+
+
+@given("a tournament that has not started")
+def _given_not_started(context):
+    _seed_created(context, "Test Tournament")
+
+
+@when(
+    'the operator orders combining final table "{final}" from "{sources}" '
+    "max_handed {mh:d}"
+)
+def _when_order_combine(context, final, sources, mh):
+    context.world.dispatch(
+        DOMAIN,
+        P + "OrderCombineFinalTable",
+        trn.OrderCombineFinalTable(
+            final_table_name=final,
+            source_table_names=sources.split(","),
+            max_handed=mh,
+        ),
+    )
+
+
+@then("the final-table combine is ordered")
+def _then_combine_ordered(context):
+    context.world.emitted(
+        P + "FinalTableCombineOrdered", trn.FinalTableCombineOrdered()
+    )
+
+
+@then('the order is for final table "{final}"')
+def _then_order_final_name(context, final):
+    ev = context.world.emitted(
+        P + "FinalTableCombineOrdered", trn.FinalTableCombineOrdered()
+    )
+    assert (
+        ev.final_table_name == final
+    ), f"final = {ev.final_table_name!r}, want {final!r}"
+
+
+@then('the order combines tables "{sources}"')
+def _then_order_sources(context, sources):
+    ev = context.world.emitted(
+        P + "FinalTableCombineOrdered", trn.FinalTableCombineOrdered()
+    )
+    assert list(ev.source_table_names) == sources.split(
+        ","
+    ), f"sources = {list(ev.source_table_names)}, want {sources.split(',')}"
+
+
+@then("the order has max_handed {mh:d}")
+def _then_order_max_handed(context, mh):
+    ev = context.world.emitted(
+        P + "FinalTableCombineOrdered", trn.FinalTableCombineOrdered()
+    )
+    assert ev.max_handed == mh, f"max_handed = {ev.max_handed}, want {mh}"
+
+
+@then("the order is refused")
+def _then_order_refused(context):
+    assert_rejected(context, "TOURNAMENT_NOT_RUNNING")
