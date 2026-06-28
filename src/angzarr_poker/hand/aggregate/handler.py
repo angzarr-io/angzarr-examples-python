@@ -37,6 +37,10 @@ _HOLE_CARDS = {
     _pt.FIVE_CARD_DRAW: 5,
 }
 
+# Stud variants use the up/down-card street machine (3rd–7th) rather than
+# hole cards + community board.
+_STUD_VARIANTS = frozenset({_pt.SEVEN_CARD_STUD, _pt.RAZZ, _pt.STUD_HI_LO_8B})
+
 _RANKS = [
     _pt.TWO,
     _pt.THREE,
@@ -411,12 +415,24 @@ class HandAggregate:
         state.big_bet = event.big_bet
         state.raise_cap_per_round = event.raise_cap_per_round
         cards_by_player = {pc.player_root: pc.cards for pc in event.player_cards}
+        up_by_player = {uc.player_root: uc.up_cards for uc in event.initial_up_cards}
+        is_stud = event.game_variant in _STUD_VARIANTS
         for p in event.players:
             ph = state.players.add()
             ph.player_root = p.player_root
             ph.position = p.position
             ph.stack = p.stack
-            ph.hole_cards.extend(cards_by_player.get(p.player_root, []))
+            if is_stud:
+                # Stud: the initial deal is 2 down + (when complete) 1 door up.
+                # Down cards arrive as player_cards; the door as initial_up_cards.
+                ph.down_cards.extend(cards_by_player.get(p.player_root, []))
+                ph.up_cards.extend(up_by_player.get(p.player_root, []))
+                # The ante is a forced pre-round contribution to the pot.
+                if event.ante > 0:
+                    ph.stack -= event.ante
+                    ph.total_invested += event.ante
+            else:
+                ph.hole_cards.extend(cards_by_player.get(p.player_root, []))
             # TDA Rule 30: a seat absent at the deal has its hand killed (folded)
             # and can take no action this hand.
             if p.absent_at_deal:
@@ -498,6 +514,17 @@ class HandAggregate:
         event_amount = amount
 
         if action == _pt.FOLD:
+            # TDA Rule 66: in stud, picking up the up cards while facing action
+            # is not a valid muck (it makes the hand dead, not folded). A proper
+            # stud muck turns all up cards face down and pushes them forward.
+            if (
+                state.game_variant in _STUD_VARIANTS
+                and cmd.verbal_context == "PICK_UP_UPCARDS"
+            ):
+                raise _az.reject(
+                    "INVALID_STUD_MUCK",
+                    "Picking up the up cards is not a valid muck in stud",
+                )
             # TDA Rule 46B: a player who pulled back a prior chip facing a raise
             # is bound to call or raise — they may not fold.
             if player.bound_to_call_or_raise:
@@ -937,6 +964,51 @@ class HandAggregate:
                 del state.remaining_deck[i]
                 break
 
+    def apply_stud_street_dealt(
+        self, state: _hand.HandState, event: _hand.StudStreetDealt
+    ) -> None:
+        for uc in event.up_cards:
+            player = _find_player(state, uc.player_root)
+            if player is None:
+                continue
+            player.up_cards.extend(uc.up_cards)
+            for card in uc.up_cards:
+                for i, dc in enumerate(state.remaining_deck):
+                    if (dc.suit, dc.rank) == (card.suit, card.rank):
+                        del state.remaining_deck[i]
+                        break
+
+    def apply_stud_down_card_converted(
+        self, state: _hand.HandState, event: _hand.StudDownCardConverted
+    ) -> None:
+        # RP-10A: the exposed card moves from the player's down cards to their
+        # up cards (it is now visible as an upcard).
+        player = _find_player(state, event.player_root)
+        if player is None:
+            return
+        for i, dc in enumerate(player.down_cards):
+            if (dc.suit, dc.rank) == (event.exposed_card.suit, event.exposed_card.rank):
+                del player.down_cards[i]
+                break
+        player.up_cards.append(event.exposed_card)
+
+    def apply_seventh_street_card_replaced(
+        self, state: _hand.HandState, event: _hand.SeventhStreetCardReplaced
+    ) -> None:
+        # RP-10B: remove the exposed original 7th-street (down) card from play
+        # and deal the replacement face-down in its place.
+        player = _find_player(state, event.player_root)
+        if player is None:
+            return
+        for i, dc in enumerate(player.down_cards):
+            if (dc.suit, dc.rank) == (
+                event.original_card.suit,
+                event.original_card.rank,
+            ):
+                del player.down_cards[i]
+                break
+        player.down_cards.append(event.replacement_card)
+
     def report_premature_flop(
         self,
         cmd: _hand.ReportPrematureFlop,
@@ -1113,6 +1185,96 @@ class HandAggregate:
                 correct_root=cmd.correct_root,
                 returned_amount=cmd.returned_amount,
                 corrected_at=_now(),
+            )
+        )
+
+    def deal_stud_street(
+        self,
+        cmd: _hand.DealStudStreet,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Stud street machine — deal the next up-card to each live (un-folded,
+        present) player on 4th–6th street. The cards are taken from the top of
+        the remaining deck unless the command supplies them explicitly. Emits
+        ``StudStreetDealt`` so each player's up_cards (and the betting order) are
+        updated. 7th street is dealt face-down via the showdown path."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        if cmd.up_cards:
+            up = list(cmd.up_cards)
+        else:
+            active = [p for p in state.players if not p.has_folded and not p.absent]
+            deck = list(state.remaining_deck)
+            up = [
+                _hand.PlayerUpCards(player_root=p.player_root, up_cards=[deck[i]])
+                for i, p in enumerate(active)
+                if i < len(deck)
+            ]
+        return _book(
+            _hand.StudStreetDealt(street=cmd.street, up_cards=up, dealt_at=_now())
+        )
+
+    def report_exposed_stud_downcard(
+        self,
+        cmd: _hand.ReportExposedStudDowncard,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA RP-10A — a card meant to be dealt face-down on the initial deal
+        was exposed. It becomes the player's up-card (the compensating door card
+        is then dealt face-down). Emits ``StudDownCardConverted``."""
+        player = _find_player(state, cmd.player_root)
+        if player is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        return _book(
+            _hand.StudDownCardConverted(
+                player_root=cmd.player_root,
+                exposed_card=cmd.exposed_card,
+                converted_at=_now(),
+            )
+        )
+
+    def replace_seventh_street_card(
+        self,
+        cmd: _hand.ReplaceSeventhStreetCard,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA RP-10B — a 7th-street card exposed by the dealer is replaced when
+        betting action remains: the original is removed from play and a
+        replacement is dealt face-down. With no action remaining the original
+        (still-down) card stands and this is rejected with FAILED_PRECONDITION."""
+        player = _find_player(state, cmd.player_root)
+        if player is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        if state.status != "betting":
+            raise _az.reject(
+                "FAILED_PRECONDITION",
+                "No betting action remains — the original card stands",
+            )
+        return _book(
+            _hand.SeventhStreetCardReplaced(
+                player_root=cmd.player_root,
+                original_card=cmd.original_card,
+                replacement_card=cmd.replacement_card,
+                replaced_at=_now(),
+            )
+        )
+
+    def report_premature_stud_card(
+        self,
+        cmd: _hand.ReportPrematureStudCard,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA RP-10G / RP-5D — a premature stud card is returned to the stub,
+        the stub is reshuffled, and the next street is dealt without an extra
+        burn. Emits ``PrematureStudCardDetected``; the return-to-stub / no-burn
+        handling is a dealer procedure the step layer tracks (burn-as-flag)."""
+        return _book(
+            _hand.PrematureStudCardDetected(
+                attempted_street=cmd.attempted_street, detected_at=_now()
             )
         )
 

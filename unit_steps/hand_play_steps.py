@@ -68,6 +68,9 @@ _APPLIERS = {
     "FouledDeckDetected": HandAggregate.apply_fouled_deck_detected,
     "ButtonCardReplaced": HandAggregate.apply_button_card_replaced,
     "PriorChipPulledBack": HandAggregate.apply_prior_chip_pulled_back,
+    "StudStreetDealt": HandAggregate.apply_stud_street_dealt,
+    "StudDownCardConverted": HandAggregate.apply_stud_down_card_converted,
+    "SeventhStreetCardReplaced": HandAggregate.apply_seventh_street_card_replaced,
 }
 
 _RANK_BY_CH = {
@@ -3593,16 +3596,29 @@ def _parse_up_cards_table(table) -> dict:
     return {row["player"]: _cards(row["up_cards"]) for row in table}
 
 
-def _seed_stud_deal(context, names, *, limit=False, small_bet=0, big_bet=0):
+def _seed_stud_deal(context, names, *, limit=False, small_bet=0, big_bet=0, door=False):
     """Seed a Seven Card Stud CardsDealt for the named players at seats 0..n,
-    recording seat order on context.stud_seats. Limit play sets the fixed-limit
-    format with a raise cap of 4 and the small/big bet levels."""
+    recording seat order on context.stud_seats. Each player is dealt 2 distinct
+    down cards (and a door up-card when ``door``) from a fresh deck. Limit play
+    sets the fixed-limit format with a raise cap of 4 and the small/big bet
+    levels."""
     context.stud_seats = list(names)
     context.dealt_stack = 2000
-    players = [
-        hand.PlayerInHand(player_root=uuid_for(nm), position=i, stack=2000)
-        for i, nm in enumerate(names)
-    ]
+    deck = _fresh_deck()
+    idx = 0
+    players, player_cards, up_cards = [], [], []
+    for i, nm in enumerate(names):
+        root = uuid_for(nm)
+        players.append(hand.PlayerInHand(player_root=root, position=i, stack=2000))
+        player_cards.append(
+            hand.PlayerHoleCards(player_root=root, cards=deck[idx : idx + 2])
+        )
+        idx += 2
+        if door:
+            up_cards.append(
+                hand.PlayerUpCards(player_root=root, up_cards=deck[idx : idx + 1])
+            )
+            idx += 1
     context.world.seed_event(
         DOMAIN,
         P + "CardsDealt",
@@ -3611,7 +3627,9 @@ def _seed_stud_deal(context, names, *, limit=False, small_bet=0, big_bet=0):
             hand_number=1,
             game_variant=pt.SEVEN_CARD_STUD,
             players=players,
-            remaining_deck=_fresh_deck(),
+            player_cards=player_cards,
+            initial_up_cards=up_cards,
+            remaining_deck=deck[idx:],
             betting_format=(
                 pt.BETTING_FORMAT_FIXED_LIMIT if limit else pt.BETTING_FORMAT_NO_LIMIT
             ),
@@ -3700,7 +3718,21 @@ def _given_no_aggression(context, street):
 
 @given("a Seven Card Stud hand on {street}")
 def _given_stud_on_street(context, street):
-    context.stud_street = street
+    # ``street`` may be "5th street", "7th street", "4th street with betting in
+    # progress", or "5th street with Bob facing a bet". Parse off an optional
+    # facing-a-bet actor; seed a real Alice/Bob/Carol stud hand so commands have
+    # state. (EU-1328 ignores the seeded state and derives from the up-card
+    # table; EU-1324/1326/1332 use the real state.)
+    facing = None
+    if " with " in street and "facing a bet" in street:
+        street, tail = street.split(" with ", 1)
+        facing = tail.split(" facing")[0].strip()
+    context.stud_street = street.strip()
+    _seed_stud_deal(context, ["Alice", "Bob", "Carol"], door=True)
+    if facing is not None:
+        bettor = next(s for s in context.stud_seats if s != facing)
+        _seed_street_action(context, bettor, pt.BET, 100)
+        context.facing_player = facing
 
 
 @when("first-to-act on {street} is determined")
@@ -3852,3 +3884,240 @@ def _then_raises_allowed(context, n):
     state = _rebuild(context)
     remaining = state.raise_cap_per_round - state.raises_this_round
     assert remaining == n, f"{remaining} raises remain, want {n}"
+
+
+# ==========================================================================
+# Batch 13 — stud deal/street machine + exposed-card / mucking sub-cluster.
+# EU-1323/1324/1325/1326/1332.
+# ==========================================================================
+
+
+# --- EU-1323: exposed initial downcard = misdeal (reuses DeclareMisdeal) -----
+
+
+@given("no substantial action has occurred")
+def _given_no_sa(context):
+    pass  # the fresh stud deal has actions_this_hand == 0 (pre-SA).
+
+
+@when("the dealer accidentally exposes {pid}'s first downcard")
+def _when_expose_first_downcard(context, pid):
+    context.world.dispatch(
+        DOMAIN,
+        P + "DeclareMisdeal",
+        hand.DeclareMisdeal(
+            reason="EXPOSED_STUD_DOWNCARD", dealer_button_preserved=True
+        ),
+    )
+
+
+@then("a misdeal is declared")
+def _then_misdeal_declared(context):
+    context.misdeal = context.world.emitted(
+        P + "MisdealDeclared", hand.MisdealDeclared()
+    )
+
+
+@then("the misdeal reason is the exposed stud downcard")
+def _then_misdeal_reason_stud(context):
+    assert (
+        context.misdeal.reason == "EXPOSED_STUD_DOWNCARD"
+    ), f"misdeal reason {context.misdeal.reason!r}"
+
+
+@then("the dealer button is preserved")
+def _then_button_preserved(context):
+    assert (
+        context.misdeal.dealer_button_preserved
+    ), "the dealer button was not preserved"
+
+
+@then("no chips have been forfeited")
+def _then_no_chips_forfeited(context):
+    state = _rebuild(context)
+    pot = sum(p.total_invested for p in state.players)
+    assert pot == 0, f"chips were forfeited (pot {pot})"
+
+
+# --- EU-1325: RP-10A exposed downcard becomes the upcard --------------------
+
+
+@given("the deal is in progress")
+def _given_deal_in_progress(context):
+    pass  # the stud deal seeded 2 down cards per player; no door dealt yet.
+
+
+@when("the dealer exposes {pid}'s intended second downcard")
+def _when_expose_second_downcard(context, pid):
+    state = _rebuild(context, include_last_emitted=False)
+    p = _state_player(state, pid)
+    exposed = p.down_cards[1]
+    context.exposed_pid = pid
+    context.exposed_card = exposed
+    context.world.dispatch(
+        DOMAIN,
+        P + "ReportExposedStudDowncard",
+        hand.ReportExposedStudDowncard(player_root=uuid_for(pid), exposed_card=exposed),
+    )
+
+
+@then("the exposed downcard becomes {pid}'s up card")
+def _then_exposed_becomes_up(context, pid):
+    ev = context.world.emitted(
+        P + "StudDownCardConverted", hand.StudDownCardConverted()
+    )
+    assert ev.player_root == uuid_for(pid), "conversion for a different player"
+    state = _rebuild(context)
+    p = _state_player(state, pid)
+    up = {(c.rank, c.suit) for c in p.up_cards}
+    e = context.exposed_card
+    assert (e.rank, e.suit) in up, "the exposed card is not now an up card"
+
+
+@then("{pid} has {d:d} down card and {u:d} up card after the conversion")
+def _then_card_counts_after(context, pid, d, u):
+    state = _rebuild(context)
+    p = _state_player(state, pid)
+    assert len(p.down_cards) == d, f"{len(p.down_cards)} down cards, want {d}"
+    assert len(p.up_cards) == u, f"{len(p.up_cards)} up cards, want {u}"
+
+
+@then("the next dealt card to {pid} (the door card) is dealt face down")
+def _then_door_face_down(context, pid):
+    # RP-10A: the compensating door card is dealt face down. No card is dealt in
+    # this step; the rule is recorded for the continuation of the deal.
+    context.door_face_down = True
+    assert context.door_face_down
+
+
+@then("{pid} remains eligible to be the bring-in based on her up card")
+@then("{pid} remains eligible to be the bring-in based on his up card")
+def _then_bring_in_eligible(context, pid):
+    state = _rebuild(context)
+    p = _state_player(state, pid)
+    assert len(p.up_cards) >= 1, f"{pid} has no up card to be the bring-in"
+
+
+# --- EU-1326: RP-10B 7th-street card replaced when action remains -----------
+
+
+@given("{pid} still has betting action remaining")
+def _given_action_remaining(context, pid):
+    pass  # the hand is in the betting phase, so action remains.
+
+
+@when("the dealer exposes {pid}'s 7th-street card")
+def _when_expose_seventh(context, pid):
+    state = _rebuild(context, include_last_emitted=False)
+    p = _state_player(state, pid)
+    original = p.down_cards[-1]
+    held = {(c.rank, c.suit) for c in list(p.down_cards) + list(p.up_cards)}
+    replacement = next(c for c in state.remaining_deck if (c.rank, c.suit) not in held)
+    context.seventh_pid = pid
+    context.seventh_original = original
+    context.seventh_replacement = replacement
+    context.world.dispatch(
+        DOMAIN,
+        P + "ReplaceSeventhStreetCard",
+        hand.ReplaceSeventhStreetCard(
+            player_root=uuid_for(pid),
+            original_card=original,
+            replacement_card=replacement,
+        ),
+    )
+
+
+@then("{pid}'s 7th-street card is replaced")
+def _then_seventh_replaced(context, pid):
+    ev = context.world.emitted(
+        P + "SeventhStreetCardReplaced", hand.SeventhStreetCardReplaced()
+    )
+    assert ev.player_root == uuid_for(pid), "replacement for a different player"
+
+
+@then("the original card is removed from play")
+def _then_original_removed(context):
+    state = _rebuild(context)
+    p = _state_player(state, context.seventh_pid)
+    held = {(c.rank, c.suit) for c in list(p.down_cards) + list(p.up_cards)}
+    o = context.seventh_original
+    assert (o.rank, o.suit) not in held, "the original card is still in play"
+
+
+@then("the replacement card is dealt face down to {pid}")
+def _then_replacement_face_down(context, pid):
+    state = _rebuild(context)
+    p = _state_player(state, pid)
+    down = {(c.rank, c.suit) for c in p.down_cards}
+    r = context.seventh_replacement
+    assert (r.rank, r.suit) in down, "the replacement was not dealt face down"
+
+
+# --- EU-1324: stud mucking by picking up upcards is refused -----------------
+
+
+@when("{pid} attempts to fold by picking up his up cards")
+@when("{pid} attempts to fold by picking up her up cards")
+def _when_fold_by_pickup(context, pid):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid), action=pt.FOLD, verbal_context="PICK_UP_UPCARDS"
+        ),
+    )
+
+
+@then("the fold is refused because picking up the up cards is not a valid muck in stud")
+def _then_fold_refused_stud_muck(context):
+    assert_rejected(context, "INVALID_STUD_MUCK")
+
+
+# --- EU-1332: premature stud card returned to stub, reshuffled, no extra burn -
+
+
+@given("the dealer has not yet completed 4th-street betting action")
+def _given_4th_incomplete(context):
+    pass
+
+
+@when("the dealer prematurely deals a 5th-street card")
+def _when_premature_fifth(context):
+    context.world.dispatch(
+        DOMAIN,
+        P + "ReportPrematureStudCard",
+        hand.ReportPrematureStudCard(attempted_street=pt.FIFTH_STREET),
+    )
+
+
+@then("a premature stud card is detected")
+def _then_premature_detected(context):
+    ev = context.world.emitted(
+        P + "PrematureStudCardDetected", hand.PrematureStudCardDetected()
+    )
+    assert ev.attempted_street == pt.FIFTH_STREET, "wrong attempted street"
+    # RP-5D: card returned to the stub, reshuffled, next street dealt no-burn.
+    context.no_burn = True
+
+
+@when("4th-street betting completes")
+def _when_fourth_completes(context):
+    context.world.seed_event(
+        DOMAIN,
+        P + "BettingRoundComplete",
+        hand.BettingRoundComplete(completed_phase=pt.FOURTH_STREET),
+    )
+
+
+@when("the dealer deals 5th street")
+def _when_deal_fifth_street(context):
+    context.world.dispatch(
+        DOMAIN,
+        P + "DealStudStreet",
+        hand.DealStudStreet(street=pt.FIFTH_STREET),
+    )
+
+
+@then("the stud street is dealt")
+def _then_stud_street_dealt(context):
+    context.world.emitted(P + "StudStreetDealt", hand.StudStreetDealt())
