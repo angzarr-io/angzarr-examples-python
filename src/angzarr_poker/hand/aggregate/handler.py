@@ -438,6 +438,8 @@ class HandAggregate:
             if p.absent_at_deal:
                 ph.absent = True
                 ph.has_folded = True
+        if is_stud:
+            state.stud_street = _pt.THIRD_STREET
 
     def apply_blind_posted(
         self, state: _hand.HandState, event: _hand.BlindPosted
@@ -512,6 +514,30 @@ class HandAggregate:
         call_amount = state.current_bet - player.bet_this_round
         chips_put_in = amount
         event_amount = amount
+
+        # Fixed-limit stud street selector (TDA RP-10F): the small bet is used on
+        # 3rd and 4th street, the big bet on 5th onward. An open pair on 4th does
+        # NOT raise the limit to the big bet for any implemented variant — Stud
+        # Hi (RP-10F), Stud Hi/Lo (WSOP 8b) and Razz (Robert's RAZZ #3) all keep
+        # the lower limit on 4th — so the cap is purely street-based. A
+        # bet/raise increment over that cap is rejected.
+        if (
+            state.betting_format == _pt.BETTING_FORMAT_FIXED_LIMIT
+            and state.game_variant in _STUD_VARIANTS
+            and action in (_pt.BET, _pt.RAISE)
+        ):
+            street_cap = (
+                state.big_bet
+                if state.stud_street >= _pt.FIFTH_STREET
+                else state.small_bet
+            )
+            increment = amount if action == _pt.BET else amount - state.current_bet
+            if street_cap > 0 and increment > street_cap:
+                raise _az.reject(
+                    "DOUBLED_BET_NOT_ALLOWED",
+                    f"A doubled bet is not allowed on this street; the maximum "
+                    f"bet is {street_cap}",
+                )
 
         if action == _pt.FOLD:
             # TDA Rule 66: in stud, picking up the up cards while facing action
@@ -1000,6 +1026,8 @@ class HandAggregate:
     def apply_stud_street_dealt(
         self, state: _hand.HandState, event: _hand.StudStreetDealt
     ) -> None:
+        if event.street:
+            state.stud_street = event.street
         for uc in event.up_cards:
             player = _find_player(state, uc.player_root)
             if player is None:
@@ -1047,6 +1075,8 @@ class HandAggregate:
     ) -> None:
         # RP-10H: the shared community card joins the board and is consumed from
         # the stub.
+        if event.street:
+            state.stud_street = event.street
         state.community_cards.append(event.card)
         for i, dc in enumerate(state.remaining_deck):
             if (dc.suit, dc.rank) == (event.card.suit, event.card.rank):

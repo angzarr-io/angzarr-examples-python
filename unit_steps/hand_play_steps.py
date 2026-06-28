@@ -4459,3 +4459,127 @@ def _then_floor_decision_required(context):
 @then("the reveal is refused because there are too many cards for stud")
 def _then_reveal_too_many(context):
     assert_rejected(context, "TOO_MANY_CARDS")
+
+
+# ==========================================================================
+# Batch 15 — stud fixed-limit street selector + open-pair-on-4th (no double).
+# EU-1330/1339/1341.
+# ==========================================================================
+
+
+_STREET_BY_ORD = {
+    "3rd": pt.THIRD_STREET,
+    "4th": pt.FOURTH_STREET,
+    "5th": pt.FIFTH_STREET,
+    "6th": pt.SIXTH_STREET,
+    "7th": pt.SEVENTH_STREET,
+}
+
+
+def _seed_limit_stud_betting(context, variant, small, big):
+    deck = _fresh_deck()
+    a, b = uuid_for("Alice"), uuid_for("Bob")
+    context.stud_seats = ["Alice", "Bob"]
+    context.dealt_stack = 2000
+    context.world.seed_event(
+        DOMAIN,
+        P + "CardsDealt",
+        hand.CardsDealt(
+            table_root=_TABLE_ROOT,
+            hand_number=1,
+            game_variant=variant,
+            players=[
+                hand.PlayerInHand(player_root=a, position=0, stack=2000),
+                hand.PlayerInHand(player_root=b, position=1, stack=2000),
+            ],
+            player_cards=[
+                hand.PlayerHoleCards(player_root=a, cards=deck[0:2]),
+                hand.PlayerHoleCards(player_root=b, cards=deck[2:4]),
+            ],
+            remaining_deck=deck[4:],
+            betting_format=pt.BETTING_FORMAT_FIXED_LIMIT,
+            small_bet=small,
+            big_bet=big,
+            raise_cap_per_round=4,
+        ),
+    )
+
+
+@given("a Seven Card Stud limit hand with small bet {small:d} and big bet {big:d}")
+def _given_limit_stud_hi(context, small, big):
+    _seed_limit_stud_betting(context, pt.SEVEN_CARD_STUD, small, big)
+
+
+@given(
+    "a limit Seven Card Stud Hi/Lo hand with small bet {small:d} and big bet {big:d}"
+)
+def _given_limit_stud_hilo(context, small, big):
+    _seed_limit_stud_betting(context, pt.STUD_HI_LO_8B, small, big)
+
+
+@given("a limit Razz hand with small bet {small:d} and big bet {big:d} on 5th street")
+def _given_limit_razz(context, small, big):
+    _seed_limit_stud_betting(context, pt.RAZZ, small, big)
+
+
+@given('{pid} has up cards "{cards}" on {ordn} street showing an open pair')
+@given('{pid} has up cards "{cards}" on {ordn} street showing an open pair on 4th')
+def _given_stud_upcards_on_street(context, pid, cards, ordn):
+    # Seed the player's up cards and advance the stud-street marker to the named
+    # street (StudStreetDealt sets HandState.stud_street).
+    context.world.seed_event(
+        DOMAIN,
+        P + "StudStreetDealt",
+        hand.StudStreetDealt(
+            street=_STREET_BY_ORD[ordn],
+            up_cards=[
+                hand.PlayerUpCards(player_root=uuid_for(pid), up_cards=_cards(cards))
+            ],
+        ),
+    )
+
+
+def _stud_bet(context, pid, amt):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(player_root=uuid_for(pid), action=pt.BET, amount=amt),
+    )
+
+
+@when("{pid} attempts to bet {amt:d} on 4th street")
+def _when_attempts_bet_4th(context, pid, amt):
+    _stud_bet(context, pid, amt)
+
+
+@when("{pid} attempts to open the betting at the upper limit ({amt:d})")
+def _when_attempts_open_upper(context, pid, amt):
+    _stud_bet(context, pid, amt)
+
+
+@when("{pid} bets at the upper limit ({amt:d}) on 5th street")
+def _when_bets_upper_5th(context, pid, amt):
+    _stud_bet(context, pid, amt)
+
+
+@then("the bet is refused because a doubled bet is not allowed on 4th street")
+def _then_refused_doubled_4th(context):
+    assert_rejected(context, "DOUBLED_BET_NOT_ALLOWED")
+
+
+@then("the rejection notes the maximum bet of {amt:d}")
+def _then_rejection_notes_max(context, amt):
+    assert context.world.err is not None, "expected a rejection"
+    assert (
+        str(amt) in context.world.err.message
+    ), f"rejection {context.world.err.message!r} does not note max bet {amt}"
+
+
+@then("the bet is refused because an open pair locks the lower limit")
+def _then_refused_open_pair_locks(context):
+    assert_rejected(context, "DOUBLED_BET_NOT_ALLOWED")
+
+
+@then("no rejection is raised based on the open pair")
+def _then_no_rejection_open_pair(context):
+    assert context.world.err is None, f"unexpected rejection: {context.world.err}"
