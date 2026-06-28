@@ -569,6 +569,21 @@ class HandAggregate:
         elif action == _pt.ALL_IN:
             chips_put_in = player.stack
             event_amount = chips_put_in
+        elif action == _pt.BET_COMPLETION:
+            # WSOP §Seven Card Games — completing the forced bring-in up to a
+            # full small-bet. Sets the betting level to a full bet but is NOT a
+            # raise, so the per-round raise cap is untouched (apply_action_taken
+            # excludes it from raises_this_round). ``amount`` is the full-bet
+            # level being completed to.
+            to_put_in = amount - player.bet_this_round
+            if to_put_in > player.stack:
+                raise _az.reject(
+                    "BET_EXCEEDS_STACK", "The completion exceeds the player's stack"
+                )
+            chips_put_in = to_put_in
+            event_amount = chips_put_in
+            if player.stack - chips_put_in == 0:
+                action = _pt.ALL_IN
         else:
             raise _az.reject("INVALID_ACTION", "The action type is not recognised")
 
@@ -1074,6 +1089,33 @@ class HandAggregate:
             )
         )
 
+    def correct_bring_in(
+        self,
+        cmd: _hand.CorrectBringIn,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """WSOP §Seven Card Games / Robert's §SC Stud #5 — the wrong player was
+        designated as the bring-in and posted. The correction window stays open
+        only until the next player acts: once any action beyond the bring-in is
+        recorded the wager stands and this is rejected with
+        CORRECTION_WINDOW_CLOSED. While open, the incorrect wager is returned
+        and the real low card is obligated to post."""
+        # The bring-in posting itself is one recorded action; a second recorded
+        # action means the next player has already acted and the window closed.
+        if state.actions_this_hand > 1:
+            raise _az.reject(
+                "CORRECTION_WINDOW_CLOSED", "The next player has already acted"
+            )
+        return _book(
+            _hand.BringInCorrected(
+                incorrect_root=cmd.incorrect_root,
+                correct_root=cmd.correct_root,
+                returned_amount=cmd.returned_amount,
+                corrected_at=_now(),
+            )
+        )
+
     def award_pot(
         self, cmd: _hand.AwardPot, state: _hand.HandState, cctx: _az.CommandContext
     ) -> Optional[_t.EventBook]:
@@ -1186,7 +1228,13 @@ class HandAggregate:
         # counts; those that put chips in the pot count again. Blinds are posted
         # via BlindPosted (not ActionTaken), so they are correctly excluded.
         state.actions_this_hand += 1
-        if event.action in (_pt.CALL, _pt.BET, _pt.RAISE, _pt.ALL_IN):
+        if event.action in (
+            _pt.CALL,
+            _pt.BET,
+            _pt.RAISE,
+            _pt.ALL_IN,
+            _pt.BET_COMPLETION,
+        ):
             state.chip_actions_this_hand += 1
         player = _find_player(state, event.player_root)
         if player is not None:
@@ -1194,7 +1242,7 @@ class HandAggregate:
             player.has_acted = True
             if event.action == _pt.FOLD:
                 player.has_folded = True
-            elif event.action in (_pt.CALL, _pt.BET, _pt.RAISE):
+            elif event.action in (_pt.CALL, _pt.BET, _pt.RAISE, _pt.BET_COMPLETION):
                 player.bet_this_round += event.amount
                 player.total_invested += event.amount
             elif event.action == _pt.ALL_IN:
@@ -1202,16 +1250,19 @@ class HandAggregate:
                 player.bet_this_round += event.amount
                 player.total_invested += event.amount
             # A bet/raise/all-in that crosses the current level raises it and
-            # sets the new minimum raise increment (NLHE).
-            if event.action in (_pt.BET, _pt.RAISE, _pt.ALL_IN):
+            # sets the new minimum raise increment (NLHE). A bring-in
+            # COMPLETION (WSOP §Seven Card Games) also sets the level but is
+            # explicitly NOT a raise, so it is excluded from raises_this_round.
+            if event.action in (_pt.BET, _pt.RAISE, _pt.ALL_IN, _pt.BET_COMPLETION):
                 prior_bet = state.current_bet
                 if player.bet_this_round > state.current_bet:
                     raise_increment = player.bet_this_round - state.current_bet
                     state.current_bet = player.bet_this_round
                     state.min_raise = max(state.min_raise, raise_increment)
                     # Count it as a raise (vs. the opening bet) only when a bet
-                    # already stood — the limit raise-cap counts raises.
-                    if prior_bet > 0:
+                    # already stood — the limit raise-cap counts raises. A
+                    # bring-in completion never counts (WSOP §Seven Card Games).
+                    if prior_bet > 0 and event.action != _pt.BET_COMPLETION:
                         state.raises_this_round += 1
         # Bookkeeping: advance the action marker to the next live seat.
         state.action_on_position = _next_active_position(

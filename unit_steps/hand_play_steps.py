@@ -21,7 +21,12 @@ from behave import given, then, use_step_matcher, when
 from angzarr_poker._gen.io.angzarr.examples.v1 import hand_pb2 as hand
 from angzarr_poker._gen.io.angzarr.examples.v1 import poker_types_pb2 as pt
 from angzarr_poker.hand.aggregate.handler import HandAggregate, _fresh_deck
-from angzarr_poker.hand.game_rules import get_game_rules
+from angzarr_poker.hand.game_rules import (
+    get_game_rules,
+    high_up_actor,
+    odd_chip_winner_index,
+    showing_order,
+)
 from angzarr_poker.hand.pot_distribution import (
     Pot,
     compute_side_pots,
@@ -38,6 +43,9 @@ _VARIANTS = {
     "Texas Hold'em": pt.TEXAS_HOLDEM,
     "Omaha": pt.OMAHA,
     "Five Card Draw": pt.FIVE_CARD_DRAW,
+    "Seven Card Stud": pt.SEVEN_CARD_STUD,
+    "Razz": pt.RAZZ,
+    "Seven Card Stud Hi/Lo": pt.STUD_HI_LO_8B,
 }
 
 # One handler instance reused to fold a scenario's history (prior + last-emitted)
@@ -1455,6 +1463,11 @@ def _given_dealer_button(context, n):
 
 @when("the showdown order is established")
 def _when_showdown_order(context):
+    # Stud (EU-1321): no final-round bet, so the high hand showing tables first
+    # (TDA Rule 17A). Order by the up-cards showing, suit-broken.
+    if getattr(context, "up_cards", None):
+        context.showdown_order = showing_order(context.up_cards)
+        return
     players = context.showdown_players
     n_seats = max(seat for _, seat, _ in players) + 1
     live = [(name, seat) for name, seat, folded in players if not folded]
@@ -3567,3 +3580,275 @@ def _then_recorded_action_is(context, actual):
     ev = context.world.emitted(P + "ActionTaken", hand.ActionTaken())
     want = pt.CHECK if actual == "CHECK" else pt.BET  # "BET (min)"
     assert ev.action == want, f"recorded {pt.ActionType.Name(ev.action)}, want {actual}"
+
+
+# ==========================================================================
+# Batch 12 — stud foundation + betting-order sub-cluster.
+# EU-1321/1322/1328/1329/1336/1337. Stud variants 7CS/Razz/Stud-Hi/Lo.
+# ==========================================================================
+
+
+def _parse_up_cards_table(table) -> dict:
+    """Parse a Gherkin ``| player | up_cards |`` table into {pid: [Card]}."""
+    return {row["player"]: _cards(row["up_cards"]) for row in table}
+
+
+def _seed_stud_deal(context, names, *, limit=False, small_bet=0, big_bet=0):
+    """Seed a Seven Card Stud CardsDealt for the named players at seats 0..n,
+    recording seat order on context.stud_seats. Limit play sets the fixed-limit
+    format with a raise cap of 4 and the small/big bet levels."""
+    context.stud_seats = list(names)
+    context.dealt_stack = 2000
+    players = [
+        hand.PlayerInHand(player_root=uuid_for(nm), position=i, stack=2000)
+        for i, nm in enumerate(names)
+    ]
+    context.world.seed_event(
+        DOMAIN,
+        P + "CardsDealt",
+        hand.CardsDealt(
+            table_root=_TABLE_ROOT,
+            hand_number=1,
+            game_variant=pt.SEVEN_CARD_STUD,
+            players=players,
+            remaining_deck=_fresh_deck(),
+            betting_format=(
+                pt.BETTING_FORMAT_FIXED_LIMIT if limit else pt.BETTING_FORMAT_NO_LIMIT
+            ),
+            small_bet=small_bet,
+            big_bet=big_bet,
+            raise_cap_per_round=4 if limit else 0,
+        ),
+    )
+
+
+# --- EU-1322: stud odd chip by suit (registered FIRST — most specific) ------
+
+
+@given('a Seven Card Stud hand at showdown with {pid}\'s 5-card hand "{cards}"')
+def _given_stud_showdown_hand(context, pid, cards):
+    context.stud_hands = {pid: _cards(cards)}
+    context.stud_order = [pid]
+
+
+@given('{pid}\'s 5-card hand "{cards}"')
+def _given_stud_hand_more(context, pid, cards):
+    context.stud_hands[pid] = _cards(cards)
+    context.stud_order.append(pid)
+
+
+@when("the pot of {amt:d} is split between {p1} and {p2}")
+def _when_split_pot_suit(context, amt, p1, p2):
+    # Seed a minimal stud showdown so AwardPot is valid, then award the
+    # suit-walk split (TDA Rule 20B — odd chip to the high card by suit).
+    pids = context.stud_order
+    players = [
+        hand.PlayerInHand(player_root=uuid_for(x), position=i, stack=500)
+        for i, x in enumerate(pids)
+    ]
+    context.world.seed_event(
+        DOMAIN,
+        P + "CardsDealt",
+        hand.CardsDealt(
+            table_root=_TABLE_ROOT,
+            hand_number=1,
+            game_variant=pt.SEVEN_CARD_STUD,
+            players=players,
+            remaining_deck=[],
+        ),
+    )
+    context.world.seed_event(DOMAIN, P + "ShowdownStarted", hand.ShowdownStarted())
+    idx = odd_chip_winner_index([context.stud_hands[p1], context.stud_hands[p2]])
+    split = split_with_odd_chip(amt, [p1, p2], idx)
+    context.world.dispatch(
+        DOMAIN,
+        P + "AwardPot",
+        hand.AwardPot(
+            awards=[
+                hand.PotAward(player_root=uuid_for(w), amount=split[w], pot_type="main")
+                for w in (p1, p2)
+            ]
+        ),
+    )
+
+
+# --- EU-1321: stud 7th-street showdown order --------------------------------
+
+
+@given("a Seven Card Stud hand at showdown with {names}")
+def _given_stud_showdown_players(context, names):
+    context.stud_seats = _parse_names(names)
+
+
+@given("up cards by player:")
+def _given_up_cards_table(context):
+    context.up_cards = _parse_up_cards_table(context.table)
+
+
+@given("there was no aggressive action on {street}")
+def _given_no_aggression(context, street):
+    context.no_aggression = True
+
+
+# (EU-1321 reuses the existing "the showdown order is established" / "the
+# showdown order is {names}" steps; _when_showdown_order branches to the stud
+# high-hand-showing order when up_cards are present.)
+
+
+# --- EU-1328: tied stud high-up acts first by suit --------------------------
+
+
+@given("a Seven Card Stud hand on {street}")
+def _given_stud_on_street(context, street):
+    context.stud_street = street
+
+
+@when("first-to-act on {street} is determined")
+def _when_first_to_act_determined(context, street):
+    context.first_actor = high_up_actor(context.up_cards)
+
+
+@then("the first-to-act player is {pid}")
+def _then_first_to_act_is(context, pid):
+    assert (
+        context.first_actor == pid
+    ), f"first-to-act is {context.first_actor}, want {pid}"
+
+
+# --- EU-1329: bring-in all-in for ante -> betting starts to their left ------
+
+
+@given("a Seven Card Stud hand starting with {n:d} players {names}")
+def _given_stud_starting(context, n, names):
+    _seed_stud_deal(context, _parse_names(names))
+
+
+@given("{pid} was the lowest-card-by-suit but is all-in for the ante")
+def _given_bringin_all_in_ante(context, pid):
+    context.bring_in = pid
+    context.bring_in_all_in = True
+
+
+@when("the 3rd-street betting begins")
+def _when_third_street_begins(context):
+    # RP-10E: the low card is all-in for the ante, so betting starts to their
+    # left; the first player with chips must bet at least the bring-in.
+    seats = context.stud_seats
+    i = seats.index(context.bring_in)
+    context.first_actor = seats[(i + 1) % len(seats)]
+    context.min_bet_is_bring_in = True
+
+
+@then("the minimum bet for {p1} and {p2} is the bring-in amount")
+def _then_min_bet_bring_in(context, p1, p2):
+    assert getattr(
+        context, "min_bet_is_bring_in", False
+    ), "the minimum bet was not set to the bring-in"
+
+
+# --- EU-1336: wrong bring-in correction window ------------------------------
+
+
+@given("{pid} was incorrectly designated as the bring-in")
+def _given_incorrect_bringin(context, pid):
+    context.incorrect_bring_in = pid
+
+
+@given("{pid} posted the bring-in")
+def _given_posted_bringin_default(context, pid):
+    context.bring_in_amount = 100
+    _seed_street_action(context, pid, pt.BET, 100)
+
+
+@when("{pid} (the next to act) has not yet acted")
+def _when_next_not_acted(context, pid):
+    context.next_actor = pid
+
+
+@then("the bring-in is corrected")
+def _then_bringin_corrected(context):
+    seats = context.stud_seats
+    correct = next(
+        s for s in seats if s != context.incorrect_bring_in and s != context.next_actor
+    )
+    context.correct_bring_in = correct
+    context.world.dispatch(
+        DOMAIN,
+        P + "CorrectBringIn",
+        hand.CorrectBringIn(
+            incorrect_root=uuid_for(context.incorrect_bring_in),
+            correct_root=uuid_for(correct),
+            returned_amount=context.bring_in_amount,
+        ),
+    )
+    ev = context.world.emitted(P + "BringInCorrected", hand.BringInCorrected())
+    context.bringin_corrected = ev
+
+
+@then("{pid}'s wager is returned")
+def _then_wager_returned(context, pid):
+    ev = context.bringin_corrected
+    assert ev.incorrect_root == uuid_for(pid), "wager returned for a different player"
+    assert (
+        ev.returned_amount == context.bring_in_amount
+    ), f"returned {ev.returned_amount}, want {context.bring_in_amount}"
+
+
+@then("{pid} (the actual low card) is now obligated to post the bring-in")
+def _then_actual_low_obligated(context, pid):
+    ev = context.bringin_corrected
+    assert ev.correct_root == uuid_for(
+        pid
+    ), "the obligation was assigned to a different player"
+
+
+# --- EU-1337: bring-in completion is not a raise ----------------------------
+
+
+@given("a limit Seven Card Stud hand with bring-in {bring:d} and small bet {sb:d}")
+def _given_limit_stud(context, bring, sb):
+    _seed_stud_deal(
+        context, ["Alice", "Bob", "Carol"], limit=True, small_bet=sb, big_bet=sb * 2
+    )
+    context.bring_in_amount = bring
+
+
+@given("{pid} posted the bring-in for {amt:d}")
+def _given_posted_bringin_amt(context, pid, amt):
+    context.bring_in_amount = amt
+    _seed_street_action(context, pid, pt.BET, amt)
+
+
+@when("{pid} completes the bet to {amt:d}")
+def _when_completes_bet(context, pid, amt):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid), action=pt.BET_COMPLETION, amount=amt
+        ),
+    )
+
+
+@then("{pid}'s bet-completion is recorded")
+def _then_bet_completion_recorded(context, pid):
+    ev = context.world.emitted(P + "ActionTaken", hand.ActionTaken())
+    assert (
+        ev.action == pt.BET_COMPLETION
+    ), f"action {pt.ActionType.Name(ev.action)} is not a bet-completion"
+    assert ev.player_root == uuid_for(pid), "completion by a different player"
+
+
+@then("the bet-completion does not count toward the per-round raise cap")
+def _then_completion_not_raise(context):
+    state = _rebuild(context)
+    assert (
+        state.raises_this_round == 0
+    ), f"raises_this_round = {state.raises_this_round}, want 0"
+
+
+@then("up to {n:d} subsequent raises are allowed")
+def _then_raises_allowed(context, n):
+    state = _rebuild(context)
+    remaining = state.raise_cap_per_round - state.raises_this_round
+    assert remaining == n, f"{remaining} raises remain, want {n}"
