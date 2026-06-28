@@ -508,6 +508,20 @@ class HandAggregate:
         if player.is_all_in:
             raise _az.reject("PLAYER_IS_ALL_IN", "Player is already all-in")
 
+        # TDA Rule 57 — a non-standard / unclear betting declaration (a verbal
+        # context with no concrete action to interpret) is held pending the
+        # floor's interpretation; the player bears the risk of that ruling. Emit
+        # FloorDecisionRequired and record no ActionTaken.
+        if cmd.verbal_context and cmd.action == _pt.ACTION_UNSPECIFIED:
+            return _book(
+                _hand.FloorDecisionRequired(
+                    player_root=cmd.player_root,
+                    reason="NON_STANDARD_DECLARATION",
+                    verbal=cmd.verbal_context,
+                    requested_at=_now(),
+                )
+            )
+
         # Reinterpret verbal / chip-only declarations into a concrete action
         # before the switch (no-op for the default UNSPECIFIED method).
         action, amount = _interpret_declaration(cmd, player, state)
@@ -1070,6 +1084,13 @@ class HandAggregate:
                 break
         player.down_cards.append(event.replacement_card)
 
+    def apply_color_up_scheduled(
+        self, state: _hand.HandState, event: _hand.ColorUpScheduled
+    ) -> None:
+        # TDA Rule 25: record the pending color-up denomination only — no stack
+        # is converted mid-hand; the conversion applies at the next boundary.
+        state.pending_color_up_denomination = event.retire_denomination
+
     def apply_stud_community_card_dealt(
         self, state: _hand.HandState, event: _hand.StudCommunityCardDealt
     ) -> None:
@@ -1425,6 +1446,25 @@ class HandAggregate:
                 door_card=door,
                 rng_seed=cmd.rng_seed,
                 selected_at=_now(),
+            )
+        )
+
+    def discretionary_color_up(
+        self,
+        cmd: _hand.DiscretionaryColorUp,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA Rule 25 / WSOP Rule 106 — operator-issued discretionary color-up
+        outside the scheduled chip race. The conversion is deferred to the next
+        hand boundary; mid-hand stacks are NOT retroactively converted. Emits
+        ``ColorUpScheduled`` (the applier records the pending denomination but
+        mutates no stacks this hand)."""
+        return _book(
+            _hand.ColorUpScheduled(
+                retire_denomination=cmd.retire_denomination,
+                apply_at="NEXT_HAND_BOUNDARY",
+                scheduled_at=_now(),
             )
         )
 

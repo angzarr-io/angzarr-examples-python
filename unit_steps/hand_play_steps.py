@@ -73,6 +73,7 @@ _APPLIERS = {
     "SeventhStreetCardReplaced": HandAggregate.apply_seventh_street_card_replaced,
     "StudCommunityCardDealt": HandAggregate.apply_stud_community_card_dealt,
     "StudDoorCardSelected": HandAggregate.apply_stud_door_card_selected,
+    "ColorUpScheduled": HandAggregate.apply_color_up_scheduled,
 }
 
 _RANK_BY_CH = {
@@ -4583,3 +4584,136 @@ def _then_refused_open_pair_locks(context):
 @then("no rejection is raised based on the open pair")
 def _then_no_rejection_open_pair(context):
     assert context.world.err is None, f"unexpected rejection: {context.world.err}"
+
+
+# ==========================================================================
+# Batch 16 (final hand-lane wave) — uncontested showdown, color-up, floor.
+# EU-1221/1345/1357. (EU-1295 reuses the reopen-derivation cluster; EU-1150
+# is cross-lane — see report.)
+# ==========================================================================
+
+
+# --- EU-1221: uncontested showdown — last live hand wins without tabling -----
+
+
+@given("{p1} and {p2} have each contributed {amt:d} to a pot of {total:d}")
+def _given_each_contributed(context, p1, p2, amt, total):
+    _seed_street_action(context, p1, pt.BET, amt)
+    _seed_street_action(context, p2, pt.CALL, amt)
+
+
+@when("the showdown becomes uncontested with {pid} remaining")
+def _when_uncontested(context, pid):
+    # TDA Rule 17B: every other player mucked face down; the last live hand wins
+    # the pot without being required to table.
+    state = _rebuild(context, include_last_emitted=False)
+    pot = sum(p.total_invested for p in state.players)
+    context.world.dispatch(
+        DOMAIN,
+        P + "AwardPot",
+        hand.AwardPot(
+            awards=[
+                hand.PotAward(player_root=uuid_for(pid), amount=pot, pot_type="main")
+            ]
+        ),
+    )
+
+
+@then("{pid} is not required to reveal his cards")
+@then("{pid} is not required to reveal her cards")
+def _then_not_required_reveal(context, pid):
+    root = uuid_for(pid)
+    book = context.world._prior.get((DOMAIN, b"".hex()))
+    pages = list(book.pages) if book is not None else []
+    if context.world.resp is not None:
+        pages += list(context.world.resp.events.pages)
+    for pg in pages:
+        name = pg.event.type_url.rsplit("/", 1)[-1].rsplit(".", 1)[-1]
+        if name == "CardsRevealed":
+            ev = hand.CardsRevealed()
+            ev.ParseFromString(pg.event.value)
+            assert ev.player_root != root, f"{pid} was required to reveal"
+
+
+# --- EU-1345: discretionary color-up deferred to next hand boundary ----------
+
+
+@given("a hand in progress with the current bet at {bet:d} and the pot at {pot:d}")
+def _given_hand_in_progress_bet_pot(context, bet, pot):
+    _seed_named_deal(context, "Texas Hold'em", ["Alice", "Bob"], 2000)
+    if bet > 0:
+        _seed_street_action(context, "Alice", pt.BET, bet)
+
+
+@when("the TD issues a discretionary color-up for denomination {denom:d}")
+def _when_discretionary_color_up(context, denom):
+    state = _rebuild(context, include_last_emitted=False)
+    context.pre_colorup_stacks = {p.player_root: p.stack for p in state.players}
+    context.world.dispatch(
+        DOMAIN,
+        P + "DiscretionaryColorUp",
+        hand.DiscretionaryColorUp(retire_denomination=denom),
+    )
+
+
+@then("the color-up is accepted but no stack mutation occurs in this hand")
+def _then_colorup_no_mutation(context):
+    ev = context.world.emitted(P + "ColorUpScheduled", hand.ColorUpScheduled())
+    assert ev.retire_denomination > 0, "no color-up scheduled"
+    state = _rebuild(context)
+    for p in state.players:
+        assert (
+            p.stack == context.pre_colorup_stacks[p.player_root]
+        ), "a stack was mutated by the color-up"
+
+
+@then("the color-up is scheduled to apply at the next hand boundary")
+def _then_colorup_scheduled(context):
+    ev = context.world.emitted(P + "ColorUpScheduled", hand.ColorUpScheduled())
+    assert (
+        ev.apply_at == "NEXT_HAND_BOUNDARY"
+    ), f"color-up applies at {ev.apply_at!r}, want NEXT_HAND_BOUNDARY"
+
+
+# --- EU-1357: non-standard bet declaration ruled by the floor ----------------
+
+
+@when('{pid} verbally declares "{verbal}" (non-standard)')
+def _when_non_standard_declaration(context, pid, verbal):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid),
+            action=pt.ACTION_UNSPECIFIED,
+            verbal_context=verbal,
+        ),
+    )
+
+
+@then(
+    "a floor decision is required because a non-standard declaration requires floor review"
+)
+def _then_floor_decision_non_standard(context):
+    ev = context.world.emitted(
+        P + "FloorDecisionRequired", hand.FloorDecisionRequired()
+    )
+    assert ev.reason == "NON_STANDARD_DECLARATION", f"reason {ev.reason!r}"
+
+
+@then("the action is held pending floor interpretation")
+def _then_action_held(context):
+    assert (
+        "ActionTaken" not in context.world.emitted_fqs()
+    ), "an action was recorded instead of being held"
+
+
+@when("one player makes a short all-in to {amt:d} (at least 50% of a full bet)")
+def _when_short_allin_half(context, amt):
+    # TDA Rule 47B (limit): a short all-in whose increment is at least 50% of a
+    # full bet/raise reopens betting for players who have already acted.
+    increment = amt - context.reopen_last_full
+    context.reopen_bet = amt
+    if increment * 2 >= context.reopen_inc:
+        context.reopen_reopened = True
+        context.reopen_last_full = amt
