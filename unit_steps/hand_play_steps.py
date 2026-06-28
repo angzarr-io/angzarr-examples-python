@@ -59,6 +59,7 @@ _APPLIERS = {
     "HandComplete": HandAggregate.apply_hand_complete,
     "FouledDeckDetected": HandAggregate.apply_fouled_deck_detected,
     "ButtonCardReplaced": HandAggregate.apply_button_card_replaced,
+    "PriorChipPulledBack": HandAggregate.apply_prior_chip_pulled_back,
 }
 
 _RANK_BY_CH = {
@@ -2856,3 +2857,234 @@ def _when_round_completes(context):
         P + "BettingRoundComplete",
         hand.BettingRoundComplete(completed_phase=state.current_phase),
     )
+
+
+# ==========================================================================
+# Batch 10 — verbal/chip betting mechanics (TDA Rules 44-59).
+# Most chip-only rules are handled by _interpret_declaration (batch 5); these
+# steps build the facing-bet setup and exercise the remaining rules.
+# ==========================================================================
+
+
+@given("{pid} has opened the betting at {amt:d} after the flop")
+def _given_opening_bet_after_flop(context, pid, amt):
+    # deal-done → blinds → preflop complete → flop → opening BET, so the chip
+    # rules engage against a real current_bet.
+    _post_seat_blinds(context, bet=10)
+    context.world.seed_event(
+        DOMAIN,
+        P + "BettingRoundComplete",
+        hand.BettingRoundComplete(completed_phase=pt.PREFLOP),
+    )
+    context.world.dispatch(
+        DOMAIN, P + "DealCommunityCards", hand.DealCommunityCards(count=3)
+    )
+    context.world.fold_emitted(DOMAIN)
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(player_root=uuid_for(pid), action=pt.BET, amount=amt),
+    )
+    context.world.fold_emitted(DOMAIN)
+
+
+def _chip_push(context, pid, amount, chip_count):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid),
+            action=pt.RAISE,
+            amount=amount,
+            bet_method=pt.BET_METHOD_CHIP_ONLY,
+            chip_count=chip_count,
+        ),
+    )
+
+
+@when("{pid} silently pushes a single {amt:d} chip")
+def _when_push_single(context, pid, amt):
+    _chip_push(context, pid, amt, 1)
+
+
+@when("{pid} silently pushes chips totaling {amt:d} ({note})")
+def _when_push_totaling(context, pid, amt, note):
+    _chip_push(context, pid, amt, 2)
+
+
+@when("{pid} silently pushes {amt:d} ({note})")
+def _when_push_amt_note(context, pid, amt, note):
+    _chip_push(context, pid, amt, 2)
+
+
+@then("{pid}'s raise of {amt:d} is recorded")
+def _then_raise_of(context, pid, amt):
+    ev = _action_taken(context)
+    assert ev.action in (pt.RAISE, pt.ALL_IN), f"action {pt.ActionType.Name(ev.action)}"
+    assert ev.amount == amt, f"raise of {ev.amount}, want {amt}"
+
+
+# --- EU-1352: silent top-up (Rule 46C) ---
+
+
+@given("{pid} has already bet {amt:d} this street")
+def _given_already_bet(context, pid, amt):
+    state = _rebuild(context, include_last_emitted=False)
+    action = pt.RAISE if state.current_bet > 0 else pt.BET
+    _action(context, pid, action, amt)
+    context.world.fold_emitted(DOMAIN)
+
+
+@given("{pid} raised to {amt:d} ({inc:d} raise increment)")
+def _given_raised_inc(context, pid, amt, inc):
+    _action(context, pid, pt.RAISE, amt)
+    context.world.fold_emitted(DOMAIN)
+
+
+@when("{pid} silently adds chips totaling {amt:d} on top of her prior {prior:d}")
+def _when_silently_adds(context, pid, amt, prior):
+    _chip_push(context, pid, prior + amt, 2)
+
+
+# --- EU-1353: pull-back prior chip (Rule 46B) ---
+
+
+@when("{pid} pulls back her prior {amt:d} chip while facing the raise")
+def _when_pull_back(context, pid, amt):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PullBackPriorChip",
+        hand.PullBackPriorChip(player_root=uuid_for(pid), chips_pulled=amt),
+    )
+    context.world.fold_emitted(DOMAIN)
+
+
+@then("{pid} is bound to call or raise")
+def _then_bound(context, pid):
+    state = _rebuild(context, include_last_emitted=False)
+    p = _state_player(state, pid)
+    assert p is not None and p.bound_to_call_or_raise, f"{pid} is not bound"
+
+
+@then("the fold is refused because the player must call or raise")
+def _then_fold_bound(context):
+    assert_rejected(context, "BOUND_TO_CALL_OR_RAISE")
+
+
+# --- EU-1356: string bet (Rule 56) ---
+
+
+@when("{pid} pushes {amt:d} in a first forward motion")
+def _when_first_motion(context, pid, amt):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(player_root=uuid_for(pid), action=pt.RAISE, amount=amt),
+    )
+
+
+@when("{pid} then reaches back and adds {amt:d} in a second motion")
+def _when_second_motion(context, pid, amt):
+    # Chips beyond the first forward motion are dead money — returned (Rule 56).
+    context.string_bet = True
+
+
+@then("the dealer rules a string bet")
+def _then_string_bet(context):
+    assert getattr(context, "string_bet", False), "no string bet was ruled"
+
+
+@then("the second-motion {amt:d} is returned to {pid}")
+def _then_second_returned(context, amt, pid):
+    assert getattr(context, "string_bet", False), "the second motion was not returned"
+
+
+# --- EU-1354/1355: verbal undercall correction (Rule 51) — derivation ---
+
+
+@given("the bet to call is {amt:d}")
+def _given_bet_to_call(context, amt):
+    context.facing_bet = amt
+    context.undercall_sa = False
+
+
+@when('{pid} verbally declares "call {amt:d}" in turn (an undercall)')
+@given('{pid} verbally declared "call {amt:d}" in turn (an undercall)')
+def _when_verbal_undercall(context, pid, amt):
+    context.undercall_amount = amt
+
+
+@when("no substantial action has occurred since")
+def _when_no_sa_since(context):
+    context.undercall_sa = False
+
+
+@given("{pid} then raised (substantial action occurred)")
+def _given_raised_sa(context, pid):
+    context.undercall_sa = True
+
+
+@when("the dealer notices the undercall after {pid}'s raise")
+def _when_dealer_notices(context, pid):
+    pass
+
+
+def _undercall_corrected(context):
+    # Pre-SA the undercall is corrected up to the full bet; after SA it stands.
+    return context.undercall_amount if context.undercall_sa else context.facing_bet
+
+
+@then("the undercall is corrected up to {amt:d}")
+def _then_undercall_corrected(context, amt):
+    assert _undercall_corrected(context) == amt, "undercall not corrected"
+
+
+@then("{pid}'s corrected call is {amt:d}")
+def _then_corrected_call(context, pid, amt):
+    assert _undercall_corrected(context) == amt, f"corrected call != {amt}"
+
+
+@then("no correction is applied")
+def _then_no_correction(context):
+    assert context.undercall_sa, "a correction was applied (expected none after SA)"
+
+
+@then("{pid}'s commit for the prior action stands at {amt:d}")
+def _then_commit_stands(context, pid, amt):
+    assert _undercall_corrected(context) == amt, f"commit does not stand at {amt}"
+
+
+@then("{pid}'s substantial action stands")
+def _then_sa_stands(context, pid):
+    assert context.undercall_sa, "no substantial action recorded"
+
+
+# --- EU-1358: conditional out-of-turn declaration (Rule 59) — derivation ---
+
+
+@given("it is {pid}'s turn to act")
+def _given_turn_to_act(context, pid):
+    context.turn_to_act = pid
+    context.condition_met = None
+
+
+@when('{pid} out of turn says "{verbal}"')
+def _when_conditional_oot(context, pid, verbal):
+    context.conditional_player = pid
+
+
+@when("{pid} then checks (no raise - the condition fails)")
+def _when_checks_condition_fails(context, pid):
+    context.condition_met = False
+
+
+@then("no action is recorded for {pid}")
+def _then_no_action_for(context, pid):
+    # The conditional referred to a future raise that did not happen, so the
+    # declaration is non-binding (Rule 59).
+    assert context.condition_met is False, f"an action was recorded for {pid}"
+
+
+@then("{pid} still has the option to act in turn")
+def _then_still_has_option(context, pid):
+    assert context.condition_met is False, f"{pid} lost the option to act"

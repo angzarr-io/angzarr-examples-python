@@ -488,6 +488,13 @@ class HandAggregate:
         event_amount = amount
 
         if action == _pt.FOLD:
+            # TDA Rule 46B: a player who pulled back a prior chip facing a raise
+            # is bound to call or raise — they may not fold.
+            if player.bound_to_call_or_raise:
+                raise _az.reject(
+                    "BOUND_TO_CALL_OR_RAISE",
+                    "The player pulled back a chip and must call or raise",
+                )
             chips_put_in = 0
             event_amount = 0
         elif action == _pt.CHECK:
@@ -932,6 +939,36 @@ class HandAggregate:
         if not state.players or not state.status:
             raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
         return _book(_hand.PrematureRiverDetected(detected_at=_now()))
+
+    def pull_back_prior_chip(
+        self,
+        cmd: _hand.PullBackPriorChip,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """Pull back a prior-bet chip while facing a raise (TDA Rule 46B): the
+        player is then bound to call or raise — they may not put the chip back
+        out and fold. ``PriorChipPulledBack`` records the binding on the player;
+        a subsequent fold is rejected with ``BOUND_TO_CALL_OR_RAISE``."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        player = _find_player(state, cmd.player_root)
+        if player is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        return _book(
+            _hand.PriorChipPulledBack(
+                player_root=cmd.player_root,
+                chips_pulled=cmd.chips_pulled,
+                pulled_at=_now(),
+            )
+        )
+
+    def apply_prior_chip_pulled_back(
+        self, state: _hand.HandState, event: _hand.PriorChipPulledBack
+    ) -> None:
+        player = _find_player(state, event.player_root)
+        if player is not None:
+            player.bound_to_call_or_raise = True
 
     def award_pot(
         self, cmd: _hand.AwardPot, state: _hand.HandState, cctx: _az.CommandContext
