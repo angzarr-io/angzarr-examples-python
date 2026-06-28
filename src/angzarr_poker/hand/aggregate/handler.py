@@ -236,6 +236,16 @@ def _interpret_declaration(cmd: _hand.PlayerAction, player, state: _hand.HandSta
             return _pt.RAISE, min_legal_raise_to
         return _pt.CALL, 0
     if cmd.bet_method == _pt.BET_METHOD_VERBAL_FIRST:
+        # TDA Rule 55 — bind an invalid declaration to the legal in-context
+        # action. Facing no bet, a verbal "call" is a check and a verbal
+        # "raise" is an opening bet at the minimum. (Declaring "check" while
+        # facing a bet is left as CHECK so the switch rejects it with
+        # CANNOT_CHECK_FACING_BET — the player is bound to call or fold.)
+        if state.current_bet == 0:
+            if action == _pt.CALL:
+                return _pt.CHECK, 0
+            if action == _pt.RAISE:
+                return _pt.BET, state.min_raise
         if action == _pt.RAISE and (amount == 0 or amount < min_legal_raise_to):
             return _pt.RAISE, min_legal_raise_to
         # An invalid/amount-less verbal bet (e.g. "bet the pot" in no-limit) binds
@@ -749,13 +759,20 @@ class HandAggregate:
         if len(community) >= 5:
             _, board_score, _ = rules.evaluate_hand([], community)
             plays_board = score == board_score
-        # To play the board a player must table ALL hole cards; tabling only some
-        # (a partial muck) forfeits any claim that rests on the board.
+        # TDA Rule 13A: a proper tabling turns ALL required hole cards face up.
+        # A partial tabling is rejected — either as a forfeited play-the-board
+        # claim (Rule 19) when the board is the player's best five, or as an
+        # incomplete reveal otherwise.
         tabled = list(cmd.tabled_indices)
-        if tabled and len(set(tabled)) < len(hole) and plays_board:
+        if tabled and len(set(tabled)) < len(hole):
+            if plays_board:
+                raise _az.reject(
+                    "CANNOT_PLAY_BOARD_PARTIAL_MUCK",
+                    "Cannot claim to play the board after mucking a hole card",
+                )
             raise _az.reject(
-                "CANNOT_PLAY_BOARD_PARTIAL_MUCK",
-                "Cannot claim to play the board after mucking a hole card",
+                "INCOMPLETE_REVEAL",
+                "A proper tabling must turn up all hole cards (TDA Rule 13A)",
             )
         event = _hand.CardsRevealed(
             player_root=cmd.player_root,
@@ -970,6 +987,93 @@ class HandAggregate:
         if player is not None:
             player.bound_to_call_or_raise = True
 
+    def request_show_hand(
+        self,
+        cmd: _hand.RequestShowHand,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA Rule 18 — a caller who reached the river still holding their cards
+        may demand the last aggressor's hand (Rule 18B), obliging that player to
+        table. A player who mucked face-down without tabling has forfeited the
+        right (Rule 18A); the request is rejected with MUCKED_WITHOUT_TABLING."""
+        if not cmd.requester_root:
+            raise _az.reject("PLAYER_ROOT_REQUIRED", "A requester must be identified")
+        requester = _find_player(state, cmd.requester_root)
+        if requester is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Requester is not in this hand")
+        if requester.mucked or requester.has_folded:
+            raise _az.reject(
+                "MUCKED_WITHOUT_TABLING",
+                "A player who mucked without tabling cannot demand a hand",
+            )
+        return _book(
+            _hand.HandTablingRequired(
+                target_root=cmd.target_root,
+                requester_root=cmd.requester_root,
+                required_at=_now(),
+            )
+        )
+
+    def request_stack_count(
+        self,
+        cmd: _hand.RequestStackCount,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA Rule 60 / WSOP Rule 62 — a player is entitled to a reasonable
+        estimation of an opponent's chip stack. Disclose the target's current
+        stack via OpponentStackDisclosed."""
+        target = _find_player(state, cmd.target_root)
+        if target is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Target is not in this hand")
+        return _book(
+            _hand.OpponentStackDisclosed(
+                target_root=cmd.target_root, stack=target.stack, disclosed_at=_now()
+            )
+        )
+
+    def report_infraction(
+        self,
+        cmd: _hand.ReportInfraction,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA Rules 67/68 — assess a one-player-to-a-hand penalty. Disclosing
+        hand contents during a live hand (DISCLOSURE_VIOLATION) is an immediate
+        penalty; exposing cards with action pending (EXPOSED_CARDS) keeps the
+        hand live and starts the penalty at the end of the current hand
+        (PenaltyAssessed does not fold the hand)."""
+        player = _find_player(state, cmd.player_root)
+        if player is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        reason = cmd.infraction or "DISCLOSURE_VIOLATION"
+        starts_after = reason == "EXPOSED_CARDS"
+        return _book(
+            _hand.PenaltyAssessed(
+                player_root=cmd.player_root,
+                severity=_pt.MISSED_HAND,
+                reason=reason,
+                starts_after_current_hand=starts_after,
+                assessed_at=_now(),
+            )
+        )
+
+    def report_disordered_stub(
+        self,
+        cmd: _hand.ReportDisorderedStub,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA RP-4 — a disordered stub detected mid-deal forces a reshuffle of
+        the remaining stub before the deal continues. Community cards already
+        exposed are untouched (this emits only the reshuffle requirement)."""
+        return _book(
+            _hand.StubReshuffleRequired(
+                reason=cmd.reason or "DISORDERED", detected_at=_now()
+            )
+        )
+
     def award_pot(
         self, cmd: _hand.AwardPot, state: _hand.HandState, cctx: _az.CommandContext
     ) -> Optional[_t.EventBook]:
@@ -991,6 +1095,16 @@ class HandAggregate:
             raise _az.reject("HAND_ALREADY_COMPLETE", "The hand is already complete")
         if not cmd.awards:
             raise _az.reject("NO_AWARDS", "AwardPot must name at least one winner")
+        # TDA Rule 13C — a dealer cannot kill a properly tabled winner. When a
+        # tabled hand is on record, any award that fails to include it is an
+        # operator error and is rejected, identifying the tabled winner.
+        if state.tabled_winner and not any(
+            a.player_root == state.tabled_winner for a in cmd.awards
+        ):
+            raise _az.reject(
+                "TABLED_WINNER_CANNOT_BE_KILLED",
+                f"A tabled winner ({state.tabled_winner.hex()}) cannot be killed by an award",
+            )
         for a in cmd.awards:
             player = _find_player(state, a.player_root)
             if player is None:
@@ -1202,6 +1316,13 @@ class HandAggregate:
         player = _find_player(state, event.player_root)
         if player is not None:
             player.has_shown = True
+        # TDA Rule 13C — track the best properly tabled hand so an erroneous
+        # award that nominates a lesser hand can be rejected. The first tabled
+        # hand seeds the winner; a strictly higher score supersedes it.
+        score = event.ranking.score
+        if not state.tabled_winner or score > state.tabled_winner_score:
+            state.tabled_winner = event.player_root
+            state.tabled_winner_score = score
 
     def apply_cards_mucked(
         self, state: _hand.HandState, event: _hand.CardsMucked
@@ -1209,6 +1330,8 @@ class HandAggregate:
         player = _find_player(state, event.player_root)
         if player is not None:
             player.has_shown = True
+            # TDA Rule 18A — a face-down muck forfeits the right to demand a hand.
+            player.mucked = True
 
     def apply_pot_awarded(
         self, state: _hand.HandState, event: _hand.PotAwarded

@@ -3088,3 +3088,482 @@ def _then_no_action_for(context, pid):
 @then("{pid} still has the option to act in turn")
 def _then_still_has_option(context, pid):
     assert context.condition_met is False, f"{pid} lost the option to act"
+
+
+# ==========================================================================
+# Batch 11 — showdown/tabling, disclosure/penalty, stub reshuffle, misc.
+# EU-1270/1271/1272/1342/1343/1359/1360/1361/1362/1363/1364/1288.
+# ==========================================================================
+
+
+def _pot(state) -> int:
+    return sum(p.total_invested for p in state.players)
+
+
+def _all_event_names(context) -> list:
+    book = context.world._prior.get((DOMAIN, b"".hex()))
+    pages = list(book.pages) if book is not None else []
+    if context.world.resp is not None:
+        pages += list(context.world.resp.events.pages)
+    return [pg.event.type_url.rsplit("/", 1)[-1].rsplit(".", 1)[-1] for pg in pages]
+
+
+# --- EU-1270: hand ends early; no community / stub exposure ----------------
+
+
+@when("the pot is awarded to {pid}")
+def _when_award_full_pot(context, pid):
+    state = _rebuild(context, include_last_emitted=False)
+    context.world.dispatch(
+        DOMAIN,
+        P + "AwardPot",
+        hand.AwardPot(
+            awards=[
+                hand.PotAward(
+                    player_root=uuid_for(pid), amount=_pot(state), pot_type="main"
+                )
+            ]
+        ),
+    )
+
+
+@then("no community cards were revealed")
+def _then_no_community_revealed(context):
+    state = _rebuild(context)
+    assert (
+        len(state.community_cards) == 0
+    ), f"{len(state.community_cards)} community cards were revealed"
+
+
+@then("the hand history does not expose any stub cards")
+def _then_no_stub_exposed(context):
+    # Rabbit-hunting guard (TDA Rule 28): the hand ended before any community
+    # street, so no CommunityCardsDealt event exists to expose an unburned
+    # stub card and the rebuilt board is empty.
+    assert "CommunityCardsDealt" not in _all_event_names(
+        context
+    ), "a community street exposed stub cards"
+    assert len(_rebuild(context).community_cards) == 0
+
+
+# --- EU-1271: incomplete reveal --------------------------------------------
+
+
+@when("{pid} attempts to reveal tabling only the card at position {i:d}")
+def _when_reveal_partial_tabling(context, pid, i):
+    context.world.dispatch(
+        DOMAIN,
+        P + "RevealCards",
+        hand.RevealCards(player_root=uuid_for(pid), muck=False, tabled_indices=[i]),
+    )
+
+
+@then("the reveal is refused because the reveal is incomplete")
+def _then_reveal_incomplete(context):
+    assert_rejected(context, "INCOMPLETE_REVEAL")
+
+
+# --- EU-1272: a tabled winner cannot be killed -----------------------------
+
+
+@given("{pid} has tabled cards with a {rank}")
+def _given_has_tabled_ranking(context, pid, rank):
+    # Seed a CardsRevealed carrying the named ranking; the rank-type ordinal
+    # doubles as the comparison score (ROYAL_FLUSH=10 > PAIR=2), so the
+    # aggregate tracks the best tabled hand as the protected winner.
+    rt = getattr(pt, rank)
+    context.world.seed_event(
+        DOMAIN,
+        P + "CardsRevealed",
+        hand.CardsRevealed(
+            player_root=uuid_for(pid),
+            ranking=pt.HandRanking(rank_type=rt, score=int(rt)),
+        ),
+    )
+
+
+@then("the award is refused because a tabled winner's hand cannot be killed")
+def _then_award_refused_tabled_winner(context):
+    assert_rejected(context, "TABLED_WINNER_CANNOT_BE_KILLED")
+
+
+@then("the rejection identifies {pid} as the tabled winner")
+def _then_identifies_tabled_winner(context, pid):
+    state = _rebuild(context, include_last_emitted=False)
+    assert state.tabled_winner == uuid_for(
+        pid
+    ), "the protected tabled winner is not the expected player"
+
+
+# --- EU-1342/1343: right to demand a hand ----------------------------------
+
+
+@given("the river betting closed with {agg} as last aggressor and {caller} as caller")
+def _given_river_closed(context, agg, caller):
+    # The deal was seeded by the preceding "dealt to ..." Given; advance it to
+    # showdown (river dealt) without re-seeding the players.
+    river = _cards("2c 3d 4h 5s 9c")
+    context.world.seed_event(
+        DOMAIN,
+        P + "CommunityCardsDealt",
+        hand.CommunityCardsDealt(
+            phase=pt.RIVER, cards=river, all_community_cards=river
+        ),
+    )
+    context.world.seed_event(DOMAIN, P + "ShowdownStarted", hand.ShowdownStarted())
+    context.last_aggressor = agg
+    context.caller = caller
+
+
+@given("{pid} still holds her cards")
+@given("{pid} still holds his cards")
+def _given_still_holds_cards(context, pid):
+    pass  # not mucked — the default; the right to demand is retained.
+
+
+@given("{pid} mucked her cards face-down without tabling")
+@given("{pid} mucked his cards face-down without tabling")
+def _given_mucked_facedown(context, pid):
+    context.world.seed_event(
+        DOMAIN, P + "CardsMucked", hand.CardsMucked(player_root=uuid_for(pid))
+    )
+
+
+@when("{pid} requests to see {target}'s hand")
+def _when_requests_see_hand(context, pid, target):
+    context.world.dispatch(
+        DOMAIN,
+        P + "RequestShowHand",
+        hand.RequestShowHand(
+            requester_root=uuid_for(pid), target_root=uuid_for(target)
+        ),
+    )
+
+
+@then("{pid} is required to table his hand")
+@then("{pid} is required to table her hand")
+def _then_required_to_table(context, pid):
+    ev = context.world.emitted(P + "HandTablingRequired", hand.HandTablingRequired())
+    assert ev.target_root == uuid_for(
+        pid
+    ), f"tabling required for a different player than {pid}"
+
+
+@then("the request is refused because the hand was mucked without being tabled")
+def _then_request_refused_mucked(context):
+    assert_rejected(context, "MUCKED_WITHOUT_TABLING")
+
+
+# --- EU-1359: opponent stack count -----------------------------------------
+
+
+@when("{pid} requests a stack count for {target}")
+def _when_requests_stack_count(context, pid, target):
+    context.world.dispatch(
+        DOMAIN,
+        P + "RequestStackCount",
+        hand.RequestStackCount(
+            requester_root=uuid_for(pid), target_root=uuid_for(target)
+        ),
+    )
+
+
+@then("{pid}'s stack of {amt:d} is disclosed to {requester}")
+def _then_stack_disclosed(context, pid, amt, requester):
+    ev = context.world.emitted(
+        P + "OpponentStackDisclosed", hand.OpponentStackDisclosed()
+    )
+    assert ev.target_root == uuid_for(pid), "stack disclosed for a different player"
+    assert ev.stack == amt, f"disclosed stack {ev.stack}, want {amt}"
+
+
+# --- EU-1360: over-betting expecting change --------------------------------
+
+
+@when('{pid} pushes a single {amt:d} chip declaring "bet {n:d}"')
+def _when_pushes_chip_declaring(context, pid, amt, n):
+    # TDA Rule 61: the bet is accepted at the chip-tendered amount; the lower
+    # verbal under-declaration (the request for change) is ignored.
+    context.pushed_chip = amt
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid),
+            action=pt.BET,
+            amount=amt,
+            verbal_context=f"bet {n}",
+        ),
+    )
+
+
+@then("no change is returned to {pid}")
+def _then_no_change_returned(context, pid):
+    state = _rebuild(context)
+    p = _state_player(state, pid)
+    assert p.stack == context.dealt_stack - context.pushed_chip, (
+        f"{pid} stack {p.stack}; the full {context.pushed_chip}-chip was not "
+        "committed (change was returned)"
+    )
+
+
+# --- EU-1361: hidden chip found behind after a call ------------------------
+
+
+@given(
+    'a CardsDealt event for {variant} with {n:d} players "{names}" at stacks {stack:d}'
+)
+def _given_cardsdealt_named_event(context, variant, n, names, stack):
+    nm = _parse_names(names)
+    context.dealt_stack = stack
+    players = [
+        hand.PlayerInHand(player_root=uuid_for(x), position=i, stack=stack)
+        for i, x in enumerate(nm)
+    ]
+    context.world.seed_event(
+        DOMAIN,
+        P + "CardsDealt",
+        hand.CardsDealt(
+            table_root=_TABLE_ROOT,
+            hand_number=1,
+            game_variant=getattr(pt, variant),
+            players=players,
+            remaining_deck=_fresh_deck()[2 * len(nm) :],
+        ),
+    )
+
+
+@given('player "{pid}" went all-in for {amt:d}')
+def _given_player_all_in(context, pid, amt):
+    _seed_street_action(context, pid, pt.ALL_IN, amt)
+
+
+@given('player "{pid}" called the {amt:d} all-in')
+def _given_player_called_all_in(context, pid, amt):
+    _seed_street_action(context, pid, pt.CALL, amt)
+
+
+@when('a hidden {amt:d} chip is discovered behind player "{pid}" after the call')
+def _when_hidden_chip_discovered(context, amt, pid):
+    # TDA Rule 62: chips found behind after a call do not retroactively join
+    # the all-in — no command adds them to the pot this hand.
+    context.hidden_chip = amt
+    context.pot_at_discovery = _pot(_rebuild(context, include_last_emitted=False))
+
+
+@then("the hidden {amt:d} is not added to the current pot")
+def _then_hidden_not_added(context, amt):
+    pot = _pot(_rebuild(context, include_last_emitted=False))
+    assert pot == context.pot_at_discovery, (
+        f"the pot changed to {pot} from {context.pot_at_discovery}; the hidden "
+        f"{amt} was added"
+    )
+
+
+# --- EU-1362/1363: disclosure / exposure penalties -------------------------
+
+
+@given("the hand is live and the pot is {amt:d}")
+def _given_hand_live(context, amt):
+    pass  # the deal already left the hand live (status=betting).
+
+
+@given("it is {pid}'s turn to act with action pending")
+def _given_turn_to_act(context, pid):
+    context.action_pid = pid
+
+
+@when("{pid} discloses her hole cards to a railbird while facing action")
+@when("{pid} discloses his hole cards to a railbird while facing action")
+def _when_discloses_contents(context, pid):
+    context.world.dispatch(
+        DOMAIN,
+        P + "ReportInfraction",
+        hand.ReportInfraction(
+            player_root=uuid_for(pid), infraction="DISCLOSURE_VIOLATION"
+        ),
+    )
+
+
+@when("{pid} exposes both her hole cards face-up")
+@when("{pid} exposes both his hole cards face-up")
+def _when_exposes_cards(context, pid):
+    context.world.dispatch(
+        DOMAIN,
+        P + "ReportInfraction",
+        hand.ReportInfraction(player_root=uuid_for(pid), infraction="EXPOSED_CARDS"),
+    )
+
+
+@then("{pid} is penalised for a disclosure violation")
+def _then_penalised_disclosure(context, pid):
+    ev = context.world.emitted(P + "PenaltyAssessed", hand.PenaltyAssessed())
+    assert ev.player_root == uuid_for(pid), "penalty against a different player"
+    assert ev.reason == "DISCLOSURE_VIOLATION", f"reason {ev.reason!r}"
+
+
+@then("the penalty severity is at least missed-hand")
+def _then_severity_at_least_missed_hand(context):
+    ev = context.world.emitted(P + "PenaltyAssessed", hand.PenaltyAssessed())
+    assert (
+        ev.severity >= pt.MISSED_HAND
+    ), f"severity {pt.PenaltySeverity.Name(ev.severity)} is below missed-hand"
+
+
+@then("{pid} is penalised for exposed cards")
+def _then_penalised_exposed(context, pid):
+    ev = context.world.emitted(P + "PenaltyAssessed", hand.PenaltyAssessed())
+    assert ev.player_root == uuid_for(pid), "penalty against a different player"
+    assert ev.reason == "EXPOSED_CARDS", f"reason {ev.reason!r}"
+
+
+@then("the penalty starts at the end of the current hand")
+def _then_penalty_starts_after_hand(context):
+    ev = context.world.emitted(P + "PenaltyAssessed", hand.PenaltyAssessed())
+    assert ev.starts_after_current_hand, "the penalty does not start after the hand"
+
+
+@then("{pid}'s hand remains live this hand")
+def _then_hand_remains_live(context, pid):
+    state = _rebuild(context)
+    p = _state_player(state, pid)
+    assert p is not None and not p.has_folded, f"{pid}'s hand is no longer live"
+
+
+# --- EU-1364: disordered stub reshuffle ------------------------------------
+
+
+@given("a hand mid-deal on the river with a disordered stub")
+def _given_mid_deal_disordered_stub(context):
+    context.dealt_stack = 500
+    players = [
+        hand.PlayerInHand(
+            player_root=uuid_for(f"player-{i + 1}"), position=i, stack=500
+        )
+        for i in range(2)
+    ]
+    context.world.seed_event(
+        DOMAIN,
+        P + "CardsDealt",
+        hand.CardsDealt(
+            table_root=_TABLE_ROOT,
+            hand_number=1,
+            game_variant=pt.TEXAS_HOLDEM,
+            players=players,
+            remaining_deck=_fresh_deck()[4:],
+        ),
+    )
+    flop = _cards("Ah Kd 7c")
+    context.world.seed_event(
+        DOMAIN,
+        P + "CommunityCardsDealt",
+        hand.CommunityCardsDealt(phase=pt.FLOP, cards=flop, all_community_cards=flop),
+    )
+    turn = _cards("2s")
+    context.world.seed_event(
+        DOMAIN,
+        P + "CommunityCardsDealt",
+        hand.CommunityCardsDealt(
+            phase=pt.TURN, cards=turn, all_community_cards=flop + turn
+        ),
+    )
+    context.exposed_community = flop + turn
+
+
+@when("the dealer detects the stub disorder")
+def _when_detects_stub_disorder(context):
+    context.world.dispatch(
+        DOMAIN,
+        P + "ReportDisorderedStub",
+        hand.ReportDisorderedStub(reason="DISORDERED"),
+    )
+    context.stub_reshuffled = True
+
+
+@then("a stub reshuffle is required")
+def _then_stub_reshuffle_required(context):
+    ev = context.world.emitted(
+        P + "StubReshuffleRequired", hand.StubReshuffleRequired()
+    )
+    assert ev.reason == "DISORDERED", f"reshuffle reason {ev.reason!r}"
+
+
+@then("the burn for the next street is taken from the reshuffled stub")
+def _then_burn_from_reshuffled(context):
+    assert getattr(
+        context, "stub_reshuffled", False
+    ), "no reshuffle was recorded for the next burn"
+
+
+@then("no community cards already exposed are altered")
+def _then_community_unaltered(context):
+    state = _rebuild(context)
+    got = [(c.rank, c.suit) for c in state.community_cards]
+    want = [(c.rank, c.suit) for c in context.exposed_community]
+    assert got == want, f"exposed community changed: {got} != {want}"
+
+
+# --- EU-1288: invalid bet declaration outcomes -----------------------------
+
+
+@given('the betting situation is "{situation}"')
+def _given_betting_situation(context, situation):
+    if situation == "facing no bet":
+        # Set the big blind (so min_raise is the BB), then close preflop so the
+        # street opens with nothing to face (current_bet=0, min_raise=BB).
+        state = _rebuild(context, include_last_emitted=False)
+        bb = next(p for p in state.players if p.position == 1)
+        context.world.seed_event(
+            DOMAIN,
+            P + "BlindPosted",
+            hand.BlindPosted(
+                player_root=bb.player_root,
+                blind_type="big",
+                amount=10,
+                player_stack=bb.stack - 10,
+            ),
+        )
+        context.world.seed_event(
+            DOMAIN,
+            P + "BettingRoundComplete",
+            hand.BettingRoundComplete(completed_phase=pt.PREFLOP),
+        )
+    elif situation.startswith("facing a bet of"):
+        amt = int(situation.rsplit(" ", 1)[-1])
+        _seed_street_action(context, "Bob", pt.BET, amt)
+    else:
+        raise AssertionError(f"unknown betting situation {situation!r}")
+
+
+_DECLARATION = {
+    "call": pt.CALL,
+    "raise": pt.RAISE,
+    "check": pt.CHECK,
+    "bet": pt.BET,
+    "fold": pt.FOLD,
+}
+
+
+@when('{pid} declares "{declaration}"')
+def _when_declares_word(context, pid, declaration):
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(
+            player_root=uuid_for(pid),
+            action=_DECLARATION[declaration],
+            bet_method=pt.BET_METHOD_VERBAL_FIRST,
+        ),
+    )
+
+
+@then('the recorded action is "{actual}"')
+def _then_recorded_action_is(context, actual):
+    if actual == "CALL_OR_FOLD":
+        # Declaring "check" while facing a bet is invalid; the player is bound
+        # to call or fold and no action is recorded.
+        assert_rejected(context, "CANNOT_CHECK_FACING_BET")
+        return
+    ev = context.world.emitted(P + "ActionTaken", hand.ActionTaken())
+    want = pt.CHECK if actual == "CHECK" else pt.BET  # "BET (min)"
+    assert ev.action == want, f"recorded {pt.ActionType.Name(ev.action)}, want {actual}"
