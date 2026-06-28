@@ -21,6 +21,7 @@ silent no-op).
 
 from __future__ import annotations
 
+import hashlib
 from typing import Optional
 
 import angzarr_router_ffi as _az
@@ -95,6 +96,46 @@ def _rebuy_denial_reason(
     if cfg.max_rebuys > 0 and reg.rebuys_used >= cfg.max_rebuys:
         return "Maximum rebuys reached"
     return None
+
+
+def _chip_race_outcome(stacks, new_denom: int, seed: bytes):
+    """Resolve a chip race (TDA Rule 24A/24C) over ``stacks`` (a player_root-hex
+    -> stake-value mapping) retiring everything below ``new_denom``.
+
+    Each player keeps every full ``new_denom`` chip their stack already makes;
+    the sub-denomination residual is raced. The pooled residual buys
+    ``sum(residuals) // new_denom`` whole chips, awarded at most one per player
+    (Rule 24A) to the highest race ranks — drawn deterministically from
+    ``seed`` so the race is reproducible (RP-14). A player whose stack is
+    entirely raced off and who wins no race chip is rescued with one chip of
+    the new denomination so they cannot be raced out of play.
+
+    Returns ``(awards, rescue_total, removed_total)`` where ``awards`` is a list
+    of ``(player_root_bytes, chips_won, rescued)`` and the two totals are the
+    auditable conservation deltas: ``post == pre + rescue_total - removed_total``.
+    """
+    items = sorted(stacks.items())  # deterministic base order
+    residuals = {h: v % new_denom for h, v in items}
+    full_value = {h: (v // new_denom) * new_denom for h, v in items}
+    total_residual = sum(residuals.values())
+    race_chips = total_residual // new_denom
+    eligible = [h for h, _ in items if residuals[h] > 0]
+    # Deterministic draw: rank eligible players by a seed-keyed digest.
+    ranked = sorted(
+        eligible, key=lambda h: hashlib.sha256(seed + bytes.fromhex(h)).digest()
+    )
+    winners = set(ranked[:race_chips])
+    awards = []
+    rescue_total = 0
+    for h, v in items:
+        if h in winners:
+            awards.append((bytes.fromhex(h), 1, False))
+        elif full_value[h] == 0 and v > 0:
+            # Raced off entirely with no race chip — Rule 24A single-chip rescue.
+            awards.append((bytes.fromhex(h), 1, True))
+            rescue_total += new_denom
+    removed_total = total_residual - race_chips * new_denom
+    return awards, rescue_total, removed_total
 
 
 class TournamentAggregate:
@@ -597,15 +638,38 @@ class TournamentAggregate:
                 max_value=str(max_levels),
             )
         level = state.blind_structure[new_level - 1]
-        return _book(
-            _trn.BlindLevelAdvanced(
-                level=new_level,
-                small_blind=level.small_blind,
-                big_blind=level.big_blind,
-                ante=level.ante,
-                advanced_at=_now(),
-            )
+        advanced = _trn.BlindLevelAdvanced(
+            level=new_level,
+            small_blind=level.small_blind,
+            big_blind=level.big_blind,
+            ante=level.ante,
+            advanced_at=_now(),
         )
+        # Optional chip-race color-up (TDA Rule 24A): a non-zero retire
+        # denomination removes that denomination from play and races the
+        # sub-denomination residuals for new-denomination chips. Emits a
+        # ColorUpCompleted alongside the level advance.
+        if cmd.retire_denomination > 0:
+            awards, rescue_total, removed_total = _chip_race_outcome(
+                state.player_chip_stacks, cmd.new_denomination, cmd.race_seed
+            )
+            return _book(
+                advanced,
+                _trn.ColorUpCompleted(
+                    retired_denomination=cmd.retire_denomination,
+                    new_denomination=cmd.new_denomination,
+                    per_player_awards=[
+                        _trn.ChipRaceAward(
+                            player_root=root, chips_won=won, rescued=rescued
+                        )
+                        for (root, won, rescued) in awards
+                    ],
+                    chips_added_by_rescue=rescue_total,
+                    chips_removed_by_race=removed_total,
+                    completed_at=_now(),
+                ),
+            )
+        return _book(advanced)
 
     def apply_blind_level_advanced(
         self, state: _trn.TournamentState, event: _trn.BlindLevelAdvanced
@@ -841,10 +905,33 @@ class TournamentAggregate:
     def apply_color_up_completed(
         self, state: _trn.TournamentState, event: _trn.ColorUpCompleted
     ) -> None:
-        # Conservation invariant (TDA Rule 24A/24C): total chips move by the
-        # rescue gain minus the race loss. Both are zero in this slice, so the
-        # chip economy is unchanged and no state mutation is required.
-        pass
+        # Color-up the chip-race ledger: every stack keeps its full
+        # new-denomination chips (sub-denomination residual is raced off), then
+        # the race/rescue awards add one chip each. The total moves by exactly
+        # the auditable deltas — conservation invariant (TDA Rule 24A/24C):
+        # post == pre + chips_added_by_rescue - chips_removed_by_race.
+        new_denom = event.new_denomination
+        if new_denom > 0 and state.player_chip_stacks:
+            for key in list(state.player_chip_stacks.keys()):
+                stack = state.player_chip_stacks[key]
+                state.player_chip_stacks[key] = (stack // new_denom) * new_denom
+            for award in event.per_player_awards:
+                state.player_chip_stacks[award.player_root.hex()] += (
+                    award.chips_won * new_denom
+                )
+        state.total_chips_in_play += (
+            event.chips_added_by_rescue - event.chips_removed_by_race
+        )
+
+    def apply_player_chips_recorded(
+        self, state: _trn.TournamentState, event: _trn.PlayerChipsRecorded
+    ) -> None:
+        # Record (overwrite) a player's chip-race ledger stack and keep the
+        # running total in sync.
+        key = event.player_root.hex()
+        old = state.player_chip_stacks.get(key, 0)
+        state.player_chip_stacks[key] = event.chip_value
+        state.total_chips_in_play += event.chip_value - old
 
     # --- bounty (TDA RP-22 / WSOP Rule 39) ---
 

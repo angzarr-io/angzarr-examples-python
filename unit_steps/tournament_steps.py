@@ -1178,3 +1178,118 @@ def _then_h4h_clock_is(context, secs):
     assert (
         context.level_seconds_remaining == secs
     ), f"level_seconds_remaining = {context.level_seconds_remaining}, want {secs}"
+
+
+# ===========================================================================
+# Slice 10: chip race / color-up (TDA Rule 24A/24C)
+# ===========================================================================
+# The chip-race ledger (player chip stacks) is seeded via PlayerChipsRecorded
+# and read by AdvanceBlindLevel when it carries a retire denomination. The
+# aggregate races the sub-denomination residuals deterministically (race_seed),
+# at most one chip per player, with the single-chip rescue clause, and records
+# the auditable conservation deltas on ColorUpCompleted.
+
+_RACE_SEED = b"chip-race-seed"
+
+
+def _seed_chips(context, pid, value):
+    context.world.seed_event(
+        DOMAIN,
+        P + "PlayerChipsRecorded",
+        trn.PlayerChipsRecorded(player_root=uuid_for(pid), chip_value=value),
+    )
+
+
+def _split_total(total, n):
+    """Split ``total`` across ``n`` stacks with sub-100 residuals so the race
+    actually moves chips while still summing to ``total`` (e.g. 6000/3 ->
+    [1975, 2050, 1975])."""
+    base = total // n
+    shares = [base] * n
+    if n >= 2:
+        shares[0] -= 25
+        shares[1] += 50
+        shares[-1] -= 25
+    shares[1] += total - sum(shares)
+    return shares
+
+
+@given('a running tournament "{name}" with {n:d} active players')
+def _given_race_active(context, name, n):
+    _seed_running(context, enrolled=n, levels=_TWO_LEVELS)
+    context.active_players = _NAMES[:n]
+
+
+@given('a running tournament "{name}" with total chips in play {total:d}')
+def _given_race_total(context, name, total):
+    _seed_running(context, enrolled=3, levels=_TWO_LEVELS)
+    context.active_players = _NAMES[:3]
+    context.total_before = total
+    for nm, val in zip(context.active_players, _split_total(total, 3)):
+        _seed_chips(context, nm, val)
+
+
+@given("every active player has exactly {value:d} chips of denomination {denom:d}")
+def _given_every_active_chips(context, value, denom):
+    for nm in context.active_players:
+        _seed_chips(context, nm, value)
+
+
+@given(
+    'player "{pid}" has exactly {value:d} chips of denomination {denom:d} '
+    "and nothing else"
+)
+def _given_player_chips_only(context, pid, value, denom):
+    _seed_chips(context, pid, value)
+
+
+@when("the blind level advances with a chip-race retiring {retire:d} to {new:d}")
+def _when_advance_with_race(context, retire, new):
+    context.world.dispatch(
+        DOMAIN,
+        P + "AdvanceBlindLevel",
+        trn.AdvanceBlindLevel(
+            retire_denomination=retire, new_denomination=new, race_seed=_RACE_SEED
+        ),
+    )
+
+
+@then("the color-up completes")
+def _then_colorup_completes(context):
+    context.world.emitted(P + "ColorUpCompleted", trn.ColorUpCompleted())
+
+
+@then("no player received more than 1 chip from the race")
+def _then_at_most_one_chip(context):
+    ev = context.world.emitted(P + "ColorUpCompleted", trn.ColorUpCompleted())
+    for award in ev.per_player_awards:
+        assert award.chips_won <= 1, f"chips_won = {award.chips_won}, want <= 1"
+
+
+@then('player "{pid}" stack is at least {n:d}')
+def _then_stack_at_least(context, pid, n):
+    stack = _rebuilt(context).player_chip_stacks.get(uuid_for(pid).hex(), 0)
+    assert stack >= n, f"{pid} stack = {stack}, want >= {n}"
+
+
+@then("the color-up records chips_added_by_rescue and chips_removed_by_race")
+def _then_colorup_records_deltas(context):
+    ev = context.world.emitted(P + "ColorUpCompleted", trn.ColorUpCompleted())
+    rescued = sum(1 for a in ev.per_player_awards if a.rescued)
+    # The rescue delta must account exactly for the rescue awards, and nothing
+    # may be removed without being raced.
+    assert (
+        ev.chips_added_by_rescue == rescued * ev.new_denomination
+    ), f"rescue delta {ev.chips_added_by_rescue} != {rescued} rescued * {ev.new_denomination}"
+    assert ev.chips_removed_by_race >= 0, "chips_removed_by_race must be non-negative"
+
+
+@then(
+    "total chips in play after race equals {before:d} + chips_added_by_rescue "
+    "- chips_removed_by_race"
+)
+def _then_total_conserved(context, before):
+    ev = context.world.emitted(P + "ColorUpCompleted", trn.ColorUpCompleted())
+    expected = before + ev.chips_added_by_rescue - ev.chips_removed_by_race
+    actual = _rebuilt(context).total_chips_in_play
+    assert actual == expected, f"total chips after = {actual}, want {expected}"
