@@ -791,6 +791,39 @@ class HandAggregate:
                 _hand.CardsMucked(player_root=cmd.player_root, mucked_at=_now())
             )
 
+        # Stud (Robert's §SC Stud #18): the hand is the up- and down-cards. A
+        # hand with more than seven cards is dead; a hand with fewer than seven
+        # (a missing 7th-street card) surfaces a floor decision rather than
+        # silently dead-handing (it may be ruled live).
+        if state.game_variant in _STUD_VARIANTS:
+            stud_cards = list(player.up_cards) + list(player.down_cards)
+            if len(stud_cards) > 7:
+                raise _az.reject(
+                    "TOO_MANY_CARDS",
+                    "A stud hand with more than seven cards is dead",
+                )
+            if len(stud_cards) < 7:
+                return _book(
+                    _hand.FloorDecisionRequired(
+                        player_root=cmd.player_root,
+                        reason="MISSING_SEVENTH_CARD",
+                        requested_at=_now(),
+                    )
+                )
+            rank_type, score, kickers = get_game_rules(
+                state.game_variant
+            ).evaluate_hand(stud_cards, [])
+            return _book(
+                _hand.CardsRevealed(
+                    player_root=cmd.player_root,
+                    cards=stud_cards,
+                    ranking=_pt.HandRanking(
+                        rank_type=rank_type, kickers=list(kickers), score=score
+                    ),
+                    revealed_at=_now(),
+                )
+            )
+
         rules = get_game_rules(state.game_variant)
         hole = list(player.hole_cards)
         community = list(state.community_cards)
@@ -1008,6 +1041,38 @@ class HandAggregate:
                 del player.down_cards[i]
                 break
         player.down_cards.append(event.replacement_card)
+
+    def apply_stud_community_card_dealt(
+        self, state: _hand.HandState, event: _hand.StudCommunityCardDealt
+    ) -> None:
+        # RP-10H: the shared community card joins the board and is consumed from
+        # the stub.
+        state.community_cards.append(event.card)
+        for i, dc in enumerate(state.remaining_deck):
+            if (dc.suit, dc.rank) == (event.card.suit, event.card.rank):
+                del state.remaining_deck[i]
+                break
+
+    def apply_stud_door_card_selected(
+        self, state: _hand.HandState, event: _hand.StudDoorCardSelected
+    ) -> None:
+        # WSOP scramble: the player's 3 first cards (2 dealt down + the door that
+        # was mis-dealt down, drawn from the stub) are pooled; the selected card
+        # becomes the up door-card and the other two stay down.
+        player = _find_player(state, event.player_root)
+        if player is None:
+            return
+        pool = list(player.down_cards)
+        if state.remaining_deck:
+            pool.append(state.remaining_deck[0])
+            del state.remaining_deck[0]
+        door = event.door_card
+        del player.up_cards[:]
+        del player.down_cards[:]
+        player.up_cards.append(door)
+        for c in pool:
+            if (c.suit, c.rank) != (door.suit, door.rank):
+                player.down_cards.append(c)
 
     def report_premature_flop(
         self,
@@ -1275,6 +1340,61 @@ class HandAggregate:
         return _book(
             _hand.PrematureStudCardDetected(
                 attempted_street=cmd.attempted_street, detected_at=_now()
+            )
+        )
+
+    def deal_stud_community_card(
+        self,
+        cmd: _hand.DealStudCommunityCard,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """TDA RP-10H sub-B/sub-C — when the 7th-street stub cannot service an
+        individual deal, a single face-up community card is dealt from the top of
+        the stub and shared by every active player. Emits
+        ``StudCommunityCardDealt``."""
+        if not state.players or not state.status:
+            raise _az.reject("HAND_NOT_DEALT", "The hand has not been dealt")
+        if not state.remaining_deck:
+            raise _az.reject("NOT_ENOUGH_CARDS", "No cards remain in the stub")
+        return _book(
+            _hand.StudCommunityCardDealt(
+                card=state.remaining_deck[0],
+                street=cmd.street or _pt.SEVENTH_STREET,
+                shared_with=list(cmd.shared_with),
+                dealt_at=_now(),
+            )
+        )
+
+    def scramble_all_down_cards(
+        self,
+        cmd: _hand.ScrambleAllDownCards,
+        state: _hand.HandState,
+        cctx: _az.CommandContext,
+    ) -> Optional[_t.EventBook]:
+        """WSOP §Seven Card Games — all three of a player's first cards were
+        dealt down by error. The floor scrambles the three (the two dealt down
+        plus the door, which is drawn from the top of the stub) and turns one up
+        as the door card. The selection is deterministic in ``rng_seed`` so it is
+        replayable. Emits ``StudDoorCardSelected``."""
+        player = _find_player(state, cmd.player_root)
+        if player is None:
+            raise _az.reject("PLAYER_NOT_IN_HAND", "Player is not in this hand")
+        pool = list(player.down_cards)
+        if state.remaining_deck:
+            pool.append(state.remaining_deck[0])
+        if not pool:
+            raise _az.reject("NOT_ENOUGH_CARDS", "No cards to scramble")
+        # Deterministic selection: fold the seed bytes into an index over the
+        # pool (no Math.random — replayable from rng_seed alone).
+        seed = int.from_bytes(cmd.rng_seed, "big") if cmd.rng_seed else 0
+        door = pool[seed % len(pool)]
+        return _book(
+            _hand.StudDoorCardSelected(
+                player_root=cmd.player_root,
+                door_card=door,
+                rng_seed=cmd.rng_seed,
+                selected_at=_now(),
             )
         )
 

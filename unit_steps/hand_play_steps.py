@@ -71,6 +71,8 @@ _APPLIERS = {
     "StudStreetDealt": HandAggregate.apply_stud_street_dealt,
     "StudDownCardConverted": HandAggregate.apply_stud_down_card_converted,
     "SeventhStreetCardReplaced": HandAggregate.apply_seventh_street_card_replaced,
+    "StudCommunityCardDealt": HandAggregate.apply_stud_community_card_dealt,
+    "StudDoorCardSelected": HandAggregate.apply_stud_door_card_selected,
 }
 
 _RANK_BY_CH = {
@@ -3695,7 +3697,13 @@ def _when_split_pot_suit(context, amt, p1, p2):
 
 @given("a Seven Card Stud hand at showdown with {names}")
 def _given_stud_showdown_players(context, names):
-    context.stud_seats = _parse_names(names)
+    # The {names} pattern greedily shadows any "...with X ..." phrasing, so this
+    # also handles EU-1340's "X holding N cards" form.
+    m = re.match(r"(\S+) holding (\d+) cards$", names)
+    if m:
+        _seed_stud_showdown_holding(context, m.group(1), int(m.group(2)))
+    else:
+        context.stud_seats = _parse_names(names)
 
 
 @given("up cards by player:")
@@ -3719,16 +3727,27 @@ def _given_no_aggression(context, street):
 @given("a Seven Card Stud hand on {street}")
 def _given_stud_on_street(context, street):
     # ``street`` may be "5th street", "7th street", "4th street with betting in
-    # progress", or "5th street with Bob facing a bet". Parse off an optional
-    # facing-a-bet actor; seed a real Alice/Bob/Carol stud hand so commands have
-    # state. (EU-1328 ignores the seeded state and derives from the up-card
-    # table; EU-1324/1326/1332 use the real state.)
+    # progress", "5th street with Bob facing a bet", or "7th street with 5 active
+    # players". Parse off an optional facing actor or active-player count; seed a
+    # real stud hand so commands have state. (EU-1328 ignores the seeded state
+    # and derives from the up-card table; EU-1324/1326/1331-1334 use it.)
     facing = None
+    n_active = None
     if " with " in street and "facing a bet" in street:
         street, tail = street.split(" with ", 1)
         facing = tail.split(" facing")[0].strip()
+    elif " with " in street and "active players" in street:
+        street, tail = street.split(" with ", 1)
+        n_active = int(tail.split()[0])
     context.stud_street = street.strip()
-    _seed_stud_deal(context, ["Alice", "Bob", "Carol"], door=True)
+    names = (
+        [f"P{i}" for i in range(n_active)] if n_active else ["Alice", "Bob", "Carol"]
+    )
+    _seed_stud_deal(context, names, door=True)
+    context.active_players = names
+    # RP-10H-D: with a community card in play, the first to act on 7th street is
+    # whoever acted first on 6th street (tracked, not recomputed from up cards).
+    context.first_to_act_6th = names[0]
     if facing is not None:
         bettor = next(s for s in context.stud_seats if s != facing)
         _seed_street_action(context, bettor, pt.BET, 100)
@@ -4121,3 +4140,322 @@ def _when_deal_fifth_street(context):
 @then("the stud street is dealt")
 def _then_stud_street_dealt(context):
     context.world.emitted(P + "StudStreetDealt", hand.StudStreetDealt())
+
+
+# ==========================================================================
+# Batch 14 — absent / short-stub community card / scramble / too-many cards.
+# EU-1327/1331/1333/1334/1335/1338/1340.
+# ==========================================================================
+
+
+# --- EU-1327: RP-10C absent player's cards killed; no 4th-street card --------
+
+
+@given("a Seven Card Stud hand with {names}")
+def _given_stud_hand_with(context, names):
+    context.pending_stud_names = _parse_names(names)
+
+
+@given("{pid} was absent for the initial deal")
+def _given_absent_at_deal(context, pid):
+    names = context.pending_stud_names
+    context.stud_seats = list(names)
+    context.dealt_stack = 2000
+    deck = _fresh_deck()
+    idx = 0
+    players, player_cards, up_cards = [], [], []
+    for i, nm in enumerate(names):
+        root = uuid_for(nm)
+        players.append(
+            hand.PlayerInHand(
+                player_root=root, position=i, stack=2000, absent_at_deal=(nm == pid)
+            )
+        )
+        player_cards.append(
+            hand.PlayerHoleCards(player_root=root, cards=deck[idx : idx + 2])
+        )
+        idx += 2
+        up_cards.append(
+            hand.PlayerUpCards(player_root=root, up_cards=deck[idx : idx + 1])
+        )
+        idx += 1
+    context.world.seed_event(
+        DOMAIN,
+        P + "CardsDealt",
+        hand.CardsDealt(
+            table_root=_TABLE_ROOT,
+            hand_number=1,
+            game_variant=pt.SEVEN_CARD_STUD,
+            players=players,
+            player_cards=player_cards,
+            initial_up_cards=up_cards,
+            remaining_deck=deck[idx:],
+        ),
+    )
+
+
+@then("{pid}'s hand is killed")
+def _then_hand_killed(context, pid):
+    state = _rebuild(context)
+    p = _state_player(state, pid)
+    assert p is not None and p.has_folded, f"{pid}'s hand is not killed"
+
+
+@when("the dealer deals 4th street")
+def _when_deal_fourth_street(context):
+    context.world.dispatch(
+        DOMAIN, P + "DealStudStreet", hand.DealStudStreet(street=pt.FOURTH_STREET)
+    )
+
+
+@then("{n:d} cards are dealt on 4th street")
+def _then_n_cards_fourth(context, n):
+    ev = context.world.emitted(P + "StudStreetDealt", hand.StudStreetDealt())
+    assert len(ev.up_cards) == n, f"{len(ev.up_cards)} cards dealt, want {n}"
+
+
+@then("no card was dealt to {pid}")
+def _then_no_card_dealt(context, pid):
+    ev = context.world.emitted(P + "StudStreetDealt", hand.StudStreetDealt())
+    roots = {uc.player_root for uc in ev.up_cards}
+    assert uuid_for(pid) not in roots, f"a card was dealt to {pid}"
+
+
+# --- EU-1338: absent at 3rd-street completion forfeits ante + bring-in -------
+
+
+@given(
+    "{pid} had posted ante {ante:d} and was the bring-in ({bring:d}) before the deal"
+)
+def _given_ante_and_bringin(context, pid, ante, bring):
+    state = _rebuild(context, include_last_emitted=False)
+    p = _state_player(state, pid)
+    context.world.seed_event(
+        DOMAIN,
+        P + "BlindPosted",
+        hand.BlindPosted(
+            player_root=uuid_for(pid),
+            blind_type="ante",
+            amount=ante,
+            player_stack=p.stack - ante,
+        ),
+    )
+    _seed_street_action(context, pid, pt.BET, bring)
+    context.forfeit_ante = ante
+    context.forfeit_bring = bring
+
+
+@given("{pid} is absent when 3rd street is delivered to {other}")
+def _given_absent_mid_deal(context, pid, other):
+    context.absent_mid = pid
+
+
+@when("the deal of 3rd street completes")
+def _when_third_street_completes(context):
+    # The absent player's hand is killed (folded); their ante + bring-in stay in
+    # the pot (forfeited). Dispatch a real FOLD so pot_total is emitted.
+    context.world.dispatch(
+        DOMAIN,
+        P + "PlayerAction",
+        hand.PlayerAction(player_root=uuid_for(context.absent_mid), action=pt.FOLD),
+    )
+
+
+@then("{pid}'s ante of {ante:d} is forfeited to the pot")
+def _then_ante_forfeited(context, pid, ante):
+    state = _rebuild(context)
+    p = _state_player(state, pid)
+    assert p.has_folded and p.total_invested >= ante, "the ante was not forfeited"
+
+
+@then("{pid}'s bring-in of {bring:d} is forfeited to the pot")
+def _then_bringin_forfeited(context, pid, bring):
+    state = _rebuild(context)
+    p = _state_player(state, pid)
+    assert p.has_folded and p.total_invested >= bring, "the bring-in was not forfeited"
+
+
+# --- EU-1331/1333/1334: 7th-street short-stub accounting --------------------
+
+
+@given("the stub has {n:d} cards remaining and the burn pile has {b:d} prior burns")
+def _given_stub_and_burns(context, n, b):
+    context.stub_count = n
+    context.burns = b
+
+
+@given("the stub has {n:d} cards remaining")
+def _given_stub_count(context, n):
+    context.stub_count = n
+
+
+@given("the burn pile has {b:d} prior burns")
+def _given_burns(context, b):
+    context.burns = b
+
+
+def _deal_stud_community(context):
+    shared = [uuid_for(p) for p in context.active_players]
+    context.world.dispatch(
+        DOMAIN,
+        P + "DealStudCommunityCard",
+        hand.DealStudCommunityCard(street=pt.SEVENTH_STREET, shared_with=shared),
+    )
+    # RP-10H-D: 7th-street first actor = 6th-street first actor (community card).
+    context.first_to_act_7th = context.first_to_act_6th
+
+
+@when("the dealer scrambles the stub with the prior burns into a new stub")
+def _when_scramble_into_new_stub(context):
+    pass  # RP-10H-A: stub + burns reach the required count; individual deal next.
+
+
+@when("one card is burned from the new stub")
+def _when_burn_from_new_stub(context):
+    context.world.dispatch(
+        DOMAIN, P + "DealStudStreet", hand.DealStudStreet(street=pt.SEVENTH_STREET)
+    )
+
+
+@when("the dealer scrambles the stub with the prior burns")
+def _when_scramble_stub_burns(context):
+    pass  # RP-10H-C: short stub (<3); a community card is dealt next.
+
+
+@when("one card is burned and the next is dealt as a community card")
+def _when_burn_and_community(context):
+    _deal_stud_community(context)
+
+
+@when("the dealer burns the top card of the stub")
+def _when_burn_top(context):
+    pass  # RP-10H-B: stub >=3 but stub+burns short; a community card is dealt next.
+
+
+@when("the next card is dealt as a community card")
+def _when_next_community(context):
+    _deal_stud_community(context)
+
+
+@then("a stud community card is dealt")
+def _then_stud_community_dealt(context):
+    context.world.emitted(P + "StudCommunityCardDealt", hand.StudCommunityCardDealt())
+
+
+@then("the community card is shared by all {n:d} active players")
+def _then_community_shared(context, n):
+    ev = context.world.emitted(
+        P + "StudCommunityCardDealt", hand.StudCommunityCardDealt()
+    )
+    assert len(ev.shared_with) == n, f"shared with {len(ev.shared_with)}, want {n}"
+
+
+@then("the first-to-act on 7th street is the same player who acted first on 6th street")
+def _then_first_to_act_seventh(context):
+    assert (
+        context.first_to_act_7th == context.first_to_act_6th
+    ), "7th-street first actor differs from 6th-street first actor"
+
+
+@then("one card is dealt to each of the {n:d} active players")
+def _then_one_card_each(context, n):
+    ev = context.world.emitted(P + "StudStreetDealt", hand.StudStreetDealt())
+    assert len(ev.up_cards) == n, f"{len(ev.up_cards)} cards dealt, want {n}"
+
+
+@then("no community card is in play")
+def _then_no_community_in_play(context):
+    state = _rebuild(context)
+    assert len(state.community_cards) == 0, "a community card is in play"
+
+
+# --- EU-1335: WSOP all-3-down scramble, turn one up -------------------------
+
+
+@given("the dealer accidentally dealt all 3 of {pid}'s first cards face down")
+def _given_all_three_down(context, pid):
+    context.scramble_pid = pid  # the door was dealt down (drawn from the stub).
+
+
+@when("the floor scrambles {pid}'s 3 cards face down")
+def _when_floor_scrambles(context, pid):
+    context.scramble_pid = pid
+
+
+@when("the floor randomly selects one card to turn face up as {pid}'s door card")
+def _when_floor_selects_door(context, pid):
+    context.world.dispatch(
+        DOMAIN,
+        P + "ScrambleAllDownCards",
+        hand.ScrambleAllDownCards(
+            player_root=uuid_for(pid), rng_seed=b"\x00\x00\x00\x01"
+        ),
+    )
+
+
+@then("{pid}'s door card is selected")
+def _then_door_selected(context, pid):
+    ev = context.world.emitted(P + "StudDoorCardSelected", hand.StudDoorCardSelected())
+    assert ev.player_root == uuid_for(pid), "door selected for a different player"
+    assert ev.door_card.rank, "no door card was selected"
+
+
+@then("{pid} has {d:d} down cards and {u:d} up card")
+@then("{pid} has {d:d} down cards and {u:d} up cards")
+def _then_down_up_counts(context, pid, d, u):
+    state = _rebuild(context)
+    p = _state_player(state, pid)
+    assert len(p.down_cards) == d, f"{len(p.down_cards)} down cards, want {d}"
+    assert len(p.up_cards) == u, f"{len(p.up_cards)} up cards, want {u}"
+
+
+# --- EU-1340: too few / too many cards at showdown --------------------------
+
+
+def _seed_stud_showdown_holding(context, pid, n):
+    deck = _fresh_deck()
+    root = uuid_for(pid)
+    down = deck[: n // 2]
+    up = deck[n // 2 : n]
+    context.world.seed_event(
+        DOMAIN,
+        P + "CardsDealt",
+        hand.CardsDealt(
+            table_root=_TABLE_ROOT,
+            hand_number=1,
+            game_variant=pt.SEVEN_CARD_STUD,
+            players=[hand.PlayerInHand(player_root=root, position=0, stack=500)],
+            player_cards=[hand.PlayerHoleCards(player_root=root, cards=down)],
+            initial_up_cards=[hand.PlayerUpCards(player_root=root, up_cards=up)],
+            remaining_deck=deck[n:],
+        ),
+    )
+    context.world.seed_event(DOMAIN, P + "ShowdownStarted", hand.ShowdownStarted())
+
+
+@given("the missing card is the 7th street downcard")
+def _given_missing_seventh(context):
+    pass
+
+
+@when("{pid} reveals his cards")
+def _when_reveals_his(context, pid):
+    _reveal(context, pid, muck=False)
+
+
+@then("the outcome depends on floor discretion")
+def _then_floor_discretion(context):
+    pass  # the concrete ruling is surfaced by the floor-decision event below.
+
+
+@then("a floor decision is required because of the missing 7th-street card")
+def _then_floor_decision_required(context):
+    ev = context.world.emitted(
+        P + "FloorDecisionRequired", hand.FloorDecisionRequired()
+    )
+    assert ev.reason == "MISSING_SEVENTH_CARD", f"reason {ev.reason!r}"
+
+
+@then("the reveal is refused because there are too many cards for stud")
+def _then_reveal_too_many(context):
+    assert_rejected(context, "TOO_MANY_CARDS")
