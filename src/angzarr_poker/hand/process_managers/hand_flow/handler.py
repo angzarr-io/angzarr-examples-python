@@ -42,6 +42,7 @@ _BETTING = 3
 _COMPLETE = 4
 _DEALING_COMMUNITY = 5
 _SHOWDOWN = 6
+_DRAW = 7
 
 _DOMAIN = "hand"
 
@@ -291,7 +292,16 @@ class HandFlowProcessManager:
 
         commands: List[_t.CommandBook] = []
         completed = event.completed_phase
-        if completed == _pt.PREFLOP:
+        if completed == _pt.PREFLOP and ns.game_variant == _pt.FIVE_CARD_DRAW:
+            # Draw games interpose the draw between the first and final betting
+            # rounds — no community cards are dealt.
+            ns.phase = _DRAW
+            ns.current_bet = 0
+            for seat in ns.seats:
+                seat.has_drawn = False
+                seat.has_acted = False
+                seat.bet_this_round = 0
+        elif completed == _pt.PREFLOP:
             ns.phase = _DEALING_COMMUNITY
             ns.betting_phase = _pt.FLOP
             commands.append(
@@ -341,6 +351,32 @@ class HandFlowProcessManager:
             seat.bet_this_round = 0
             seat.has_acted = False
         ns.action_on = _next_active(ns, ns.dealer_position)
+        return self._advanced(ns, [])
+
+    def draw_completed(
+        self,
+        event: _hand.DrawCompleted,
+        state: _hand.HandFlowState,
+        dests: _az.Destinations,
+    ) -> _pm.ProcessManagerHandleResponse:
+        """A player finished drawing -> once every player still in the hand has
+        drawn, open the final (post-draw) betting round."""
+        ns = _hand.HandFlowState()
+        ns.CopyFrom(state)
+
+        seat = _seat_by_root(ns, event.player_root)
+        if seat is not None:
+            seat.has_drawn = True
+
+        drawers = [s for s in ns.seats if not s.has_folded]
+        if drawers and all(s.has_drawn for s in drawers):
+            ns.phase = _BETTING
+            ns.betting_phase = _pt.DRAW
+            ns.current_bet = 0
+            for s in ns.seats:
+                s.has_acted = False
+                s.bet_this_round = 0
+            ns.action_on = _next_active(ns, ns.dealer_position)
         return self._advanced(ns, [])
 
     def hand_complete(

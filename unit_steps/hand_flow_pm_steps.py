@@ -26,6 +26,7 @@ _BETTING = 3
 _COMPLETE = 4
 _DEALING_COMMUNITY = 5
 _SHOWDOWN = 6
+_DRAW = 7
 
 HAND_ROOT = uuid_for("hand-flow-1")
 _DEFAULT_POSITIONS = (0, 1, 2)
@@ -572,3 +573,62 @@ def _then_action_left_of_dealer(context):
     assert (
         state.action_on == expected
     ), f"action on {state.action_on}, want first-active-left-of-dealer {expected}"
+
+
+# ===========================================================================
+# Five Card Draw flow (EU-0415, EU-0416)
+# ===========================================================================
+
+
+@given("a Five Card Draw hand has finished the first betting round")
+def _given_draw_first_betting_done(context):
+    seed = _seed(context)
+    seed.phase = _BETTING
+    seed.betting_phase = pt.PREFLOP
+    seed.game_variant = pt.FIVE_CARD_DRAW
+    if not seed.seats:
+        _add_default_seats(seed)
+        seed.player_count = len(_DEFAULT_POSITIONS)
+    context.completed_phase = pt.PREFLOP
+    context.pot_total = 60
+
+
+@then("the hand moves to the draw")
+def _then_moves_to_draw(context):
+    assert _result(context).phase == _DRAW, "phase is not DRAW"
+
+
+@given("a Five Card Draw hand is in the draw")
+def _given_in_the_draw(context):
+    seed = _seed(context)
+    seed.phase = _DRAW
+    seed.game_variant = pt.FIVE_CARD_DRAW
+    if not seed.seats:
+        _add_default_seats(seed)
+        seed.player_count = len(_DEFAULT_POSITIONS)
+
+
+@given("every player has finished drawing")
+def _given_every_player_drawn(context):
+    """All contenders but the last-to-draw have drawn — the last player's draw
+    (next) is what closes the draw round."""
+    seed = _seed(context)
+    positions = sorted(s.position for s in seed.seats)
+    context.last_drawer = positions[-1]
+    for pos in positions:
+        if pos != context.last_drawer:
+            _seat(seed, pos).has_drawn = True
+
+
+@when("the last player finishes drawing")
+def _when_last_player_draws(context):
+    seed = _seed(context)
+    pos = getattr(context, "last_drawer", sorted(s.position for s in seed.seats)[-1])
+    _dispatch(context, "DrawCompleted", hand.DrawCompleted(player_root=_seat_root(pos)))
+
+
+@then("the hand moves to the final betting round")
+def _then_final_betting_round(context):
+    state = _result(context)
+    assert state.phase == _BETTING, "phase is not BETTING (final round)"
+    assert state.betting_phase == pt.DRAW, "betting_phase is not the post-draw round"
