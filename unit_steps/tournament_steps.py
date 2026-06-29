@@ -1654,3 +1654,125 @@ def _then_redraw_triggered(context):
 def _then_redraw_trigger(context, trigger):
     ev = context.world.emitted(P + "SeatRedrawTriggered", trn.SeatRedrawTriggered())
     assert ev.trigger == trigger, f"trigger = {ev.trigger!r}, want {trigger!r}"
+
+
+# ===========================================================================
+# Slice 13: tournament-registration state reconstruction (framework feature)
+# ===========================================================================
+# Seed a tournament event history, rebuild TournamentState through the
+# aggregate's appliers, and assert the reconstructed registration view. A
+# created/registration-open tournament (not yet started, not explicitly closed)
+# is "open for registration"; a started one is "closed for registration".
+
+
+def _cell(row, name):
+    return row[name].strip() if name in row.headings and row[name] else ""
+
+
+def _seed_history_row(context, row):
+    event = _cell(row, "event")
+    if event == "tournament created":
+        overrides = {}
+        max_players = _cell(row, "max_players")
+        if max_players:
+            overrides["max_players"] = int(max_players)
+        _seed_created(context, _cell(row, "name") or "Test", **overrides)
+    elif event == "player enrolled":
+        context.world.seed_event(
+            DOMAIN,
+            P + "TournamentPlayerEnrolled",
+            trn.TournamentPlayerEnrolled(
+                player_root=uuid_for(_cell(row, "player")),
+                fee_paid=_DEF["buy_in"],
+                starting_stack=_DEF["starting_stack"],
+            ),
+        )
+    elif event == "tournament started":
+        context.world.seed_event(
+            DOMAIN, P + "TournamentStarted", trn.TournamentStarted()
+        )
+    else:
+        raise AssertionError(f"unknown tournament-history event {event!r}")
+
+
+@given(
+    'a tournament has been created with name "{name}", up to {max_p:d} players, '
+    "buy-in {buy_in:d}, and starting stack {stack:d}"
+)
+def _given_created_full(context, name, max_p, buy_in, stack):
+    _seed_created(context, name, max_players=max_p, buy_in=buy_in, starting_stack=stack)
+
+
+@given("a tournament history with:")
+def _given_tournament_history(context):
+    for row in context.table:
+        _seed_history_row(context, row)
+
+
+@when("the tournament's registration state is reconstructed from its history")
+def _when_reconstruct(context):
+    _rebuild(context)
+
+
+@then("the tournament is open for registration")
+def _then_open_for_reg(context):
+    s = _rebuilt(context)
+    assert (
+        s.status in (trn.TOURNAMENT_CREATED, trn.TOURNAMENT_REGISTRATION_OPEN)
+        and not s.registration_closed
+    ), f"status = {s.status}, registration_closed = {s.registration_closed}"
+
+
+@then("the tournament is closed for registration")
+def _then_closed_for_reg(context):
+    s = _rebuilt(context)
+    assert (
+        s.status == trn.TOURNAMENT_RUNNING or s.registration_closed
+    ), f"status = {s.status}, registration_closed = {s.registration_closed}"
+
+
+@then("the tournament is running")
+def _then_is_running(context):
+    assert (
+        _rebuilt(context).status == trn.TOURNAMENT_RUNNING
+    ), f"status = {_rebuilt(context).status}"
+
+
+@then("the tournament allows up to {n:d} players")
+def _then_allows_up_to(context, n):
+    assert (
+        _rebuilt(context).max_players == n
+    ), f"max_players = {_rebuilt(context).max_players}, want {n}"
+
+
+@then("the tournament buy-in is {n:d}")
+def _then_tournament_buyin(context, n):
+    assert (
+        _rebuilt(context).buy_in == n
+    ), f"buy_in = {_rebuilt(context).buy_in}, want {n}"
+
+
+@then("the tournament starting stack is {n:d}")
+def _then_tournament_stack(context, n):
+    assert (
+        _rebuilt(context).starting_stack == n
+    ), f"starting_stack = {_rebuilt(context).starting_stack}, want {n}"
+
+
+@then("no players have registered yet")
+def _then_no_players(context):
+    count = len(_rebuilt(context).registered_players)
+    assert count == 0, f"registered = {count}, want 0"
+
+
+@then('"{pid}" is registered for the tournament')
+def _then_player_registered(context, pid):
+    assert (
+        uuid_for(pid).hex() in _rebuilt(context).registered_players
+    ), f"{pid} is not registered"
+
+
+@then("{n:d} player is registered for the tournament")
+def _then_n_registered(context, n):
+    count = len(_rebuilt(context).registered_players)
+    assert count == n, f"registered = {count}, want {n}"
