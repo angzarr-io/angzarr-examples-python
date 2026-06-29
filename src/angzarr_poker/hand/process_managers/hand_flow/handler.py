@@ -323,6 +323,26 @@ class HandFlowProcessManager:
             )
         return self._advanced(ns, commands)
 
+    def community_cards_dealt(
+        self,
+        event: _hand.CommunityCardsDealt,
+        state: _hand.HandFlowState,
+        dests: _az.Destinations,
+    ) -> _pm.ProcessManagerHandleResponse:
+        """New community cards -> open a fresh betting round: nothing committed
+        yet, nobody has acted, no bet to face, and action on the first active seat
+        to the dealer's left (post-flop order; heads-up this is the big blind)."""
+        ns = _hand.HandFlowState()
+        ns.CopyFrom(state)
+        ns.phase = _BETTING
+        ns.betting_phase = event.phase
+        ns.current_bet = 0
+        for seat in ns.seats:
+            seat.bet_this_round = 0
+            seat.has_acted = False
+        ns.action_on = _next_active(ns, ns.dealer_position)
+        return self._advanced(ns, [])
+
     def hand_complete(
         self,
         event: _hand.HandComplete,

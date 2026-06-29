@@ -299,8 +299,28 @@ def _deal_street(context, count):
     context.world.fold_emitted(DOMAIN)
 
 
+def _pm_deal_community(context, phase) -> bool:
+    """When a hand-flow PM scenario is active (it has seeded a HandFlowState),
+    route the street deal as a CommunityCardsDealt trigger to the PM instead of a
+    DealCommunityCards command to the aggregate. Returns True when it handled the
+    step. Lets process_manager.feature reuse the shared "the flop is dealt" When.
+    """
+    seed = getattr(context, "flow_seed", None)
+    if seed is None:
+        return False
+    context.world.dispatch_process_manager(
+        DOMAIN,
+        P + "CommunityCardsDealt",
+        hand.CommunityCardsDealt(phase=phase),
+        prior_events=[(P + "HandFlowAdvanced", hand.HandFlowAdvanced(state=seed))],
+    )
+    return True
+
+
 @when("the flop is dealt")
 def _when_flop_dealt(context):
+    if _pm_deal_community(context, pt.FLOP):
+        return
     _deal_street(context, 3)
 
 

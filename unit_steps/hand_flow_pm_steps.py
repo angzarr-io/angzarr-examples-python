@@ -432,3 +432,143 @@ def _then_pot_awarded(context):
     cmd = _find_command(context, "AwardPot", hand.AwardPot())
     assert cmd is not None, "no AwardPot command emitted"
     assert len(cmd.awards) >= 1, "AwardPot carried no awards"
+
+
+# ===========================================================================
+# All-in (EU-0412)
+# ===========================================================================
+
+
+@when("a player moves all-in")
+def _when_player_all_in(context):
+    context.actor_pos = 0
+    _dispatch(
+        context,
+        "ActionTaken",
+        hand.ActionTaken(
+            player_root=_seat_root(0),
+            action=pt.ALL_IN,
+            amount=500,
+            player_stack=0,
+        ),
+    )
+
+
+@then("that player is marked as all-in")
+def _then_marked_all_in(context):
+    seat = _seat(_result(context), context.actor_pos)
+    assert seat is not None and seat.is_all_in, "the player is not marked all-in"
+
+
+@then("that player no longer acts in this betting round")
+def _then_no_longer_acts(context):
+    state = _result(context)
+    assert state.action_on != context.actor_pos, "action is still on the all-in player"
+
+
+# ===========================================================================
+# Positional action order (EU-0445 BB option; EU-0446/0447 post-flop order)
+# ===========================================================================
+
+
+@given("the dealer is at position {d:d} with players at positions {positions}")
+def _given_dealer_with_players(context, d, positions):
+    seed = _seed(context)
+    seed.dealer_position = d
+    del seed.seats[:]
+    for pos in _positions(positions):
+        seed.seats.add(position=pos, player_root=_seat_root(pos), stack=500)
+    seed.player_count = len(_positions(positions))
+
+
+@given(
+    "the small blind of {sb:d} was posted by position {sbpos:d} and the big "
+    "blind of {bb:d} was posted by position {bbpos:d}"
+)
+def _given_blinds_posted_by(context, sb, sbpos, bb, bbpos):
+    seed = _seed(context)
+    seed.small_blind = sb
+    seed.big_blind = bb
+    seed.small_blind_position = sbpos
+    seed.big_blind_position = bbpos
+    seed.small_blind_posted = True
+    seed.big_blind_posted = True
+    seed.current_bet = bb
+    sb_seat = _seat(seed, sbpos)
+    if sb_seat is not None:
+        sb_seat.bet_this_round = sb
+    bb_seat = _seat(seed, bbpos)
+    if bb_seat is not None:
+        bb_seat.bet_this_round = bb
+
+
+@when("the player at position {pos:d} calls {amt:d}")
+def _when_player_calls_amount(context, pos, amt):
+    context.actor_pos = pos
+    _dispatch(
+        context,
+        "ActionTaken",
+        hand.ActionTaken(
+            player_root=_seat_root(pos),
+            action=pt.CALL,
+            amount=amt,
+            player_stack=490,
+        ),
+    )
+    # Carry the post-action state forward so a following action in the same
+    # scenario folds onto it (the BB-option sequence dispatches twice).
+    context.flow_seed = _result(context)
+
+
+@then("the betting round is not yet complete")
+def _then_not_yet_complete(context):
+    state = _result(context)
+    assert state.phase == _BETTING, "the betting round already ended"
+    assert state.action_on != -1, "no seat is on the clock"
+
+
+@then("action is on the big blind at position {pos:d}")
+def _then_action_on_big_blind(context, pos):
+    state = _result(context)
+    assert state.action_on == pos, f"action on {state.action_on}, want big blind {pos}"
+
+
+@then("action is on the player at position {pos:d}")
+def _then_action_on_position(context, pos):
+    state = _result(context)
+    assert state.action_on == pos, f"action on {state.action_on}, want {pos}"
+
+
+# ===========================================================================
+# Community-card reset (EU-0417) — driven by the shared "the flop is dealt"
+# When in betting_seat_steps, which routes a CommunityCardsDealt to the PM
+# when a HandFlowState seed is present.
+# ===========================================================================
+
+
+@then("no player has anything committed this round")
+def _then_nothing_committed(context):
+    state = _result(context)
+    assert all(
+        s.bet_this_round == 0 for s in state.seats
+    ), "a seat still has chips committed this round"
+
+
+@then("no player has yet acted this round")
+def _then_nobody_acted(context):
+    state = _result(context)
+    assert all(not s.has_acted for s in state.seats), "a seat is still marked as acted"
+
+
+@then("there is no bet to call")
+def _then_no_bet_to_call(context):
+    assert _result(context).current_bet == 0, "there is still a bet to call"
+
+
+@then("action is on the first active player left of the dealer")
+def _then_action_left_of_dealer(context):
+    state = _result(context)
+    expected = _expected_next(state, state.dealer_position)
+    assert (
+        state.action_on == expected
+    ), f"action on {state.action_on}, want first-active-left-of-dealer {expected}"
