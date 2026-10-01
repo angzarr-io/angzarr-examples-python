@@ -5,13 +5,12 @@ from __future__ import annotations
 import structlog
 
 import angzarr_router_ffi as _az
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1.player_aggregate_angzarr import (
     new_player_aggregate_dispatch,
 )
 from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
 from angzarr_blackjack._gen.io.angzarr.v1 import upcaster_pb2_grpc as _up_grpc
-from angzarr_blackjack._runtime.hosts import AggregateHost, typed_fact
+from angzarr_blackjack._runtime.hosts import AggregateHost
 from angzarr_blackjack._runtime.server import configure_logging, run_server
 from angzarr_blackjack._runtime.servicers import (
     CommandHandlerServicer,
@@ -25,19 +24,11 @@ DEFAULT_PORT = "50401"
 
 
 def build_host(router: _az.Router) -> AggregateHost:
-    """The PlayerAggregate registered on ``router``, with its fact handlers."""
+    """The PlayerAggregate registered on ``router``."""
     handler = PlayerAggregate()
     return AggregateHost(
         router,
         new_player_aggregate_dispatch(handler),
-        facts={
-            _p.TopUpSettled.DESCRIPTOR.full_name: typed_fact(
-                _p.TopUpSettled, handler.handle_top_up_settled
-            ),
-            _p.CashOutCredited.DESCRIPTOR.full_name: typed_fact(
-                _p.CashOutCredited, handler.handle_cash_out_credited
-            ),
-        },
     )
 
 

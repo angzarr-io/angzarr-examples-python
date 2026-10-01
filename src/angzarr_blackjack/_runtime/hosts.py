@@ -2,13 +2,11 @@
 points its framework service calls.
 
 Commands, notifications (rejections and undo), facts and Replay all go
-through the binding: the generated dispatch, plus the fact handlers
-registered on it here.
+through the binding's generated dispatch.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 
 import angzarr_router_ffi as _az
 
@@ -16,8 +14,6 @@ from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch
 from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2 as _pm
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import unpack
-
-FactThunk = Callable[[object, object], object]
 
 
 def _replayed(router: _az.Router, domain: str, rebuilder: _az.Rebuilder, book):
@@ -31,27 +27,14 @@ def _replayed(router: _az.Router, domain: str, rebuilder: _az.Rebuilder, book):
     return unpack(state, type(rebuilder.factory()))
 
 
-def typed_fact(message_class, handler: Callable[[object, object], object]) -> FactThunk:
-    """Adapt a typed fact handler ``(fact, state) -> fact`` to the Any boundary."""
-
-    def thunk(event_any, state):
-        return handler(unpack(event_any, message_class), state)
-
-    return thunk
-
-
 class AggregateHost:
-    """An aggregate registered on the router with its fact handlers."""
+    """An aggregate registered on the router."""
 
     def __init__(
         self,
         router: _az.Router,
         dispatch: _az.AggregateDispatch,
-        *,
-        facts: dict[str, FactThunk] | None = None,
     ) -> None:
-        for fq, thunk in (facts or {}).items():
-            dispatch.on_fact(fq, thunk)
         router.register_aggregate(dispatch)
         self.router = router
         self.dispatch = dispatch
