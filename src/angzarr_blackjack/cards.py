@@ -111,6 +111,7 @@ def is_ten_or_ace(card: Card) -> bool:
 
 _RANKS = {"A": 1, "J": 11, "Q": 12, "K": 13}
 _RANK_NAMES = {v: k for k, v in _RANKS.items()}
+_PIPS = {str(rank) for rank in range(2, 11)}
 _SUITS = {"♣": Suit.CLUBS, "♦": Suit.DIAMONDS, "♥": Suit.HEARTS, "♠": Suit.SPADES}
 _SUIT_NAMES = {v: k for k, v in _SUITS.items()}
 
@@ -118,8 +119,8 @@ _SUIT_NAMES = {v: k for k, v in _SUITS.items()}
 def parse_card(text: str) -> Card:
     """Parse one card written rank then suit ("A♠", "10♦")."""
     rank_text, suit_text = text[:-1], text[-1]
-    rank = _RANKS.get(rank_text) or int(rank_text)
-    if not 1 <= rank <= 13 or suit_text not in _SUITS:
+    rank = _RANKS.get(rank_text) or (int(rank_text) if rank_text in _PIPS else None)
+    if rank is None or suit_text not in _SUITS:
         raise ValueError(f"not a card: {text!r}")
     return Card(rank=rank, suit=_SUITS[suit_text])
 
