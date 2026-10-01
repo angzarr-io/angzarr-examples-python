@@ -94,6 +94,8 @@ jobs:
       - uses: yokawasa/action-setup-kube-tools@v0.11.2
         with:
           setup-tools: skaffold
+          # skaffold.yaml uses apiVersion skaffold/v4beta11 (skaffold >= 2.10).
+          skaffold: 2.17.0
       - uses: docker/login-action@v3
         if: github.event_name != 'pull_request'
         with:
@@ -146,6 +148,8 @@ jobs:
           setup-tools: |
             skaffold
             helm
+          skaffold: 2.17.0
+          helm: 3.20.1
       - run: just -f justfile.container ci-system-deps
       - run: just -f justfile.container ci-setup
       - run: just ci-acceptance
