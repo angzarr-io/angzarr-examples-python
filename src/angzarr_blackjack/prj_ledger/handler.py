@@ -135,16 +135,21 @@ class Ledger:
         )
 
 
-def _once(fold):
+# The decorator runs when the class is defined, before mutmut selects a
+# mutant, so its lines are excluded from mutation; Ledger.first_time carries
+# the decision and is mutated and tested.
+def _once(fold):  # pragma: no mutate
     """Apply a fold only to a page the ledger has not applied yet, so a
     redelivered or replayed event leaves the read model unchanged."""
 
-    @functools.wraps(fold)
-    def apply(self, projection, event, ctx: _az.PageContext) -> None:
-        if self.ledger.first_time(ctx):
-            fold(self, projection, event, ctx)
+    @functools.wraps(fold)  # pragma: no mutate
+    def apply(
+        self, projection, event, ctx: _az.PageContext
+    ) -> None:  # pragma: no mutate
+        if self.ledger.first_time(ctx):  # pragma: no mutate
+            fold(self, projection, event, ctx)  # pragma: no mutate
 
-    return apply
+    return apply  # pragma: no mutate
 
 
 # region projector
