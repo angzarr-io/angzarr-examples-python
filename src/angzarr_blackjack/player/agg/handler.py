@@ -155,50 +155,50 @@ class PlayerAggregate:
 
     # --- appliers ---
 
-    def apply_player_registered(self, state, event):
+    def apply_player_registered(self, state, event, ctx: _az.PageContext):
         L.apply_registered(state, event)
 
-    def apply_player_imported(self, state, event):
+    def apply_player_imported(self, state, event, ctx: _az.PageContext):
         L.apply_imported(state, event)
 
-    def apply_profile_updated(self, state, event):
+    def apply_profile_updated(self, state, event, ctx: _az.PageContext):
         L.apply_profile_updated(state, event)
 
-    def apply_funds_deposited(self, state, event):
+    def apply_funds_deposited(self, state, event, ctx: _az.PageContext):
         L.apply_deposited(state, event)
 
-    def apply_funds_withdrawn(self, state, event):
+    def apply_funds_withdrawn(self, state, event, ctx: _az.PageContext):
         L.apply_withdrawn(state, event)
 
-    def apply_funds_held(self, state, event):
+    def apply_funds_held(self, state, event, ctx: _az.PageContext):
         L.apply_funds_held(state, event)
 
-    def apply_funds_captured(self, state, event):
+    def apply_funds_captured(self, state, event, ctx: _az.PageContext):
         L.apply_funds_captured(state, event)
 
-    def apply_hold_released(self, state, event):
+    def apply_hold_released(self, state, event, ctx: _az.PageContext):
         L.apply_hold_released(state, event)
 
-    def apply_top_up_requested(self, state, event):
+    def apply_top_up_requested(self, state, event, ctx: _az.PageContext):
         L.apply_top_up_requested(state, event)
 
-    def apply_top_up_refused(self, state, event):
+    def apply_top_up_refused(self, state, event, ctx: _az.PageContext):
         L.apply_top_up_refused(state, event)
 
-    def apply_top_up_settled(self, state, event):
+    def apply_top_up_settled(self, state, event, ctx: _az.PageContext):
         L.apply_top_up_settled(state, event)
 
-    def apply_cash_out_credited(self, state, event):
+    def apply_cash_out_credited(self, state, event, ctx: _az.PageContext):
         L.apply_cash_out_credited(state, event)
 
-    def apply_loyalty_enrolled(self, state, event):
+    def apply_loyalty_enrolled(self, state, event, ctx: _az.PageContext):
         L.apply_loyalty_enrolled(state, event)
 
-    def apply_round_result_recorded(self, state, event):
-        L.apply_round_result_recorded(state, event, _az.current_page().sequence)
+    def apply_round_result_recorded(self, state, event, ctx: _az.PageContext):
+        L.apply_round_result_recorded(state, event, ctx.sequence)
 
-    def apply_round_result_retracted(self, state, event):
+    def apply_round_result_retracted(self, state, event, ctx: _az.PageContext):
         L.apply_round_result_retracted(state, event)
 
-    def apply_loyalty_points_awarded(self, state, event):
+    def apply_loyalty_points_awarded(self, state, event, ctx: _az.PageContext):
         L.apply_loyalty_points_awarded(state, event)

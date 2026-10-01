@@ -39,6 +39,11 @@ def cover(domain, root, corr=""):
     return _t.Cover(domain=domain, root=_t.UUID(value=root), correlation_id=corr)
 
 
+def source(domain, root, sequence=0) -> _az.PageContext:
+    """The page context a saga sees for a source event."""
+    return _az.PageContext(cover=cover(domain, root), sequence=sequence)
+
+
 def assert_deferred(book: _t.CommandBook, domain: str, root: bytes):
     """A saga/PM command: addressed by root, deferred, no correlation id."""
     assert (book.cover.domain, book.cover.root.value, book.cover.correlation_id) == (
@@ -264,6 +269,7 @@ def test_buy_in_state_folds_its_own_events():
         _b.BuyInStarted(
             buy_in_id=B1, player_root=ALICE, table_root=TABLE, seat=1, amount=400
         ),
+        _az.PageContext(),
     )
     assert (state.phase, state.seat, state.amount) == (
         Phase.PHASE_AWAITING_HOLD,
@@ -275,9 +281,9 @@ def test_buy_in_state_folds_its_own_events():
         (pm.apply_buy_in_seated, _b.BuyInSeated(), Phase.PHASE_AWAITING_CAPTURE),
         (pm.apply_buy_in_completed, _b.BuyInCompleted(), Phase.PHASE_COMPLETED),
     ]:
-        apply(state, event)
+        apply(state, event, _az.PageContext())
         assert state.phase == phase
-    pm.apply_buy_in_failed(state, _b.BuyInFailed(reason="R"))
+    pm.apply_buy_in_failed(state, _b.BuyInFailed(reason="R"), _az.PageContext())
     assert (state.phase, state.failure_reason) == (Phase.PHASE_FAILED, "R")
 
 
@@ -288,7 +294,7 @@ def test_top_up_becomes_deferred_add_chips_for_the_named_table():
     commands, facts = PlayerTableSaga().top_up_requested(
         _p.TopUpRequested(hold_id=B1, table_root=TABLE, amount=200),
         None,
-        cover("player", ALICE),
+        source("player", ALICE),
     )
     assert facts == []
     (book,) = commands
@@ -315,7 +321,7 @@ def test_top_up_becomes_deferred_add_chips_for_the_named_table():
 )
 def test_settlement_facts_carry_their_external_id(method, event, fact):
     commands, facts = getattr(TablePlayerSettlementSaga(), method)(
-        event, None, cover("table", TABLE)
+        event, None, source("table", TABLE)
     )
     assert commands == []
     (book,) = facts
@@ -343,7 +349,7 @@ def settled():
 
 def test_history_records_each_seat_in_seat_order():
     commands, facts = TablePlayerHistorySaga().round_settled(
-        settled(), None, cover("table", TABLE)
+        settled(), None, source("table", TABLE)
     )
     assert facts == []
     for book in commands:
@@ -359,7 +365,7 @@ def test_history_records_each_seat_in_seat_order():
 
 def test_loyalty_awards_a_point_per_chip_wagered():
     commands, facts = TablePlayerLoyaltySaga().round_settled(
-        settled(), None, cover("table", TABLE)
+        settled(), None, source("table", TABLE)
     )
     assert facts == []
     assert [

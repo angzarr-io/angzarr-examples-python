@@ -165,7 +165,9 @@ class BuyInProcessManager:
     # endregion pm_handler
 
     # region pm_state
-    def apply_buy_in_started(self, state: BuyInState, event: _b.BuyInStarted) -> None:
+    def apply_buy_in_started(
+        self, state: BuyInState, event: _b.BuyInStarted, ctx: _az.PageContext
+    ) -> None:
         state.buy_in_id = event.buy_in_id
         state.player_root = event.player_root
         state.table_root = event.table_root
@@ -174,19 +176,23 @@ class BuyInProcessManager:
         state.phase = Phase.PHASE_AWAITING_HOLD
 
     def apply_buy_in_funds_held(
-        self, state: BuyInState, event: _b.BuyInFundsHeld
+        self, state: BuyInState, event: _b.BuyInFundsHeld, ctx: _az.PageContext
     ) -> None:
         state.phase = Phase.PHASE_AWAITING_SEAT
 
-    def apply_buy_in_seated(self, state: BuyInState, event: _b.BuyInSeated) -> None:
+    def apply_buy_in_seated(
+        self, state: BuyInState, event: _b.BuyInSeated, ctx: _az.PageContext
+    ) -> None:
         state.phase = Phase.PHASE_AWAITING_CAPTURE
 
     def apply_buy_in_completed(
-        self, state: BuyInState, event: _b.BuyInCompleted
+        self, state: BuyInState, event: _b.BuyInCompleted, ctx: _az.PageContext
     ) -> None:
         state.phase = Phase.PHASE_COMPLETED
 
-    def apply_buy_in_failed(self, state: BuyInState, event: _b.BuyInFailed) -> None:
+    def apply_buy_in_failed(
+        self, state: BuyInState, event: _b.BuyInFailed, ctx: _az.PageContext
+    ) -> None:
         state.phase = Phase.PHASE_FAILED
         state.failure_reason = event.reason
 

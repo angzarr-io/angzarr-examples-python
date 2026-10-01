@@ -27,11 +27,11 @@ class TablePlayerSettlementSaga:
     cash-outs become facts the wallet cannot refuse."""
 
     def chips_added(
-        self, event: _table.ChipsAdded, dests: _az.Destinations, source_cover: _t.Cover
+        self, event: _table.ChipsAdded, dests: _az.Destinations, source: _az.PageContext
     ) -> Reaction:
         settled = _p.TopUpSettled(
             hold_id=event.hold_id,
-            table_root=source_cover.root.value,
+            table_root=source.cover.root.value,
             amount=event.amount,
         )
         return [], [
@@ -48,11 +48,11 @@ class TablePlayerSettlementSaga:
         self,
         event: _table.PlayerCashedOut,
         dests: _az.Destinations,
-        source_cover: _t.Cover,
+        source: _az.PageContext,
     ) -> Reaction:
         credited = _p.CashOutCredited(
             cashout_id=event.cashout_id,
-            table_root=source_cover.root.value,
+            table_root=source.cover.root.value,
             amount=event.amount,
         )
         return [], [
@@ -77,14 +77,14 @@ class TablePlayerHistorySaga:
         self,
         event: _table.RoundSettled,
         dests: _az.Destinations,
-        source_cover: _t.Cover,
+        source: _az.PageContext,
     ) -> Reaction:
         commands = [
             deferred_command(
                 PLAYER,
                 outcome.player_root,
                 _p.RecordRoundResult(
-                    table_root=source_cover.root.value,
+                    table_root=source.cover.root.value,
                     round=event.round,
                     wager=outcome.wager,
                     net=outcome.net,
@@ -103,14 +103,14 @@ class TablePlayerLoyaltySaga:
         self,
         event: _table.RoundSettled,
         dests: _az.Destinations,
-        source_cover: _t.Cover,
+        source: _az.PageContext,
     ) -> Reaction:
         commands = [
             deferred_command(
                 PLAYER,
                 outcome.player_root,
                 _p.AwardLoyaltyPoints(
-                    table_root=source_cover.root.value,
+                    table_root=source.cover.root.value,
                     round=event.round,
                     points=outcome.wager,
                 ),

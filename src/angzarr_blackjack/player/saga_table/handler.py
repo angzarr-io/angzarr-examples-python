@@ -24,10 +24,10 @@ class PlayerTableSaga:
     """Implements ``PlayerTableSagaHandler``."""
 
     def top_up_requested(
-        self, event: _p.TopUpRequested, dests: _az.Destinations, source_cover: _t.Cover
+        self, event: _p.TopUpRequested, dests: _az.Destinations, source: _az.PageContext
     ) -> tuple[list[_t.CommandBook], list[_t.EventBook]]:
         add_chips = _table.AddChips(
-            player_root=source_cover.root.value,
+            player_root=source.cover.root.value,
             hold_id=event.hold_id,
             amount=event.amount,
         )

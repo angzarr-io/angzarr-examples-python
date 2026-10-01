@@ -29,6 +29,8 @@ from angzarr_blackjack.errors import invalid, precondition
 from angzarr_blackjack.table.agg import rules
 
 TableState = _table.TableState
+# The page context of an event folded before it is stored.
+_UNSTORED = _az.PageContext()
 Phase = TableState.Phase
 
 
@@ -104,7 +106,8 @@ class TableAggregate:
         }
 
     def apply(self, state: TableState, event) -> None:
-        self._appliers[type(event)](state, event)
+        """Fold an event this command has just computed (no stored page yet)."""
+        self._appliers[type(event)](state, event, _UNSTORED)
 
     def _run(
         self, guard, validate, compute, cmd, state, cctx=None
@@ -668,7 +671,7 @@ class TableAggregate:
     # --- appliers ---
 
     def apply_table_created(
-        self, state: TableState, event: _table.TableCreated
+        self, state: TableState, event: _table.TableCreated, ctx: _az.PageContext
     ) -> None:
         state.name = event.name
         state.min_bet = event.min_bet
@@ -681,7 +684,7 @@ class TableAggregate:
         state.turn = rules.NO_TURN
 
     def apply_shoe_shuffled(
-        self, state: TableState, event: _table.ShoeShuffled
+        self, state: TableState, event: _table.ShoeShuffled, ctx: _az.PageContext
     ) -> None:
         state.shoe_number = event.shoe_number
         state.shoe_seed = event.seed
@@ -689,7 +692,9 @@ class TableAggregate:
         del state.shoe[:]
         state.shoe.extend(event.cards)
 
-    def apply_seat_held(self, state: TableState, event: _table.SeatHeld) -> None:
+    def apply_seat_held(
+        self, state: TableState, event: _table.SeatHeld, ctx: _az.PageContext
+    ) -> None:
         state.seat_holds[event.buy_in_id.hex()].CopyFrom(
             _table.TableSeatHold(
                 player_root=event.player_root, seat=event.seat, amount=event.amount
@@ -697,12 +702,12 @@ class TableAggregate:
         )
 
     def apply_seat_released(
-        self, state: TableState, event: _table.SeatReleased
+        self, state: TableState, event: _table.SeatReleased, ctx: _az.PageContext
     ) -> None:
         state.seat_holds.pop(event.buy_in_id.hex(), None)
 
     def apply_player_seated(
-        self, state: TableState, event: _table.PlayerSeated
+        self, state: TableState, event: _table.PlayerSeated, ctx: _az.PageContext
     ) -> None:
         state.seat_holds.pop(event.buy_in_id.hex(), None)
         state.seated[event.seat].CopyFrom(
@@ -711,24 +716,30 @@ class TableAggregate:
         state.chips_in += event.stack
         state.confirmed_buy_ins.append(event.buy_in_id.hex())
 
-    def apply_chips_added(self, state: TableState, event: _table.ChipsAdded) -> None:
+    def apply_chips_added(
+        self, state: TableState, event: _table.ChipsAdded, ctx: _az.PageContext
+    ) -> None:
         state.seated[event.seat].stack = event.stack_after
         state.chips_in += event.amount
         state.added_holds.append(event.hold_id.hex())
 
     def apply_player_cashed_out(
-        self, state: TableState, event: _table.PlayerCashedOut
+        self, state: TableState, event: _table.PlayerCashedOut, ctx: _az.PageContext
     ) -> None:
         del state.seated[event.seat]
         state.chips_out += event.amount
 
-    def apply_bet_placed(self, state: TableState, event: _table.BetPlaced) -> None:
+    def apply_bet_placed(
+        self, state: TableState, event: _table.BetPlaced, ctx: _az.PageContext
+    ) -> None:
         seat = state.seated[event.seat]
         seat.wager = event.amount
         seat.stack = event.stack_after
         state.phase = Phase.PHASE_BETTING
 
-    def apply_round_dealt(self, state: TableState, event: _table.RoundDealt) -> None:
+    def apply_round_dealt(
+        self, state: TableState, event: _table.RoundDealt, ctx: _az.PageContext
+    ) -> None:
         state.round = event.round
         for hand in event.hands:
             seat = state.seated[hand.seat]
@@ -740,7 +751,9 @@ class TableAggregate:
         state.turn = event.turn
         state.phase = Phase.PHASE_PLAYER_TURNS
 
-    def apply_card_dealt(self, state: TableState, event: _table.CardDealt) -> None:
+    def apply_card_dealt(
+        self, state: TableState, event: _table.CardDealt, ctx: _az.PageContext
+    ) -> None:
         hand = state.seated[event.seat].hand
         hand.cards.append(event.card)
         hand.total = event.total
@@ -749,11 +762,15 @@ class TableAggregate:
         del state.shoe[:1]
         state.turn = event.next_turn
 
-    def apply_hand_stood(self, state: TableState, event: _table.HandStood) -> None:
+    def apply_hand_stood(
+        self, state: TableState, event: _table.HandStood, ctx: _az.PageContext
+    ) -> None:
         state.seated[event.seat].finished = True
         state.turn = event.next_turn
 
-    def apply_hand_doubled(self, state: TableState, event: _table.HandDoubled) -> None:
+    def apply_hand_doubled(
+        self, state: TableState, event: _table.HandDoubled, ctx: _az.PageContext
+    ) -> None:
         seat = state.seated[event.seat]
         seat.wager += event.added
         seat.stack = event.stack_after
@@ -765,13 +782,13 @@ class TableAggregate:
         state.turn = event.next_turn
 
     def apply_dealer_played(
-        self, state: TableState, event: _table.DealerPlayed
+        self, state: TableState, event: _table.DealerPlayed, ctx: _az.PageContext
     ) -> None:
         state.dealer_cards.extend(event.drawn)
         del state.shoe[: len(event.drawn)]
 
     def apply_round_settled(
-        self, state: TableState, event: _table.RoundSettled
+        self, state: TableState, event: _table.RoundSettled, ctx: _az.PageContext
     ) -> None:
         for result in event.outcomes:
             seat = state.seated[result.seat]
