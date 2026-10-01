@@ -36,8 +36,17 @@ cli-build:
     cd {{CLI_SRC}} && go build -o {{justfile_directory()}}/.tools/bin/angzarr .
 
 # Build the angzarr-router FFI cdylib (Rust) in the router checkout.
+# Needs the router checkout's angzarr-project submodule (its build scripts
+# and buf workspace read the framework protos from it), protoc and the
+# protobuf well-known types (`ci-system-deps`).
 router-build:
     cd {{ROUTER_SRC}} && cargo build -p angzarr-router-ffi
+
+# System packages a fresh runner lacks for router-build: protoc and the
+# protobuf well-known type definitions.
+ci-system-deps:
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq protobuf-compiler libprotobuf-dev
 
 # Everything a fresh checkout needs before tests or image builds: the CLI, the
 # router cdylib and binding, generated code and the environment.

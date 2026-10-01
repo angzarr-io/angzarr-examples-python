@@ -33,6 +33,7 @@ jobs:
           repository: angzarr-io/angzarr-router
           ref: ${{ env.ANGZARR_ROUTER_REF }}
           path: .deps/angzarr-router
+          submodules: true
       - uses: extractions/setup-just@v2
       - uses: bufbuild/buf-action@v1
         with:
@@ -42,5 +43,6 @@ jobs:
           go-version: stable
       - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v6
+      - run: just -f justfile.container ci-system-deps
       - run: just -f justfile.container ci-setup
       - run: just -f justfile.container mutation-test
