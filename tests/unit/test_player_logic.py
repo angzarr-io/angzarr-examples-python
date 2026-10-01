@@ -475,3 +475,10 @@ def test_recorded_result_event_carries_the_wager():
 
 def test_a_one_chip_hold_balances():
     assert L.ledger_balances(held(wallet(1000), amount=1))
+
+
+def test_withdrawals_accumulate():
+    state = wallet(1000)
+    for amount in (100, 50):
+        L.apply_withdrawn(state, _p.FundsWithdrawn(amount=amount))
+    assert (state.bankroll, state.total_withdrawn) == (850, 150)
