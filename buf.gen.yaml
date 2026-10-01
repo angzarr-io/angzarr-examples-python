@@ -1,25 +1,24 @@
-# Generates the message types (pb2/grpc) + the angzarr dispatch wiring into the
-# package's gitignored _gen/ tree. The angzarr emitter writes relative imports;
-# protoletariat (proto-gen recipe) rewrites the buf pb2/grpc imports the same way
-# so the whole tree is self-contained under angzarr_poker._gen — never shadowing
-# stdlib `io`. Regenerated freely; ported logic lives in committed *_handler.py.
+# Generates the message types (pb2), the gRPC stubs (pb2_grpc) and the angzarr
+# dispatch wiring (*_angzarr.py) into the package's gitignored _gen/ tree. The
+# angzarr emitter writes relative imports; protoletariat (proto-gen recipe)
+# rewrites the buf pb2/grpc imports the same way, so the whole tree is
+# self-contained under angzarr_blackjack._gen and never shadows stdlib `io`.
 #
 # BYTE-IDENTITY (load-bearing). This package imports angzarr_router_ffi, which
-# registers the shared framework protos (io/angzarr/v1/*, sererr) into the
+# registers the framework protos (io/angzarr/v1/*, sererr) into the
 # process-global descriptor_pool.Default(). Our _gen registers them too, so the
 # two copies must be byte-identical or they collide ("duplicate file name").
-# go_package (embedded in each pb2's serialized FileDescriptorProto) is already
-# native here — no managed mode — matching the binding's native value. The
-# remaining requirement is the SAME plugin version: pin protocolbuffers/python to
-# the tag the binding uses (v35.1) so the descriptors match byte-for-byte.
+# `just vendor-router` generates the binding's copy from this repo's
+# angzarr-project pin with the same plugin version and no managed mode, so both
+# copies come from identical inputs.
 version: v2
 inputs:
   - directory: angzarr-project/proto
 plugins:
   - remote: buf.build/protocolbuffers/python:v35.1
-    out: src/angzarr_poker/_gen
+    out: src/angzarr_blackjack/_gen
   - remote: buf.build/grpc/python:v1.68.1
-    out: src/angzarr_poker/_gen
+    out: src/angzarr_blackjack/_gen
   - local: ["angzarr", "codegen", "python"]
-    out: src/angzarr_poker/_gen
+    out: src/angzarr_blackjack/_gen
     opt: paths=source_relative

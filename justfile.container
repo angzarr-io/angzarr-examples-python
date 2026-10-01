@@ -1,131 +1,143 @@
-# Angzarr Python Examples - container version
-# This file is mounted as 'justfile' inside the container
-# Also used directly in CI container jobs
+# Angzarr blackjack example (Python) — container recipes.
+#
+# Mounted as `justfile` inside the dev container (see the host justfile's
+# `_container`) and used directly by CI container jobs. Every recipe runs from
+# the repository root.
 
-set shell := ["bash", "-c"]
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# The six deployable components (Containerfile target == image suffix).
+COMPONENTS := "agg-player agg-table pmg-buy-in saga-player-table saga-table-player projector-player-table-ledger"
+
+# Source checkouts for the angzarr CLI (codegen plugin) and the angzarr-router
+# Python binding + cdylib. Neither is a published package yet.
+CLI_SRC := env_var_or_default("ANGZARR_CLI_SRC", "../../angzarr-cli/main")
+ROUTER_SRC := env_var_or_default("ANGZARR_ROUTER_SRC", "../../angzarr-router/main")
+ROUTER_CDYLIB := env_var_or_default("ANGZARR_ROUTER_CDYLIB", ROUTER_SRC + "/target/debug/libangzarr_router_ffi.so")
+
+# The binding's cdylib, once staged by vendor-router.
+ROUTER_LIB := justfile_directory() + "/vendor/angzarr-router-ffi/libangzarr_router_ffi.so"
+
+# Features: the in-process tiers and the cluster tier, read straight from the
+# angzarr-project submodule.
+UNIT_FEATURES := "angzarr-project/features/example/blackjack angzarr-project/features/example/blackjack-framework"
+ACCEPTANCE_FEATURES := "angzarr-project/features/example/blackjack-acceptance"
 
 default:
     @just --list
 
-# Generate message types + angzarr dispatch wiring into src/angzarr_poker/_gen,
-# then protoletariat rewrites the buf pb2/grpc imports to relative so the tree is
-# self-contained under angzarr_poker._gen (never shadows stdlib `io`). Wiring
-# (*_angzarr.py) is regenerated each run; ported business logic lives in the
-# committed, skip-if-exists *_angzarr_handler.py scaffolds.
-#
-# google/* is NOT generated: it comes from the protobuf runtime + the installed
-# googleapis-common-protos (the standard-over-rolling precedent). The FFI binding
-# this package imports does the same, so a locally-generated google/api/*.proto
-# would collide with googleapis-common-protos in the global descriptor pool
-# ("duplicate file name google/api/http.proto"). Exclude it from both the buf
-# generate and the protol image; the framework pb2's `from google.api import ...`
-# then resolves to the installed package.
+# The component list, for CI matrices.
+components:
+    @echo {{COMPONENTS}}
+
+# Build the angzarr CLI (the buf `angzarr codegen python` plugin) into .tools/bin.
+cli-build:
+    mkdir -p .tools/bin
+    cd {{CLI_SRC}} && go build -o {{justfile_directory()}}/.tools/bin/angzarr .
+
+# Stage the angzarr-router Python binding under vendor/angzarr-router-ffi: its
+# Python sources, the cdylib, and its generated protobuf tree. The framework
+# protos come from this repo's angzarr-project pin (not the router's), so the
+# binding and the example register byte-identical framework descriptors.
+vendor-router:
+    rm -rf vendor/angzarr-router-ffi
+    mkdir -p vendor/angzarr-router-ffi/angzarr_router_ffi
+    cp {{ROUTER_SRC}}/bindings/python/pyproject.toml vendor/angzarr-router-ffi/
+    cp {{ROUTER_SRC}}/bindings/python/angzarr_router_ffi/*.py vendor/angzarr-router-ffi/angzarr_router_ffi/
+    cp {{ROUTER_CDYLIB}} vendor/angzarr-router-ffi/libangzarr_router_ffi.so
+    buf generate angzarr-project/proto --template tools/router-binding.gen.yaml \
+        --exclude-path angzarr-project/proto/google \
+        --exclude-path angzarr-project/proto/io/angzarr/examples
+    buf generate {{ROUTER_SRC}} --template tools/router-binding.gen.yaml \
+        --path {{ROUTER_SRC}}/proto/io/angzarr/router
+    python3 {{ROUTER_SRC}}/bindings/python/scripts/fixup_gen_imports.py \
+        vendor/angzarr-router-ffi/angzarr_router_ffi/gen
+
+# Generate message types, gRPC stubs and angzarr dispatch wiring into
+# src/angzarr_blackjack/_gen, then rewrite the buf imports to relative so the
+# tree is self-contained (never shadows stdlib `io`). google/* is not
+# generated: it comes from the protobuf runtime and googleapis-common-protos,
+# exactly as the binding does.
 proto-gen:
-    buf generate --exclude-path angzarr-project/proto/google
+    rm -rf src/angzarr_blackjack/_gen
+    PATH="{{justfile_directory()}}/.tools/bin:$PATH" buf generate --exclude-path angzarr-project/proto/google
     buf build angzarr-project/proto -o .gen-image.binpb
-    uvx --from protoletariat protol --create-package --in-place --python-out src/angzarr_poker/_gen \
+    uvx --from protoletariat protol --create-package --in-place --python-out src/angzarr_blackjack/_gen \
         --exclude-imports-glob 'google/*' raw .gen-image.binpb
     rm -f .gen-image.binpb
 
-# Generate AI Player protos: buf generate, then protoletariat rewrites buf's
-# absolute imports to relative so the tree is self-contained under
-# ai_player._gen (never shadows stdlib `io`), mirroring proto-gen. google/* is
-# excluded — google.protobuf well-known types resolve from the protobuf runtime.
-# Generated files are gitignored; regenerate whenever ai_sidecar.proto changes.
-ai-proto:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd ai_player
-    buf generate --exclude-path ../angzarr-project/proto/google
-    buf build ../angzarr-project/proto -o .gen-image.binpb
-    uvx --from protoletariat protol --create-package --in-place \
-        --python-out _gen --exclude-imports-glob 'google/*' raw .gen-image.binpb
-    rm -f .gen-image.binpb
-
-# Install dependencies AND regenerate protos (generated code is not committed).
-install *FLAGS: proto-gen ai-proto
+# Generate code and sync the environment.
+install *FLAGS: proto-gen
     uv sync {{FLAGS}}
 
-# Run plain pytest unit/integration tests (uses testpaths from pyproject.toml)
-test-pytest:
-    uv run pytest -v
+# Native unit tests: pure handler logic, rules, shoe golden vectors, ledger
+# property tests.
+test-unit:
+    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" uv run pytest tests/unit
 
-# Unit-example cucumber: poker business rules driven through the generated FFI
-# dispatch wiring (in-process router, no infra). Feature files live in
-# angzarr-project/features/example/{poker,framework}/ (submodule; the legacy
-# unit/ tree was reorganized in the split-poker reframe). behave's --stage
-# mechanism finds unit_environment.py + unit_steps/ at this repo root via walk-up
-# from the feature files — no symlinks needed. The binding's cdylib is resolved
-# via ANGZARR_ROUTER_LIB or the in-repo build dir.
+# The behave unit tier: every blackjack and blackjack-framework scenario, run
+# in-process through the router binding. Undefined or pending steps fail.
 test-example-unit:
-    ANGZARR_ROUTER_LIB="$PWD/vendor/angzarr-router-ffi/libangzarr_router_ffi.so" uv run behave --stage unit angzarr-project/features/example/poker angzarr-project/features/example/framework --tags="~@wip"
+    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" uv run behave --stage unit --format progress \
+        --no-skipped --tags="not @wip" {{UNIT_FEATURES}}
 
-# Acceptance-example cucumber: poker E2E via CommandClient (gRPC).
-# Drives a DEPLOYED cluster: the harness talks straight to each aggregate
-# coordinator on its NodePort (player 31320 … reservation 31324), which the
-# kind cluster maps to the host and the dev container shares via --network=host
-# — no `kubectl port-forward` needed. Override a domain with <DOMAIN>_URL
-# (PLAYER_URL / TABLE_URL / HAND_URL / TOURNAMENT_URL / RESERVATION_URL) to
-# point at a different / remote cluster.
-# --stage acceptance resolves acceptance_environment.py + acceptance_steps/.
+# The cluster acceptance tier against a deployed example. Scenarios that wait
+# on a framework fix (@needs-core-X-NNN) are excluded from the required run.
 test-example-acceptance:
-    ANGZARR_ROUTER_LIB="$PWD/vendor/angzarr-router-ffi/libangzarr_router_ffi.so" uv run behave --stage acceptance angzarr-project/features/example/acceptance/ --tags="~@wip"
+    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" uv run behave --stage acceptance --format progress \
+        --tags="not @wip and not @needs-core-X-012 and not @needs-core-X-014 and not @needs-core-X-016 and not @needs-core-X-021 and not @needs-core-X-023 and not @needs-core-X-031 and not @needs-core-X-034 and not @needs-core-X-089 and not @needs-core-X-092 and not @needs-core-X-110" \
+        {{ACCEPTANCE_FEATURES}}
 
-# Run all tests
-test: test-pytest test-example-unit test-example-acceptance
+# Parse every acceptance scenario and resolve every step without a cluster.
+acceptance-dry-run:
+    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" uv run behave --stage acceptance --dry-run --format progress \
+        {{ACCEPTANCE_FEATURES}}
 
-# Format code (use --check for CI)
+# Unit + behave tiers.
+test: test-unit test-example-unit
+
+# CI entry point for the test job.
+ci-test: lint (fmt "--check") test acceptance-dry-run
+
 fmt *FLAGS:
-    uv run black {{FLAGS}} .
+    uv run black {{FLAGS}} src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
 
-# Lint code
+fmt-fix:
+    uv run ruff check --fix src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
+    uv run black src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
+
 lint:
-    uv run ruff check . --exclude angzarr-client-python
+    uv run ruff check src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
 
-# Type check
-typecheck:
-    uv run mypy . --ignore-missing-imports
+# Run one component locally (e.g. `just run agg-player`).
+run component:
+    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" PYTHONPATH=src uv run python -m \
+        "angzarr_blackjack.$(just -f {{justfile()}} _module {{component}})"
 
-# Run player aggregate
-run-player:
-    uv run python -m angzarr_poker.player.aggregate.main
+[private]
+_module component:
+    #!/usr/bin/env bash
+    case "{{component}}" in
+        agg-player) echo player.agg.main ;;
+        agg-table) echo table.agg.main ;;
+        pmg-buy-in) echo pmg_buy_in.main ;;
+        saga-player-table) echo player.saga_table.main ;;
+        saga-table-player) echo table.saga_player.main ;;
+        projector-player-table-ledger) echo prj_ledger.main ;;
+        *) echo "unknown component {{component}}" >&2; exit 1 ;;
+    esac
 
-# Run table aggregate
-run-table:
-    uv run python -m angzarr_poker.table.aggregate.main
+# Drive a short basic-strategy session against a deployed cluster.
+demo-session *ARGS:
+    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" PYTHONPATH=.:src uv run python tools/play_session.py {{ARGS}}
 
-# Run hand aggregate
-run-hand:
-    uv run python -m angzarr_poker.hand.aggregate.main
-
-# Run game with AI Player service
-run-game-ai *ARGS:
-    uv run python run_game.py --ai-player localhost:50500 --no-standalone {{ARGS}}
-
-# Run mutation testing with mutmut (80% kill threshold)
+# Mutation testing (mutmut over the business logic, killed by pytest + the
+# behave bridge). Fails below a 90% kill rate.
 mutation-test:
     #!/usr/bin/env bash
     set -euo pipefail
     rm -rf mutants
-    uv run mutmut run
-    uv run mutmut results
+    export ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}"
+    uv run mutmut run --max-children "${MUTMUT_CHILDREN:-4}" || true
     uv run mutmut export-cicd-stats
-    # Check survival rate is below 20% (i.e., 80%+ killed)
-    TOTAL=$(python -c "import json; d=json.load(open('mutants/mutmut-cicd-stats.json')); print(d['total'])")
-    SURVIVED=$(python -c "import json; d=json.load(open('mutants/mutmut-cicd-stats.json')); print(d['survived'])")
-    if [ "$TOTAL" -eq 0 ]; then
-        echo "ERROR: No mutants were generated"
-        exit 1
-    fi
-    SURVIVAL_RATE=$((SURVIVED * 100 / TOTAL))
-    echo "Survival rate: ${SURVIVAL_RATE}% (${SURVIVED}/${TOTAL})"
-    if [ "$SURVIVAL_RATE" -gt 20 ]; then
-        echo "FAIL: Survival rate ${SURVIVAL_RATE}% exceeds 20% threshold (need 80%+ killed)"
-        exit 1
-    fi
-    echo "PASS: Mutation testing threshold met"
-
-# Auto-format code
-fmt-fix:
-    uv run ruff check --fix . --exclude angzarr-client-python
-    uv run black .
+    python3 tools/mutation_gate.py mutants/mutmut-cicd-stats.json 90
