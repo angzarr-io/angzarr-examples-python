@@ -1,44 +1,71 @@
-"""Per-scenario world for the cluster acceptance harness.
+"""Per-scenario context for the cluster tier.
 
-A deployed cluster keeps aggregate state in postgres across scenarios, and the
-poker features reuse entity names ("Main", "Alice") between scenarios. If two
-scenarios mapped "Main" to the same table root they would collide — the second
-CreateTable would hit an already-created aggregate, and event assertions would
-observe the prior run's history.
-
-So each scenario gets a fresh random ``nonce``; an entity name resolves to
-``sha256(nonce + name)[:16]`` — a 16-byte root unique to this scenario run.
-The same name resolves to the same root within the scenario (so a later
-JoinTable references the table CreateTable made), but never across scenarios or
-re-runs. The nonce also serves as the correlation id stamped on every command.
+The cluster keeps state across scenarios, so every entity a scenario names
+gets a root unique to the scenario: ``uuid5(NAMESPACE_OID,
+"<nonce>:<kind>:<label>")``. Every request is sent in a conversation whose
+correlation id starts with the nonce — the scenario's own default
+conversation, or one per buy-in / top-up — so the event stream keeps exactly
+this scenario's books.
 """
 
 from __future__ import annotations
 
-import hashlib
+import time
 import uuid
+from collections.abc import Callable
 
 from acceptance_steps._client import ClusterClient
+from acceptance_steps._stream import EventStreamSubscriber
 
 
 class World:
-    """One scenario's cluster context: the shared client, a per-scenario root
-    namespace, and the bookkeeping a multi-step poker scenario threads
-    (resolved child roots like a hand's id)."""
-
-    def __init__(self, client: ClusterClient) -> None:
+    def __init__(
+        self, client: ClusterClient, stream: EventStreamSubscriber | None
+    ) -> None:
         self.client = client
-        self.nonce = uuid.uuid4().hex
-        self.correlation_id = self.nonce
-        # Child roots discovered mid-scenario (e.g. a hand_root read off the
-        # table's HandStarted), keyed by a caller-chosen label.
-        self.roots: dict[str, bytes] = {}
-        # Entity names created this scenario, in creation order — so a bulk step
-        # ("every player registers", "trigger table balancing") can enumerate
-        # the players/tables the scenario set up without re-listing them.
-        self.players: list[str] = []
-        self.tables: list[str] = []
+        self.stream = stream
+        self.nonce = uuid.uuid4().hex[:16]
+        self.correlation = self.nonce
+        self.notes: dict = {}
+        self.response = None  # the last CommandResponse
+        self.error = None  # the last grpc.RpcError
+        if stream is not None:
+            stream.scope(self.nonce)
 
-    def root(self, name: str) -> bytes:
-        """The scenario-unique 16-byte root for entity ``name``."""
-        return hashlib.sha256((self.nonce + ":" + name).encode()).digest()[:16]
+    def root(self, kind: str, label: str) -> bytes:
+        return uuid.uuid5(uuid.NAMESPACE_OID, f"{self.nonce}:{kind}:{label}").bytes
+
+    def player(self, name: str) -> bytes:
+        return self.root("player", name)
+
+    def table(self, name: str) -> bytes:
+        return self.root("table", name)
+
+    def request(self, label: str) -> bytes:
+        return self.root("request", label)
+
+    def conversation(self, label: str) -> str:
+        return f"{self.nonce}/{label}"
+
+    def events(self) -> EventStreamSubscriber:
+        assert self.stream is not None, "the event stream is not connected"
+        return self.stream
+
+
+def eventually(check: Callable[[], object], within: float, every: float = 0.2):
+    """Retry ``check`` until it returns without raising (and truthy) or
+    ``within`` seconds pass; then re-raise its last failure."""
+    deadline = time.monotonic() + within
+    while True:
+        try:
+            result = check()
+            if result is not False:
+                return result
+            failure = AssertionError("condition not met")
+        except AssertionError as exc:
+            failure = exc
+        except Exception as exc:  # noqa: BLE001 — a service still restarting
+            failure = AssertionError(str(exc))
+        if time.monotonic() >= deadline:
+            raise failure
+        time.sleep(every)

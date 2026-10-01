@@ -1,298 +1,227 @@
-"""gRPC client for the cluster acceptance harness.
+"""gRPC client for the cluster acceptance tier.
 
-Cluster-tier scenarios drive a DEPLOYED poker cluster over gRPC — real
-coordinator sidecars, AMQP event propagation, postgres-backed state — not the
-in-process FFI router the unit stage uses. This client speaks the two
-coordinator surfaces the harness needs:
+Talks to a deployed blackjack example:
 
-  * ``CommandHandlerCoordinatorService.HandleCommand`` (command port, 1310) to
-    issue a command to an aggregate. The coordinator loads prior events itself,
-    folds them, runs the business handler, persists, and publishes — so the
-    client sends only a ``CommandRequest`` (no prior history).
-  * ``EventQueryService.GetEventBook`` (query port, 1315) to read an aggregate's
-    persisted EventBook. Cross-service effects (saga → command → event) land
-    asynchronously over AMQP, so assertions poll the target aggregate's book
-    until the expected event-type appears or a deadline expires.
+* each aggregate's coordinator (``CommandHandlerCoordinatorService`` and
+  ``EventQueryService`` on one port): PLAYER_URL, TABLE_URL — by default the
+  kind NodePorts localhost:31320 / localhost:31321;
+* the ledger projector's ``LedgerQueryService``: LEDGER_URL, by default
+  localhost:31325.
 
-There is no deployed EventStreamService in this topology; per-root GetEventBook
-polling is the observation mechanism. Endpoints come from env vars (set by the
-port-forward wiring); see ``ENDPOINTS`` for the defaults.
+It never keeps its own record of what happened: state is always read back
+from the cluster (stored history, the ledger) or the event bus.
 """
 
 from __future__ import annotations
 
 import os
-import time
+import subprocess
 
+import angzarr_router_ffi as _az
 import grpc
+from google.protobuf import empty_pb2 as _empty
 
-from angzarr_poker._gen.io.angzarr.v1 import types_pb2 as _t
-from angzarr_poker._gen.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
-from angzarr_poker._gen.io.angzarr.v1 import query_pb2_grpc as _q_grpc
-from angzarr_poker._gen.io.angzarr.examples.v1 import (
-    player_projection_query_pb2 as _pq,
+from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import ledger_pb2 as _l
+from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import (
+    ledger_pb2_grpc as _l_grpc,
 )
-from angzarr_poker._gen.io.angzarr.examples.v1 import (
-    player_projection_query_pb2_grpc as _pq_grpc,
-)
+from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch
+from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
+from angzarr_blackjack._gen.io.angzarr.v1 import query_pb2_grpc as _q_grpc
+from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
+from angzarr_blackjack.player.agg import main as player_main
+from angzarr_blackjack.table.agg import main as table_main
 
-# Fully-qualified poker proto prefix; angzarr keys dispatch on a bare "/" Any
-# type-URL prefix (not the type.googleapis.com default).
-P = "io.angzarr.examples.v1."
-_TYPE_URL_PREFIX = "/"
-
-# Per-domain coordinator endpoint, reached directly on the host. The chart
-# provisions a NodePort service per aggregate ("<domain>-aggregate-debug",
-# nodePort 31320..31324) and the kind cluster maps those node ports straight to
-# the host (see kind-config.yaml extraPortMappings) — explicitly "for cluster
-# acceptance tests, which talk directly to the per-domain coordinator". So no
-# `kubectl port-forward` is needed: the ports are stable and survive pod
-# restarts (NodePort → service → any ready pod), which a forward does not.
-# Both the command service and the EventQueryService are served on the
-# coordinator's single gRPC port, so one endpoint per domain covers both.
-# Overridable via the <DOMAIN>_URL env var (e.g. for a remote cluster).
-_DEFAULT_PORTS = {
-    "player": 31320,
-    "table": 31321,
-    "hand": 31322,
-    "tournament": 31323,
-    "reservation": 31324,
-}
-
-# The player projector's read-model query surface (PlayerProjectionQueryService)
-# is served by the player-projector pod, exposed on its own debug NodePort —
-# separate from the aggregate command/query ports above. Overridable via
-# PLAYER_PROJECTOR_URL for a remote cluster.
-_PLAYER_PROJECTOR_PORT = 31325
+PLAYER, TABLE = "player", "table"
+ENDPOINTS = {PLAYER: ("PLAYER_URL", 31320), TABLE: ("TABLE_URL", 31321)}
+LEDGER = ("LEDGER_URL", 31325)
+NAMESPACE = os.environ.get("ANGZARR_NAMESPACE", "angzarr")
+SYNC = _t.SyncMode
+CASCADE_ERROR = _t.CascadeErrorMode
+MERGE = _t.MergeStrategy
 
 
-def type_url(fq: str) -> str:
-    return _TYPE_URL_PREFIX + fq
-
-
-def fq_from_url(url: str) -> str:
-    return url.rsplit("/", 1)[-1]
-
-
-def _endpoint(domain: str) -> str:
-    # `... or default` (not get's default): the container passes an empty
-    # <DOMAIN>_URL when the host hasn't set one, which should fall back to the
-    # NodePort, not become an empty target.
-    return (
-        os.environ.get(f"{domain.upper()}_URL") or f"localhost:{_DEFAULT_PORTS[domain]}"
-    )
+def _endpoint(variable: str, port: int) -> str:
+    # `or`, not a get() default: the dev container passes an empty variable
+    # when the host has none set.
+    return os.environ.get(variable) or f"localhost:{port}"
 
 
 class ClusterClient:
-    """Per-domain command + query channels into the deployed cluster. One
-    instance is shared across a behave run; scenarios isolate themselves via
-    fresh roots/correlation ids, not fresh channels."""
+    """Channels to the deployed services, shared by a whole run."""
 
     def __init__(self) -> None:
-        # Per-aggregate next-sequence, keyed by (domain, root_hex). Commands
-        # carry the expected current sequence for optimistic concurrency; the
-        # coordinator rejects a stale one (FAILED_PRECONDITION "sequence
-        # mismatch"). Roots are scenario-unique (nonce-salted), so tracking on
-        # the shared client never crosses scenarios.
-        self._seq: dict[tuple[str, str], int] = {}
-        self._channels: list[grpc.Channel] = []
-        self._cmd_channels: dict[str, grpc.Channel] = {}
-        self._cmd: dict[str, _ch_grpc.CommandHandlerCoordinatorServiceStub] = {}
-        self._query: dict[str, _q_grpc.EventQueryServiceStub] = {}
-        for domain in _DEFAULT_PORTS:
-            # The aggregate coordinator serves CommandHandlerCoordinatorService
-            # AND EventQueryService on the same gRPC server (the command port);
-            # there is no separate query-port listener in current core. One
-            # channel backs both stubs.
-            cmd_ch = grpc.insecure_channel(_endpoint(domain))
-            self._channels.append(cmd_ch)
-            self._cmd_channels[domain] = cmd_ch
-            self._cmd[domain] = _ch_grpc.CommandHandlerCoordinatorServiceStub(cmd_ch)
-            self._query[domain] = _q_grpc.EventQueryServiceStub(cmd_ch)
+        self._channels: dict[str, grpc.Channel] = {}
+        self._connect()
+        # The components' own appliers fold stored history into state.
+        self._router = _az.Router()
+        self._hosts = {
+            PLAYER: player_main.build_host(self._router),
+            TABLE: table_main.build_host(self._router),
+        }
 
-        # The player projector read-model query surface lives on its own pod
-        # (separate NodePort), so it gets its own channel + stub.
-        proj_ep = (
-            os.environ.get("PLAYER_PROJECTOR_URL")
-            or f"localhost:{_PLAYER_PROJECTOR_PORT}"
-        )
-        proj_ch = grpc.insecure_channel(proj_ep)
-        self._channels.append(proj_ch)
-        self._player_projection = _pq_grpc.PlayerProjectionQueryServiceStub(proj_ch)
+    def _connect(self) -> None:
+        for channel in self._channels.values():
+            channel.close()
+        self._channels = {
+            d: grpc.insecure_channel(_endpoint(*ENDPOINTS[d])) for d in ENDPOINTS
+        }
+        self._channels["ledger"] = grpc.insecure_channel(_endpoint(*LEDGER))
+        self._commands = {
+            d: _ch_grpc.CommandHandlerCoordinatorServiceStub(self._channels[d])
+            for d in ENDPOINTS
+        }
+        self._queries = {
+            d: _q_grpc.EventQueryServiceStub(self._channels[d]) for d in ENDPOINTS
+        }
+        self._ledger = _l_grpc.LedgerQueryServiceStub(self._channels["ledger"])
 
     def close(self) -> None:
-        for ch in self._channels:
-            ch.close()
-
-    def reset_channel(self, domain: str) -> None:
-        """Drop and re-create a domain's channel + stubs. After a coordinator
-        restart the existing channel is pinned (via kube-proxy DNAT) to the
-        now-dead pod and its reconnect backoff can outlast a short retry window;
-        a fresh channel dials cleanly through the NodePort to the new pod."""
-        old = self._cmd_channels.get(domain)
-        if old is not None:
-            old.close()
-        ch = grpc.insecure_channel(_endpoint(domain))
-        self._channels.append(ch)
-        self._cmd_channels[domain] = ch
-        self._cmd[domain] = _ch_grpc.CommandHandlerCoordinatorServiceStub(ch)
-        self._query[domain] = _q_grpc.EventQueryServiceStub(ch)
-
-    # --- reachability -------------------------------------------------------
+        for channel in self._channels.values():
+            channel.close()
+        self._router.close()
 
     def reachable(self, timeout: float = 10.0) -> bool:
-        """True once every aggregate command channel reports READY. ``timeout``
-        is applied PER channel — a cold ``kubectl port-forward`` only dials its
-        backend pod on the first connection, so the first handshake can take a
-        few seconds; a shared deadline across all five would starve the later
-        channels."""
-        for domain in _DEFAULT_PORTS:
-            ch = self._cmd_channels[domain]
-            try:
-                grpc.channel_ready_future(ch).result(timeout=timeout)
-            except Exception:
-                return False
+        try:
+            for channel in self._channels.values():
+                grpc.channel_ready_future(channel).result(timeout=timeout)
+        except grpc.FutureTimeoutError:
+            return False
         return True
 
-    # --- commands -----------------------------------------------------------
+    # --- commands ---------------------------------------------------------------
 
-    def send(
+    def command(
         self,
         domain: str,
-        name: str,
+        root: bytes,
         message,
-        root: bytes,
-        correlation_id: str,
-        sync_mode: int = _t.SyncMode.SYNC_MODE_SIMPLE,
-        timeout: float = 15.0,
+        *,
+        correlation: str,
+        sync_mode: int = SYNC.SYNC_MODE_SIMPLE,
+        cascade_error_mode: int = CASCADE_ERROR.CASCADE_ERROR_UNSPECIFIED,
+        expected: int | None = None,
+        merge: int = MERGE.MERGE_UNSPECIFIED,
+        edition: _t.Edition | None = None,
+        timeout: float = 30.0,
+    ) -> _ch.CommandResponse:
+        """Send one client command. Without ``expected`` it is sent against the
+        aggregate's current head. Raises grpc.RpcError on a refusal."""
+        if expected is None:
+            expected = self.book(domain, root, edition=edition).next_sequence
+        request = _t.CommandRequest(
+            sync_mode=sync_mode, cascade_error_mode=cascade_error_mode
+        )
+        request.command.cover.CopyFrom(cover(domain, root, correlation, edition))
+        page = request.command.pages.add(merge_strategy=merge)
+        page.header.sequence = expected
+        page.command.CopyFrom(_az.pack(message))
+        return self._commands[domain].HandleCommand(request, timeout=timeout)
+
+    def speculate(
+        self, domain: str, root: bytes, message, *, correlation: str
+    ) -> _ch.CommandResponse:
+        """Run a command against the current state without persisting it."""
+        request = _ch.SpeculateCommandHandlerRequest()
+        request.command.cover.CopyFrom(cover(domain, root, correlation))
+        page = request.command.pages.add()
+        page.header.sequence = self.book(domain, root).next_sequence
+        page.command.CopyFrom(_az.pack(message))
+        return self._commands[domain].HandleSyncSpeculative(request, timeout=30.0)
+
+    def store_fact(
+        self, domain: str, root: bytes, event, *, external_id: str, correlation: str
     ):
-        """Issue command ``name`` (a poker proto, e.g. "CreateTable") to the
-        ``domain`` aggregate at ``root``. Returns the CommandResponse; raises
-        grpc.RpcError on a coded rejection."""
-        key = (domain, root.hex())
-        if key not in self._seq:
-            # This client hasn't written to this aggregate yet, but it may have
-            # been advanced out-of-band (e.g. a saga dealt to the hand). Seed the
-            # cursor from its persisted head so the first direct command carries
-            # the right expected sequence instead of a stale 0.
-            try:
-                self._seq[key] = self.event_book(domain, root).next_sequence
-            except grpc.RpcError:
-                self._seq[key] = 0
+        """Store an event as a fact, persisted without the handler."""
+        request = _t.EventRequest(skip_handler=True, sync_mode=SYNC.SYNC_MODE_SIMPLE)
+        request.events.cover.CopyFrom(cover(domain, root, correlation))
+        page = request.events.pages.add()
+        page.header.external_deferred.external_id = external_id
+        page.header.external_deferred.description = "acceptance seed"
+        page.event.CopyFrom(_az.pack(event))
+        return self._commands[domain].HandleEvent(request, timeout=30.0)
 
-        def _build(seq: int) -> _t.CommandRequest:
-            req = _t.CommandRequest()
-            req.command.cover.domain = domain
-            req.command.cover.root.value = root
-            req.command.cover.correlation_id = correlation_id
-            page = req.command.pages.add()
-            page.header.sequence = seq
-            page.command.type_url = type_url(P + name)
-            page.command.value = message.SerializeToString()
-            req.sync_mode = sync_mode
-            return req
+    # --- stored history -----------------------------------------------------------
 
-        try:
-            resp = self._cmd[domain].HandleCommand(
-                _build(self._seq.get(key, 0)), timeout=timeout
-            )
-        except grpc.RpcError as exc:
-            # A saga may have advanced this aggregate out-of-band (e.g. the
-            # TournamentTableSaga parking a table for hand-for-hand), leaving our
-            # optimistic cursor stale. On a sequence mismatch, re-seed from the
-            # aggregate's persisted head and retry once before giving up.
-            if exc.code() != grpc.StatusCode.FAILED_PRECONDITION or (
-                "Sequence mismatch" not in (exc.details() or "")
-            ):
-                raise
-            self._seq[key] = self.event_book(domain, root).next_sequence
-            resp = self._cmd[domain].HandleCommand(
-                _build(self._seq[key]), timeout=timeout
-            )
-        # Advance our optimistic-concurrency cursor to the aggregate's new head
-        # so the next command to this root carries the right expected sequence.
-        if resp.events.next_sequence:
-            self._seq[key] = resp.events.next_sequence
-        else:
-            self._seq[key] = self._seq.get(key, 0) + len(resp.events.pages)
-        return resp
-
-    # --- queries ------------------------------------------------------------
-
-    def event_book(self, domain: str, root: bytes, timeout: float = 10.0):
-        """The aggregate's persisted EventBook at ``root`` (empty pages if the
-        aggregate doesn't exist yet)."""
-        query = _t.Query()
-        query.cover.domain = domain
-        query.cover.root.value = root
-        return self._query[domain].GetEventBook(query, timeout=timeout)
-
-    def find_event(self, domain: str, root: bytes, fq: str):
-        """The first persisted event of type ``fq`` (bare proto name) at
-        ``(domain, root)``, or None. Returns the EventPage so callers can decode
-        the payload (e.g. to chase a child aggregate's root)."""
-        book = self.event_book(domain, root)
-        for page in book.pages:
-            if (
-                fq_from_url(page.event.type_url) == P + fq
-                or fq_from_url(page.event.type_url) == fq
-            ):
-                return page
-        return None
-
-    def wait_for_event(
+    def book(
         self,
         domain: str,
         root: bytes,
-        fq: str,
-        within: float,
-        poll: float = 0.2,
-    ):
-        """Poll ``(domain, root)``'s EventBook until an event of type ``fq``
-        appears or ``within`` seconds elapse. Returns the EventPage or None."""
-        deadline = time.time() + within
-        while True:
-            try:
-                page = self.find_event(domain, root, fq)
-            except grpc.RpcError:
-                page = None
-            if page is not None:
-                return page
-            if time.time() >= deadline:
-                return None
-            time.sleep(poll)
+        *,
+        temporal: _t.TemporalQuery | None = None,
+        edition: _t.Edition | None = None,
+    ) -> _t.EventBook:
+        query = _t.Query(cover=cover(domain, root, "", edition))
+        if temporal is not None:
+            query.temporal.CopyFrom(temporal)
+        return self._queries[domain].GetEventBook(query, timeout=30.0)
 
-    # --- projector read-model query -----------------------------------------
+    def books(self, domain: str, root: bytes) -> list[_t.EventBook]:
+        """Every book the store streams for ``(domain, root)``, snapshots included."""
+        query = _t.Query(cover=cover(domain, root))
+        query.range.lower = 0
+        return list(self._queries[domain].GetEvents(query, timeout=30.0))
 
-    def player_balance(self, player_root: bytes, timeout: float = 10.0):
-        """The PlayerProjector's materialized bankroll view for ``player_root``
-        (``found`` is False until the projection has observed that player)."""
-        return self._player_projection.GetPlayerBalance(
-            _pq.GetPlayerBalanceRequest(player_root=player_root), timeout=timeout
+    def conversation(self, domain: str, correlation: str) -> _t.EventBook:
+        """Stored events of ``domain`` in one conversation (correlation query)."""
+        return self._queries[domain].GetEventBook(
+            _t.Query(cover=_t.Cover(domain=domain, correlation_id=correlation)),
+            timeout=30.0,
         )
 
-    def wait_for_balance(
-        self,
-        player_root: bytes,
-        amount: int,
-        within: float,
-        poll: float = 0.2,
-    ):
-        """Poll the player projector's read model until it reports ``amount`` for
-        ``player_root`` or ``within`` seconds elapse. Returns the matching
-        PlayerBalanceView, or the last view/None on timeout. This observes the
-        ACTUAL projector folding the deposit event off the bus — the read-model
-        eventual-consistency bound EA-0004 asserts."""
-        deadline = time.time() + within
-        last = None
-        while True:
-            try:
-                view = self.player_balance(player_root)
-                last = view
-                if view.found and view.balance.amount == amount:
-                    return view
-            except grpc.RpcError:
-                pass
-            if time.time() >= deadline:
-                return last
-            time.sleep(poll)
+    def roots(self, domain: str) -> list[bytes]:
+        """Every aggregate root the store holds for ``domain``."""
+        stream = self._queries[domain].GetAggregateRoots(_empty.Empty(), timeout=30.0)
+        return [r.root.value for r in stream if r.domain == domain]
+
+    def state(self, domain: str, root: bytes, **query):
+        """The aggregate's state, folded from stored history by its own appliers."""
+        return self._hosts[domain].rebuild(self.book(domain, root, **query))
+
+    def fold(self, domain: str, book: _t.EventBook):
+        return self._hosts[domain].rebuild(book)
+
+    # --- the ledger --------------------------------------------------------------
+
+    def balance(self, player_root: bytes) -> _l.PlayerBalanceView:
+        return self._ledger.GetPlayerBalance(
+            _l.GetPlayerBalanceRequest(player_root=player_root), timeout=10.0
+        )
+
+    def ledger(self) -> _l.LedgerView:
+        return self._ledger.GetLedger(_l.GetLedgerRequest(), timeout=10.0)
+
+    # --- operations ----------------------------------------------------------------
+
+    def restart(self, *deployments: str, wait: bool = True) -> None:
+        """Restart deployments (``kubectl rollout restart``) and reconnect."""
+        prefix = os.environ.get("ANGZARR_DEPLOYMENT_PREFIX", "")
+        names = [f"deployment/{prefix}{name}" for name in deployments]
+        subprocess.run(
+            ["kubectl", "rollout", "restart", "-n", NAMESPACE, *names], check=True
+        )
+        if wait:
+            for name in names:
+                subprocess.run(
+                    [
+                        "kubectl",
+                        "rollout",
+                        "status",
+                        "-n",
+                        NAMESPACE,
+                        name,
+                        "--timeout=120s",
+                    ],
+                    check=True,
+                )
+            self._connect()
+
+
+def cover(
+    domain: str, root: bytes, correlation: str = "", edition: _t.Edition | None = None
+) -> _t.Cover:
+    c = _t.Cover(domain=domain, correlation_id=correlation)
+    c.root.value = root
+    if edition is not None:
+        c.edition.CopyFrom(edition)
+    return c

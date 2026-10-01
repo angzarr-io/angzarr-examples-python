@@ -7,6 +7,8 @@ asks of the table and the wallet is recorded, not delivered.
 
 from __future__ import annotations
 
+import re
+
 import angzarr_router_ffi as _az
 from behave import given, then, when
 
@@ -123,9 +125,8 @@ def step_buy_in_at_phase(context, label, name, seat, table, phase):
     w = context.world
     phase, _, where = phase.partition(" in ")
     if where:
-        w.labels[f"conversation:{label}"] = _CONVERSATIONS.get(where) or where.strip(
-            'conversation "'
-        ).strip('"')
+        named = re.fullmatch(r'conversation "([^"]+)"', where)
+        w.labels[f"conversation:{label}"] = named[1] if named else _CONVERSATIONS[where]
     target = _PHASES[phase]
     seat_held(w, label, name, seat, table, 500)
     if target >= Phase.PHASE_AWAITING_SEAT:
