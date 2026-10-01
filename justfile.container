@@ -93,7 +93,7 @@ test-example-unit:
 # on a framework fix (@needs-core-X-NNN) are excluded from the required run.
 test-example-acceptance:
     ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" uv run behave --stage acceptance --format progress \
-        --tags="not @wip and not @needs-core-X-012 and not @needs-core-X-014 and not @needs-core-X-016 and not @needs-core-X-021 and not @needs-core-X-023 and not @needs-core-X-031 and not @needs-core-X-034 and not @needs-core-X-089 and not @needs-core-X-092 and not @needs-core-X-110" \
+        --tags="not @wip and not @needs-core-*" \
         {{ACCEPTANCE_FEATURES}}
 
 # Parse every acceptance scenario and resolve every step without a cluster.

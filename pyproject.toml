@@ -57,36 +57,28 @@ extend-exclude = '''
 '''
 
 [tool.mutmut]
-# The business logic: pure guard/validate/compute functions, the table rules
-# and shoe, the PM and saga translators and the ledger fold. The pytest suite
-# (native unit tests + the behave bridge in tests/example/test_features.py)
-# runs against the mutated copy; a surviving mutant passes every scenario.
-paths_to_mutate = [
-    "src/angzarr_blackjack/cards.py",
-    "src/angzarr_blackjack/player/agg/logic.py",
-    "src/angzarr_blackjack/player/agg/handler.py",
-    "src/angzarr_blackjack/player/agg/upcaster.py",
-    "src/angzarr_blackjack/player/saga_table/handler.py",
-    "src/angzarr_blackjack/table/agg/rules.py",
-    "src/angzarr_blackjack/table/agg/handler.py",
-    "src/angzarr_blackjack/table/saga_player/handler.py",
-    "src/angzarr_blackjack/pmg_buy_in/handler.py",
-    "src/angzarr_blackjack/prj_ledger/handler.py",
+# Everything under src/ is copied into mutants/; the business logic and the
+# hosts are mutated. Generated code, transport (servicers, server) and process
+# entrypoints are copied unmutated. The pytest suite — native unit tests plus
+# the in-process behave bridge (tests/example/test_features.py) — runs against
+# each mutant.
+paths_to_mutate = ["src/"]
+do_not_mutate = [
+    "src/angzarr_blackjack/_gen/*",
+    "src/angzarr_blackjack/_runtime/server.py",
+    "src/angzarr_blackjack/_runtime/servicers.py",
+    "*/main.py",
+    "*/__init__.py",
 ]
-# mutmut copies the source into its mutants/ workdir; the bridge runs behave
-# against that copy, so the workdir needs the package, the vendored binding,
-# the behave steps and environments, the features and the uv project files.
+# The bridge runs behave over the submodule's features with the unit steps,
+# through the staged router binding.
 also_copy = [
-    "src/",
     "vendor/",
-    "tests/",
     "unit_steps/",
     "unit_environment.py",
     "angzarr-project/features/",
-    "pyproject.toml",
     "uv.lock",
 ]
-tests_dir = ["tests/"]
 
 [tool.ruff]
 extend-exclude = [
