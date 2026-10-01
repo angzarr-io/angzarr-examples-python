@@ -3,6 +3,8 @@ emitted commands are deferred with no correlation id or sequence, PM commands
 are decided synchronously, facts carry their external id, and the ledger
 applies each event once."""
 
+from contextlib import closing
+
 import angzarr_client.router as _az
 import pytest
 
@@ -10,9 +12,6 @@ from angzarr_blackjack._gen.io.angzarr.examples.v1 import buy_in_pb2 as _b
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import ledger_pb2 as _l
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
-from angzarr_blackjack._gen.io.angzarr.examples.v1.ledger_projector_angzarr import (
-    new_ledger_projector_dispatch,
-)
 from angzarr_client.proto.io.angzarr.v1 import process_manager_pb2 as _pm
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_client.proto.io.angzarr.v1 import upcaster_pb2 as _up
@@ -20,9 +19,8 @@ from angzarr_blackjack._runtime.books import type_name, unpack
 from angzarr_blackjack.errors import rejection_code, status_message
 from angzarr_blackjack.player.agg.upcaster import PlayerUpcaster, upcast_book
 from angzarr_blackjack.player.saga_table.handler import PlayerTableSaga
-from angzarr_blackjack.pmg_buy_in import main as buy_in_main
 from angzarr_blackjack.pmg_buy_in.handler import BuyInProcessManager
-from angzarr_blackjack.prj_ledger.handler import LedgerProjectorHost
+from angzarr_blackjack._runtime.inprocess import InProcess
 from angzarr_blackjack.table.saga_player.handler import (
     TablePlayerHistorySaga,
     TablePlayerLoyaltySaga,
@@ -88,8 +86,7 @@ def process_event(response, message_class):
 def seat_held_through_router(prior=()) -> _pm.ProcessManagerHandleResponse:
     """A SeatHeld from table TABLE dispatched to the buy-in process, with
     ``prior`` as its own history."""
-    with _az.Router() as router:
-        host = buy_in_main.build_host(router)
+    with closing(InProcess()) as host:
         trigger = _t.EventBook(cover=cover("table", TABLE, "C1"))
         trigger.pages.add(
             event=_az.pack(
@@ -99,7 +96,7 @@ def seat_held_through_router(prior=()) -> _pm.ProcessManagerHandleResponse:
         state = _t.EventBook(cover=cover("buy-in", B1, "C1"))
         for event in prior:
             state.pages.add(event=_az.pack(event))
-        return host.handle(
+        return host.handle_process(
             _pm.ProcessManagerHandleRequest(trigger=trigger, process_state=state)
         )
 
@@ -424,8 +421,9 @@ def test_type_names_accept_any_prefix():
 
 @pytest.fixture
 def ledger():
-    with _az.Router() as router:
-        yield LedgerProjectorHost(router, new_ledger_projector_dispatch)
+    components = InProcess()
+    yield components
+    components.close()
 
 
 def deliver(host, domain, root, *events, start=0):
@@ -529,17 +527,6 @@ def test_ledger_round_results_keep_the_newest_ten(ledger):
     results = ledger.ledger.player_view(ALICE).player.recent_results
     assert [r.round for r in results] == list(range(3, 13))
     assert [r.retracted for r in results] == [False] * 9 + [True]
-
-
-def test_speculation_leaves_the_ledger_untouched(ledger):
-    deliver(ledger, "player", ALICE, _p.FundsDeposited(amount=10))
-    book = _t.EventBook(cover=cover("player", ALICE))
-    book.pages.add(event=_az.pack(_p.FundsDeposited(amount=5))).header.sequence = 1
-    projection = ledger.speculate(book)
-    assert unpack(projection.projection, _l.PlayerBalanceView).player.bankroll == 15
-    assert ledger.ledger.player_view(ALICE).player.bankroll == 10
-    assert ledger.project(book) is not None
-    assert ledger.ledger.player_view(ALICE).player.bankroll == 15
 
 
 def test_unknown_player_is_not_found(ledger):

@@ -5,9 +5,9 @@ description = "Blackjack table example built on the angzarr CQRS/ES framework"
 requires-python = ">=3.11"
 dependencies = [
     # The router binding (angzarr_client.router), the framework protos
-    # (angzarr_client.proto) and the codegen templates. Not released yet:
-    # `just client-setup` checks out angzarr-client-python at CLIENT_REF and
-    # builds its protos and router library, consumed here as a path source.
+    # (angzarr_client.proto), the component host and the codegen templates.
+    # Not released yet: pinned to a commit; installing it builds its protos
+    # and router library (needs cargo).
     "angzarr-client",
     # The 7.x runtime the protocolbuffers/python v35.1 gencode targets.
     "protobuf>=7.35.1,<8",
@@ -31,7 +31,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-angzarr-client = { path = ".deps/angzarr-client-python", editable = true }
+angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "5e373719f6aba8f8d84bc3006de4bcc8075ae72d" }
 
 [build-system]
 requires = ["hatchling"]
@@ -65,8 +65,6 @@ extend-exclude = '''
 paths_to_mutate = ["src/"]
 do_not_mutate = [
     "src/angzarr_blackjack/_gen/*",
-    "src/angzarr_blackjack/_runtime/server.py",
-    "src/angzarr_blackjack/_runtime/servicers.py",
     "*/main.py",
     "*/__init__.py",
 ]

@@ -17,7 +17,14 @@ from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack._runtime.books import unpack
 from angzarr_blackjack.player.agg import logic
-from unit_steps._harness import PLAYER, TABLE, player_root, request_id, table_root
+from unit_steps._harness import (
+    BUY_IN,
+    PLAYER,
+    TABLE,
+    player_root,
+    request_id,
+    table_root,
+)
 from unit_steps._helpers import (
     create_table,
     ok,
@@ -259,7 +266,9 @@ def step_no_chips(context, table):
 @then("the buy-in fails because {reason}")
 def step_buy_in_fails(context, reason):
     w = context.world
-    state = w.buy_in.rebuild(w.process_state(w.labels["last buy-in conversation"]))
+    state = w.components.rebuild(
+        BUY_IN, w.process_state(w.labels["last buy-in conversation"])
+    )
     assert state.phase == _b.BuyInState.Phase.PHASE_FAILED, state
     assert state.failure_reason == reason_code(reason)
 

@@ -2,46 +2,38 @@
 
 from __future__ import annotations
 
-import structlog
+import os
 
-import angzarr_client.router as _az
-from angzarr_blackjack._gen.io.angzarr.examples.v1 import (
-    ledger_pb2_grpc as _l_grpc,
-)
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import ledger_pb2 as _l
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import ledger_pb2_grpc as _l_grpc
 from angzarr_blackjack._gen.io.angzarr.examples.v1.ledger_projector_angzarr import (
     new_ledger_projector_dispatch,
 )
-from angzarr_client.proto.io.angzarr.v1 import projector_pb2_grpc as _prj_grpc
-from angzarr_blackjack._runtime.server import configure_logging, run_server
-from angzarr_blackjack._runtime.servicers import ProjectorServicer
-from angzarr_blackjack.prj_ledger.handler import LedgerProjectorHost
+from angzarr_blackjack.prj_ledger.handler import Ledger, LedgerProjector
 from angzarr_blackjack.prj_ledger.query import LedgerQueryServicer
+from angzarr_client import ComponentHost, configure_logging
 
 DEFAULT_PORT = "50431"
+QUERY_SERVICE = _l.DESCRIPTOR.services_by_name["LedgerQueryService"].full_name
 
 
-def build_host(router: _az.Router) -> LedgerProjectorHost:
-    return LedgerProjectorHost(router, new_ledger_projector_dispatch)
+def register(host: ComponentHost, ledger: Ledger) -> ComponentHost:
+    """The LedgerProjector over ``ledger`` and the LedgerQueryService on
+    ``host``. Every delivery folds into the one ledger."""
+    dispatch = new_ledger_projector_dispatch(LedgerProjector(ledger))
+    dispatch.factory = lambda: ledger.projection
+    return host.add_projector(dispatch).add_service(
+        _l_grpc.add_LedgerQueryServiceServicer_to_server,
+        LedgerQueryServicer(ledger),
+        QUERY_SERVICE,
+    )
 
 
 def main() -> None:
     configure_logging()
-    with _az.Router() as router:
-        host = build_host(router)
-        run_server(
-            _prj_grpc.add_ProjectorServiceServicer_to_server,
-            ProjectorServicer(host),
-            service_name="projector-player-table-ledger",
-            domain="ledger",
-            default_port=DEFAULT_PORT,
-            logger=structlog.get_logger(),
-            extra_servicers=[
-                (
-                    _l_grpc.add_LedgerQueryServiceServicer_to_server,
-                    LedgerQueryServicer(host.ledger),
-                )
-            ],
-        )
+    os.environ.setdefault("PORT", DEFAULT_PORT)
+    # One worker: every delivery folds into the shared ledger in turn.
+    register(ComponentHost(max_workers=1), Ledger()).run()
 
 
 if __name__ == "__main__":

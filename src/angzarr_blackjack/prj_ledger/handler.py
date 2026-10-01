@@ -20,8 +20,7 @@ book's root from its page context.
 
 from __future__ import annotations
 
-import copy
-import threading
+import functools
 
 import angzarr_client.router as _az
 
@@ -89,19 +88,14 @@ class Ledger:
 
     # --- applied events ---
 
-    def unapplied(self, book: _t.EventBook) -> _t.EventBook:
-        """``book`` without the pages this ledger has already applied."""
-        out = _t.EventBook()
-        out.cover.CopyFrom(book.cover)
-        key = (book.cover.domain, book.cover.root.value.hex())
-        out.pages.extend(
-            p for p in book.pages if (*key, p.header.sequence) not in self.applied
-        )
-        return out
-
-    def mark_applied(self, book: _t.EventBook) -> None:
-        key = (book.cover.domain, book.cover.root.value.hex())
-        self.applied.update((*key, p.header.sequence) for p in book.pages)
+    def first_time(self, ctx: _az.PageContext) -> bool:
+        """Whether the page ``ctx`` names is new to the ledger; it is
+        remembered as applied."""
+        key = (ctx.cover.domain, ctx.cover.root.value.hex(), ctx.sequence)
+        if key in self.applied:
+            return False
+        self.applied.add(key)
+        return True
 
     # --- totals and views ---
 
@@ -140,13 +134,17 @@ class Ledger:
             balanced=self.balanced(),
         )
 
-    def copy(self) -> Ledger:
-        twin = Ledger()
-        twin.projection.CopyFrom(self.projection)
-        twin.open_holds = copy.deepcopy(self.open_holds)
-        twin.transfers = copy.deepcopy(self.transfers)
-        twin.applied = set(self.applied)
-        return twin
+
+def _once(fold):
+    """Apply a fold only to a page the ledger has not applied yet, so a
+    redelivered or replayed event leaves the read model unchanged."""
+
+    @functools.wraps(fold)
+    def apply(self, projection, event, ctx: _az.PageContext) -> None:
+        if self.ledger.first_time(ctx):
+            fold(self, projection, event, ctx)
+
+    return apply
 
 
 # region projector
@@ -159,36 +157,43 @@ class LedgerProjector:
 
     # --- wallets ---
 
+    @_once
     def player_registered(
         self, projection, event: _p.PlayerRegistered, ctx: _az.PageContext
     ) -> None:
         self.ledger.player(ctx.cover.root.value).display_name = event.display_name
 
+    @_once
     def player_imported(
         self, projection, event: _p.PlayerImported, ctx: _az.PageContext
     ) -> None:
         self.ledger.player(ctx.cover.root.value).display_name = event.display_name
 
+    @_once
     def profile_updated(
         self, projection, event: _p.ProfileUpdated, ctx: _az.PageContext
     ) -> None:
         self.ledger.player(ctx.cover.root.value).display_name = event.display_name
 
+    @_once
     def funds_deposited(
         self, projection, event: _p.FundsDeposited, ctx: _az.PageContext
     ) -> None:
         self.ledger.player(ctx.cover.root.value).bankroll += event.amount
         projection.totals.deposits += event.amount
 
+    @_once
     def funds_withdrawn(
         self, projection, event: _p.FundsWithdrawn, ctx: _az.PageContext
     ) -> None:
         self.ledger.player(ctx.cover.root.value).bankroll -= event.amount
         projection.totals.withdrawals += event.amount
 
+    @_once
     def funds_held(self, projection, event: _p.FundsHeld, ctx: _az.PageContext) -> None:
         self.ledger.open_hold(ctx.cover.root.value, event.hold_id, event.amount)
 
+    @_once
     def funds_captured(
         self, projection, event: _p.FundsCaptured, ctx: _az.PageContext
     ) -> None:
@@ -197,21 +202,25 @@ class LedgerProjector:
         self.ledger.player(root).bankroll -= event.amount
         self.ledger.transfer_side(BUY_IN, event.hold_id, WALLET_SIDE, event.amount)
 
+    @_once
     def hold_released(
         self, projection, event: _p.HoldReleased, ctx: _az.PageContext
     ) -> None:
         self.ledger.close_hold(ctx.cover.root.value, event.hold_id)
 
+    @_once
     def top_up_requested(
         self, projection, event: _p.TopUpRequested, ctx: _az.PageContext
     ) -> None:
         self.ledger.open_hold(ctx.cover.root.value, event.hold_id, event.amount)
 
+    @_once
     def top_up_refused(
         self, projection, event: _p.TopUpRefused, ctx: _az.PageContext
     ) -> None:
         self.ledger.close_hold(ctx.cover.root.value, event.hold_id)
 
+    @_once
     def top_up_settled(
         self, projection, event: _p.TopUpSettled, ctx: _az.PageContext
     ) -> None:
@@ -220,22 +229,26 @@ class LedgerProjector:
         self.ledger.player(root).bankroll -= event.amount
         self.ledger.transfer_side(TOP_UP, event.hold_id, WALLET_SIDE, event.amount)
 
+    @_once
     def cash_out_credited(
         self, projection, event: _p.CashOutCredited, ctx: _az.PageContext
     ) -> None:
         self.ledger.player(ctx.cover.root.value).bankroll += event.amount
         self.ledger.transfer_side(CASH_OUT, event.cashout_id, WALLET_SIDE, event.amount)
 
+    @_once
     def loyalty_enrolled(
         self, projection, event: _p.LoyaltyEnrolled, ctx: _az.PageContext
     ) -> None:
         self.ledger.player(ctx.cover.root.value)
 
+    @_once
     def loyalty_points_awarded(
         self, projection, event: _p.LoyaltyPointsAwarded, ctx: _az.PageContext
     ) -> None:
         self.ledger.player(ctx.cover.root.value).loyalty_points += event.points
 
+    @_once
     def round_result_recorded(
         self, projection, event: _p.RoundResultRecorded, ctx: _az.PageContext
     ) -> None:
@@ -247,6 +260,7 @@ class LedgerProjector:
         )
         del results[: max(0, len(results) - RECENT_RESULTS)]
 
+    @_once
     def round_result_retracted(
         self, projection, event: _p.RoundResultRetracted, ctx: _az.PageContext
     ) -> None:
@@ -256,11 +270,13 @@ class LedgerProjector:
 
     # --- tables ---
 
+    @_once
     def table_created(
         self, projection, event: _table.TableCreated, ctx: _az.PageContext
     ) -> None:
         self.ledger.table(ctx.cover.root.value).name = event.name
 
+    @_once
     def player_seated(
         self, projection, event: _table.PlayerSeated, ctx: _az.PageContext
     ) -> None:
@@ -269,6 +285,7 @@ class LedgerProjector:
         row.chips_in += event.stack
         self.ledger.transfer_side(BUY_IN, event.buy_in_id, TABLE_SIDE, event.stack)
 
+    @_once
     def chips_added(
         self, projection, event: _table.ChipsAdded, ctx: _az.PageContext
     ) -> None:
@@ -277,6 +294,7 @@ class LedgerProjector:
         row.chips_in += event.amount
         self.ledger.transfer_side(TOP_UP, event.hold_id, TABLE_SIDE, event.amount)
 
+    @_once
     def player_cashed_out(
         self, projection, event: _table.PlayerCashedOut, ctx: _az.PageContext
     ) -> None:
@@ -285,6 +303,7 @@ class LedgerProjector:
         row.chips_out += event.amount
         self.ledger.transfer_side(CASH_OUT, event.cashout_id, TABLE_SIDE, event.amount)
 
+    @_once
     def bet_placed(
         self, projection, event: _table.BetPlaced, ctx: _az.PageContext
     ) -> None:
@@ -292,6 +311,7 @@ class LedgerProjector:
         row.stacks -= event.amount
         row.wagers += event.amount
 
+    @_once
     def hand_doubled(
         self, projection, event: _table.HandDoubled, ctx: _az.PageContext
     ) -> None:
@@ -299,6 +319,7 @@ class LedgerProjector:
         row.stacks -= event.added
         row.wagers += event.added
 
+    @_once
     def round_settled(
         self, projection, event: _table.RoundSettled, ctx: _az.PageContext
     ) -> None:
@@ -328,38 +349,3 @@ class LedgerProjector:
 
 
 # endregion projector
-
-
-class LedgerProjectorHost:
-    """The LedgerProjector registered on the router over one :class:`Ledger`.
-    ``project`` applies each page of a delivered book at most once."""
-
-    def __init__(self, router: _az.Router, dispatch_factory) -> None:
-        self.ledger = Ledger()
-        self.router = router
-        self._lock = threading.Lock()
-        dispatch = dispatch_factory(LedgerProjector(self.ledger))
-        dispatch.factory = lambda: self.ledger.projection
-        router.register_projector(dispatch)
-
-    def project(self, book: _t.EventBook) -> _t.Projection:
-        with self._lock:
-            fresh = self.ledger.unapplied(book)
-            projection = self.router.dispatch_projector(fresh)
-            self.ledger.mark_applied(fresh)
-            return projection
-
-    def speculate(self, book: _t.EventBook) -> _t.Projection:
-        """The projection ``book`` would produce, leaving the ledger untouched."""
-        with self._lock:
-            saved = self.ledger.copy()
-            try:
-                return self.router.dispatch_projector(self.ledger.unapplied(book))
-            finally:
-                self._restore(saved)
-
-    def _restore(self, saved: Ledger) -> None:
-        self.ledger.projection.CopyFrom(saved.projection)
-        self.ledger.open_holds = saved.open_holds
-        self.ledger.transfers = saved.transfers
-        self.ledger.applied = saved.applied

@@ -45,7 +45,7 @@ def snapshot_at(w, domain: str, root: bytes, sequence: int) -> _t.Snapshot:
     book.pages.extend(
         p for p in w.stream(domain, root) if p.header.sequence <= sequence
     )
-    state = w.hosts[domain].rebuild(book)
+    state = w.components.rebuild(domain, book)
     return _t.Snapshot(sequence=sequence, state=_az.pack(state))
 
 
@@ -54,7 +54,7 @@ def rebuild_from(w, domain: str, root: bytes, snapshot: _t.Snapshot):
     book.pages.extend(
         p for p in w.stream(domain, root) if p.header.sequence > snapshot.sequence
     )
-    return w.hosts[domain].rebuild(book)
+    return w.components.rebuild(domain, book)
 
 
 def play_round(w, seats: list[int], table: str = "Main") -> None:

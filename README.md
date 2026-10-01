@@ -31,22 +31,26 @@ Each component implements the handler interface the angzarr CLI generates from
 the protos with angzarr-client-python's codegen templates
 (`src/angzarr_blackjack/_gen`, not committed) and is registered on the router
 binding `angzarr_client.router`; framework protos come from
-`angzarr_client.proto`. `_runtime/` hosts each component behind its framework
-gRPC service; commands, rejections, undo, facts and `Replay` all dispatch
-through the binding, and handlers read the cover they are handling from their
-context (`cctx.cover`, a `PageContext`, or `angzarr_client.router.current_cover()`).
+`angzarr_client.proto`. Commands, rejections, undo, facts and `Replay` all
+dispatch through the binding, and handlers read the cover they are handling
+from their context (`cctx.cover` or a `PageContext`).
+`_runtime/inprocess.py` registers every component on one router for the
+in-process tests and the acceptance tier's state reader.
 
 ## Setup
 
-The CLI is built from a source checkout; angzarr-client is not released yet,
-so `client-setup` checks out angzarr-client-python at the pinned revision
-(`.deps/angzarr-client-python`) and builds its framework protos and router
-library, and the project depends on that checkout:
+The CLI is built from a source checkout. angzarr-client is pinned to a git
+revision (`pyproject.toml`); installing it builds its router library, so
+`cargo` must be on PATH:
 
 ```bash
 export ANGZARR_CLI_SRC=../../angzarr-cli/main
-just -f justfile.container ci-setup     # cli-build, client-setup, install
+just -f justfile.container ci-setup     # cli-build, proto-gen, uv sync
 ```
+
+Each deployable's `main.register(host)` adds its components (and, for the
+ledger, its LedgerQueryService) to an angzarr-client `ComponentHost`, which
+serves them over gRPC; `main()` runs that host on `$PORT`.
 
 ## Tests
 

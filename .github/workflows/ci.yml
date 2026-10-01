@@ -10,8 +10,8 @@ on:
 
 env:
   # The angzarr CLI (codegen plugin) is built from source at this ref;
-  # angzarr-client-python is checked out and built by `just client-setup`
-  # at the revision justfile.container pins.
+  # installing angzarr-client (pinned in pyproject.toml) builds its router
+  # library with cargo.
   ANGZARR_CLI_REF: 734b1bbdd4e913f19f8cb87f3f1dd95c06053d99
   ANGZARR_CLI_SRC: .deps/angzarr-cli
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -49,7 +49,6 @@ jobs:
           go-version: stable
       - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v6
-      - run: just -f justfile.container ci-system-deps
       - run: just -f justfile.container ci-setup
       - run: just -f justfile.container ci-test
 
@@ -89,7 +88,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - run: just -f justfile.container ci-system-deps
       - run: just -f justfile.container ci-setup
       - run: just ci-images
         env:
@@ -133,6 +131,5 @@ jobs:
             helm
           skaffold: 2.17.0
           helm: 3.20.1
-      - run: just -f justfile.container ci-system-deps
       - run: just -f justfile.container ci-setup
       - run: just ci-acceptance

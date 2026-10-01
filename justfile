@@ -73,8 +73,6 @@ default:
 cli-build:
     just _container cli-build
 
-client-setup:
-    just -f justfile.container client-setup
 
 proto-gen:
     just _container proto-gen

@@ -408,14 +408,13 @@ def step_ready(context):
 @then('the table "{table}" ledger balanced after every step')
 def step_balanced_every_step(context, table):
     w = context.world
-    host = w.hosts[TABLE]
     pages = w.stream(TABLE, table_root(table))
     full = w.book(TABLE, table_root(table), from_snapshot=False)
     for count in range(1, len(pages) + 1):
         prefix = type(full)()
         prefix.pages.extend(full.pages[:count])
         assert rules.ledger_balances(
-            host.rebuild(prefix)
+            w.components.rebuild(TABLE, prefix)
         ), f"L2 broken after event {count}"
 
 

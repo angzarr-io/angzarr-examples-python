@@ -1,8 +1,8 @@
 """In-process coordinator over the real blackjack components.
 
 Every component — wallet, table, buy-in process, the four translators and the
-ledger — is registered on one ``angzarr_client.router.Router`` exactly as its
-deployable registers it (each ``main.build_host`` / ``register``). The
+ledger — is registered on one router (``angzarr_blackjack._runtime.inprocess``) exactly as its
+deployable registers it (each ``main.register``). The
 :class:`World` plays the coordinators' part in memory: it keeps each
 aggregate's event stream, loads prior history (from the latest snapshot, with
 legacy player events upcast) for every command, persists what the component
@@ -31,15 +31,9 @@ from angzarr_client.proto.io.angzarr.v1 import process_manager_pb2 as _pm
 from angzarr_client.proto.io.angzarr.v1 import saga_pb2 as _saga
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import type_name, unpack
-from angzarr_blackjack._runtime.hosts import AggregateHost
+from angzarr_blackjack._runtime.inprocess import InProcess
 from angzarr_blackjack.errors import status_message
-from angzarr_blackjack.player.agg import main as player_main
 from angzarr_blackjack.player.agg.upcaster import upcast_book
-from angzarr_blackjack.player.saga_table import main as player_table_main
-from angzarr_blackjack.pmg_buy_in import main as buy_in_main
-from angzarr_blackjack.prj_ledger import main as ledger_main
-from angzarr_blackjack.table.agg import main as table_main
-from angzarr_blackjack.table.saga_player import main as table_player_main
 
 PLAYER, TABLE, BUY_IN = "player", "table", "buy-in"
 SAGAS = "sagas"
@@ -119,15 +113,10 @@ class World:
     """One scenario's in-process deployment."""
 
     def __init__(self) -> None:
-        self.router = _az.Router()
-        self.player = player_main.build_host(self.router)
-        self.table = table_main.build_host(self.router)
-        self.buy_in = buy_in_main.build_host(self.router)
-        player_table_main.register(self.router)
-        table_player_main.register(self.router)
-        self.ledger_host = ledger_main.build_host(self.router)
-        self.ledger = self.ledger_host.ledger
-        self.hosts: dict[str, AggregateHost] = {PLAYER: self.player, TABLE: self.table}
+        self.components = InProcess()
+        self.router = self.components.router
+        self.ledger = self.components.ledger
+        self.aggregates = (PLAYER, TABLE)
 
         self.streams: dict[tuple[str, bytes], list[_t.EventPage]] = {}
         self.snapshots: dict[tuple[str, bytes], list[_t.Snapshot]] = {}
@@ -151,7 +140,7 @@ class World:
         self.labels: dict[str, object] = {}  # scenario-scoped notes keyed by label
 
     def close(self) -> None:
-        self.router.close()
+        self.components.close()
 
     # --- streams --------------------------------------------------------------
 
@@ -176,8 +165,8 @@ class World:
         return upcast_book(book) if domain == PLAYER else book
 
     def state(self, domain: str, root: bytes, *, from_snapshot: bool | None = None):
-        return self.hosts[domain].rebuild(
-            self.book(domain, root, from_snapshot=from_snapshot)
+        return self.components.rebuild(
+            domain, self.book(domain, root, from_snapshot=from_snapshot)
         )
 
     def events(self, domain: str, root: bytes, message_class) -> list:
@@ -221,7 +210,7 @@ class World:
             and self.snapshot_every
             and len(stream) // self.snapshot_every > before // self.snapshot_every
         ):
-            state = self.hosts[domain].rebuild(self.book(domain, root))
+            state = self.components.rebuild(domain, self.book(domain, root))
             self._snapshot(
                 domain, root, _az.pack(state), _t.SnapshotRetention.RETENTION_DEFAULT
             )
@@ -255,7 +244,7 @@ class World:
         domain, root = book.cover.domain, book.cover.root.value
         contextual = _t.ContextualCommand(events=self.book(domain, root), command=book)
         try:
-            response = self.hosts[domain].handle(contextual)
+            response = self.components.handle(contextual)
         except _az.CodedError as err:
             return Outcome(error=err)
         return self._record(domain, root, response, book.cover.correlation_id)
@@ -288,7 +277,7 @@ class World:
             self.last = Outcome(events=first.events, already_processed=True)
             return self.last
         request = _ch.FactRequest(facts=fact_book, prior_events=self.book(domain, root))
-        recorded = self.hosts[domain].handle_fact(request)
+        recorded = self.components.handle_fact(request)
         pages = self._persist(domain, root, recorded, corr)
         self.last = self.facts_seen[key] = Outcome(events=pages)
         self.react(domain, root, pages, corr)
@@ -297,7 +286,7 @@ class World:
     # --- reactions ------------------------------------------------------------
 
     def react(self, domain: str, root: bytes, pages, corr: str) -> None:
-        if not self.wired or domain not in self.hosts:
+        if not self.wired or domain not in self.aggregates:
             return
         book = _t.EventBook(cover=cover(domain, root, corr))
         book.pages.extend(pages)
@@ -309,14 +298,14 @@ class World:
                 self.run_process_manager(single)
 
     def project(self, book: _t.EventBook):
-        return self.ledger_host.project(
+        return self.components.project(
             upcast_book(book) if book.cover.domain == PLAYER else book
         )
 
     def run_sagas(
         self, source: _t.EventBook, *, route: bool = True
     ) -> _saga.SagaResponse:
-        response = self.router.dispatch_saga(_saga.SagaHandleRequest(source=source))
+        response = self.components.handle_saga(_saga.SagaHandleRequest(source=source))
         if route:
             corr = source.cover.correlation_id
             for index, command in enumerate(response.commands):
@@ -340,7 +329,7 @@ class World:
         request = _pm.ProcessManagerHandleRequest(
             trigger=trigger, process_state=self.process_state(corr)
         )
-        response = self.buy_in.handle(request)
+        response = self.components.handle_process(request)
         stream = self.process_streams.setdefault(corr, [])
         for events in response.process_events:
             for source in events.pages:

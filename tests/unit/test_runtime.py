@@ -1,6 +1,6 @@
-"""The hosts and servicers: what they add over the router binding (facts,
-Replay, undo, PM compensation, the handled cover) and how a rejection is
-reported over gRPC."""
+"""The components through the router binding (commands, undo, facts,
+Replay, process-manager compensation) and served by angzarr-client's
+ComponentHost over gRPC."""
 
 import angzarr_client.router as _az
 import grpc
@@ -11,9 +11,8 @@ from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2 as _ch
 from angzarr_client.proto.io.angzarr.v1 import process_manager_pb2 as _pm
-from angzarr_client.proto.io.angzarr.v1 import saga_pb2 as _saga
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
-from angzarr_blackjack._runtime import servicers
+from angzarr_blackjack._runtime.inprocess import InProcess
 from angzarr_blackjack._runtime.books import unpack
 from angzarr_blackjack.player.agg import main as player_main
 from angzarr_blackjack.player.agg.logic import NO_MATCHING_HOLD
@@ -23,9 +22,10 @@ ALICE, TABLE, H1 = b"\x0a" * 16, b"\x01" * 16, b"\x11" * 16
 
 
 @pytest.fixture
-def router():
-    with _az.Router() as r:
-        yield r
+def components():
+    c = InProcess()
+    yield c
+    c.close()
 
 
 def history(*events) -> _t.EventBook:
@@ -43,8 +43,8 @@ def registered(*more):
     )
 
 
-def test_commands_go_through_the_router(router):
-    host = player_main.build_host(router)
+def test_commands_go_through_the_router(components):
+    host = components
     command = _t.ContextualCommand(events=registered())
     command.command.cover.CopyFrom(_t.Cover(domain="player", root=_t.UUID(value=ALICE)))
     command.command.pages.add(command=_az.pack(_p.WithdrawFunds(amount=300)))
@@ -69,8 +69,8 @@ def compensation_envelope(
     return envelope
 
 
-def test_compensate_is_routed_to_the_undo_handler(router):
-    host = player_main.build_host(router)
+def test_compensate_is_routed_to_the_undo_handler(components):
+    host = components
     prior = registered(
         _p.RoundResultRecorded(table_root=TABLE, round=1, wager=20, net=20)
     )
@@ -83,16 +83,16 @@ def test_compensate_is_routed_to_the_undo_handler(router):
     )
 
 
-def test_compensate_with_nothing_to_undo_answers_empty(router):
-    host = player_main.build_host(router)
+def test_compensate_with_nothing_to_undo_answers_empty(components):
+    host = components
     response = host.handle(
         compensation_envelope("io.angzarr.examples.v1.RecordRoundResult", registered())
     )
     assert response == _ch.BusinessResponse()
 
 
-def test_compensate_without_an_undo_handler_is_unimplemented(router):
-    host = player_main.build_host(router)
+def test_compensate_without_an_undo_handler_is_unimplemented(components):
+    host = components
     with pytest.raises(_az.CodedError) as info:
         host.handle(
             compensation_envelope("io.angzarr.examples.v1.DepositFunds", registered())
@@ -103,8 +103,8 @@ def test_compensate_without_an_undo_handler_is_unimplemented(router):
     )
 
 
-def test_facts_are_checked_against_the_rebuilt_wallet(router):
-    host = player_main.build_host(router)
+def test_facts_are_checked_against_the_rebuilt_wallet(components):
+    host = components
     prior = registered(_p.TopUpRequested(hold_id=H1, table_root=TABLE, amount=200))
     facts = _t.EventBook(cover=prior.cover)
     page = facts.pages.add(event=_az.pack(_p.TopUpSettled(hold_id=H1, amount=200)))
@@ -125,8 +125,8 @@ def test_facts_are_checked_against_the_rebuilt_wallet(router):
     assert recorded.cover == prior.cover
 
 
-def test_replay_returns_the_state_after_the_events(router):
-    host = player_main.build_host(router)
+def test_replay_returns_the_state_after_the_events(components):
+    host = components
     book = registered(_p.FundsWithdrawn(amount=100))
     snapshot = _t.Snapshot(
         sequence=0,
@@ -134,8 +134,8 @@ def test_replay_returns_the_state_after_the_events(router):
             _p.PlayerState(registered=True, bankroll=50, total_deposited=50)
         ),
     )
-    response = host.replay(
-        _ch.ReplayRequest(base_snapshot=snapshot, events=list(book.pages)[1:])
+    response = host.router.dispatch_replay(
+        "player", _ch.ReplayRequest(base_snapshot=snapshot, events=list(book.pages)[1:])
     )
     state = unpack(response.state, _p.PlayerState)
     assert (state.bankroll, state.total_deposited, state.total_withdrawn) == (
@@ -144,13 +144,16 @@ def test_replay_returns_the_state_after_the_events(router):
         100,
     )
     assert (
-        unpack(host.replay(_ch.ReplayRequest()).state, _p.PlayerState)
+        unpack(
+            host.router.dispatch_replay("player", _ch.ReplayRequest()).state,
+            _p.PlayerState,
+        )
         == _p.PlayerState()
     )
 
 
-def test_pm_compensation_keeps_its_commands(router):
-    host = buy_in_main.build_host(router)
+def test_pm_compensation_keeps_its_commands(components):
+    host = components
     state = _t.EventBook(cover=_t.Cover(domain="buy-in", correlation_id="C"))
     state.pages.add(
         event=_az.pack(
@@ -174,7 +177,7 @@ def test_pm_compensation_keeps_its_commands(router):
     )
     trigger = _t.EventBook(cover=_t.Cover(domain="player", correlation_id="C"))
     trigger.pages.add(event=_az.pack(notification))
-    response = host.handle(
+    response = host.handle_process(
         _pm.ProcessManagerHandleRequest(trigger=trigger, process_state=state)
     )
     (command,) = response.commands
@@ -189,15 +192,15 @@ def test_pm_compensation_keeps_its_commands(router):
     )
     trigger.pages[0].event.CopyFrom(_az.pack(notification))
     assert (
-        host.handle(
+        host.handle_process(
             _pm.ProcessManagerHandleRequest(trigger=trigger, process_state=state)
         )
         == _pm.ProcessManagerHandleResponse()
     )
 
 
-def test_pm_triggers_go_through_the_router(router):
-    host = buy_in_main.build_host(router)
+def test_pm_triggers_go_through_the_router(components):
+    host = components
     trigger = _t.EventBook(
         cover=_t.Cover(domain="table", root=_t.UUID(value=TABLE), correlation_id="C")
     )
@@ -206,91 +209,18 @@ def test_pm_triggers_go_through_the_router(router):
             _table.SeatHeld(buy_in_id=H1, player_root=ALICE, seat=0, amount=500)
         )
     )
-    response = host.handle(
+    response = host.handle_process(
         _pm.ProcessManagerHandleRequest(trigger=trigger, process_state=_t.EventBook())
     )
     started = unpack(response.process_events[0].pages[0].event, _b.BuyInStarted)
     assert started.table_root == TABLE
 
 
-# --- servicers ---------------------------------------------------------------------------
-
-
-class _Aborted(Exception):
-    pass
-
-
-class FakeContext:
-    def abort(self, code, message):
-        self.code, self.message = code, message
-        raise _Aborted
-
-
-def test_grpc_status_mapping():
-    assert servicers.grpc_status(9) == grpc.StatusCode.FAILED_PRECONDITION
-    assert servicers.grpc_status(3) == grpc.StatusCode.INVALID_ARGUMENT
-    assert servicers.grpc_status(999) == grpc.StatusCode.INTERNAL
-
-
-def test_rejections_are_reported_with_their_code():
-    def refuse(_):
-        raise _az.CodedError(
-            code="WAGER_IN_PLAY",
-            message="in play",
-            grpc=_az.GrpcCode.FAILED_PRECONDITION,
-        )
-
-    context = FakeContext()
-    with pytest.raises(_Aborted):
-        servicers._call(context, refuse, None)
-    assert (context.code, context.message) == (
-        grpc.StatusCode.FAILED_PRECONDITION,
-        "WAGER_IN_PLAY: in play",
-    )
-
-
-def test_unexpected_failures_are_internal():
-    def crash(_):
-        raise ValueError("boom")
-
-    context = FakeContext()
-    with pytest.raises(_Aborted):
-        servicers._call(context, crash, None)
-    assert (context.code, context.message) == (grpc.StatusCode.INTERNAL, "boom")
-
-
-def test_unconsumed_events_are_acknowledged(router):
-    """A saga service receives every event of its source domains; an event no
-    saga consumes is acknowledged, a malformed request is refused."""
-    saga = servicers.SagaServicer(router)
-    source = _t.EventBook(cover=_t.Cover(domain="nowhere"))
-    source.pages.add(event=_az.pack(_p.FundsDeposited(amount=1)))
-    assert (
-        saga.Handle(_saga.SagaHandleRequest(source=source), FakeContext())
-        == _saga.SagaResponse()
-    )
-    context = FakeContext()
-    with pytest.raises(_Aborted):
-        saga.Handle(
-            _saga.SagaHandleRequest(source=_t.EventBook(cover=source.cover)), context
-        )
-    assert context.code == grpc.StatusCode.INVALID_ARGUMENT
-
-
-def test_pass_through_upcaster_returns_events_unchanged():
-    from angzarr_client.proto.io.angzarr.v1 import upcaster_pb2 as _up
-
-    page = _t.EventPage(event=_az.pack(_table.TableCreated(name="Main")))
-    request = _up.UpcastRequest(domain="table", events=[page])
-    assert list(servicers.PassThroughUpcaster().upcast(request).events) == [page]
-
-
-def test_ledger_query_service_reads_the_ledger(router):
+def test_ledger_query_service_reads_the_ledger(components):
     from angzarr_blackjack._gen.io.angzarr.examples.v1 import ledger_pb2 as _l
-    from angzarr_blackjack.prj_ledger import main as ledger_main
     from angzarr_blackjack.prj_ledger.query import LedgerQueryServicer
 
-    host = ledger_main.build_host(router)
+    host = components
     book = _t.EventBook(cover=_t.Cover(domain="player", root=_t.UUID(value=ALICE)))
     book.pages.add(event=_az.pack(_p.FundsDeposited(amount=40)))
     host.project(book)
@@ -305,8 +235,8 @@ def test_ledger_query_service_reads_the_ledger(router):
     )
 
 
-def test_undo_retracts_only_the_named_recording(router):
-    host = player_main.build_host(router)
+def test_undo_retracts_only_the_named_recording(components):
+    host = components
     prior = registered(
         _p.RoundResultRecorded(table_root=TABLE, round=1, wager=20, net=20),
         _p.RoundResultRecorded(table_root=TABLE, round=2, wager=20, net=-20),
@@ -319,23 +249,111 @@ def test_undo_retracts_only_the_named_recording(router):
     assert response == _ch.BusinessResponse()
 
 
-def test_process_state_replays_from_its_snapshot(router):
-    host = buy_in_main.build_host(router)
+def test_process_state_replays_from_its_snapshot(components):
+    host = components
     snapshot_state = _b.BuyInState(buy_in_id=H1, amount=500)
     book = _t.EventBook(
         snapshot=_t.Snapshot(sequence=0, state=_az.pack(snapshot_state))
     )
     book.pages.add(event=_az.pack(_b.BuyInFundsHeld(buy_in_id=H1))).header.sequence = 1
-    state = host.rebuild(book)
+    state = host.rebuild("buy-in", book)
     assert (state.buy_in_id, state.amount) == (H1, 500)
     assert state.phase == _b.BuyInState.Phase.PHASE_AWAITING_SEAT
-    assert host.rebuild(None) == _b.BuyInState()
+    assert host.rebuild("buy-in", None) == _b.BuyInState()
 
 
-def test_recorded_results_keep_their_page_sequence(router):
-    host = player_main.build_host(router)
+def test_recorded_results_keep_their_page_sequence(components):
+    host = components
     state = host.rebuild(
-        registered(_p.RoundResultRecorded(table_root=TABLE, round=1, wager=20, net=20))
+        "player",
+        registered(_p.RoundResultRecorded(table_root=TABLE, round=1, wager=20, net=20)),
     )
     (result,) = state.round_results.values()
     assert result.sequence == 2
+
+
+# --- the components served over gRPC -----------------------------------------------------
+
+
+def _error_code(error: grpc.RpcError) -> str:
+    """The angzarr error code a failed call carries in its status details."""
+    from google.rpc import error_details_pb2, status_pb2
+
+    for key, value in error.trailing_metadata() or ():
+        if key == "grpc-status-details-bin":
+            status = status_pb2.Status.FromString(value)
+            for detail in status.details:
+                info = error_details_pb2.ErrorInfo()
+                if detail.Unpack(info):
+                    return info.reason
+    return ""
+
+
+def test_the_player_host_serves_commands_and_reports_coded_refusals():
+    from angzarr_client import ComponentHost
+    from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
+    from angzarr_client.proto.io.angzarr.v1 import upcaster_pb2 as _up
+    from angzarr_client.proto.io.angzarr.v1 import upcaster_pb2_grpc as _up_grpc
+
+    host = player_main.register(ComponentHost())
+    address = host.start("127.0.0.1:0")
+    try:
+        with grpc.insecure_channel(address) as channel:
+            stub = _ch_grpc.CommandHandlerServiceStub(channel)
+            command = _t.ContextualCommand(events=registered())
+            command.command.cover.CopyFrom(
+                _t.Cover(domain="player", root=_t.UUID(value=ALICE))
+            )
+            command.command.pages.add(command=_az.pack(_p.WithdrawFunds(amount=300)))
+            response = stub.Handle(command, timeout=10)
+            assert (
+                unpack(response.events.pages[0].event, _p.FundsWithdrawn).amount == 300
+            )
+            command.command.pages[0].command.CopyFrom(
+                _az.pack(_p.WithdrawFunds(amount=5000))
+            )
+            with pytest.raises(grpc.RpcError) as info:
+                stub.Handle(command, timeout=10)
+            assert info.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+            assert info.value.details() == "requested 5000 but only 1000 is available"
+            assert _error_code(info.value) == "INSUFFICIENT_AVAILABLE_FUNDS"
+            legacy = _t.EventPage(event=_az.pack(_p.FundsDepositedV1(amount_chips=3)))
+            upcast = _up_grpc.UpcasterServiceStub(channel).Upcast(
+                _up.UpcastRequest(domain="player", events=[legacy]), timeout=10
+            )
+            assert upcast.events[0].event.type_url.endswith(".FundsDeposited")
+    finally:
+        host.stop()
+
+
+def test_every_deployable_registers_its_services():
+    from angzarr_client import ComponentHost
+
+    from angzarr_blackjack.player.saga_table import main as player_table_main
+    from angzarr_blackjack.prj_ledger import main as ledger_main
+    from angzarr_blackjack.prj_ledger.handler import Ledger
+    from angzarr_blackjack.table.agg import main as table_main
+    from angzarr_blackjack.table.saga_player import main as table_player_main
+
+    v1 = "io.angzarr.v1."
+    expected = {
+        player_main: [v1 + "CommandHandlerService", v1 + "UpcasterService"],
+        table_main: [v1 + "CommandHandlerService", v1 + "UpcasterService"],
+        buy_in_main: [v1 + "ProcessManagerService"],
+        player_table_main: [v1 + "SagaService"],
+        table_player_main: [v1 + "SagaService"],
+    }
+    for main, services in expected.items():
+        host = main.register(ComponentHost())
+        try:
+            assert host.services == services, main.__name__
+        finally:
+            host.stop()
+    host = ledger_main.register(ComponentHost(), Ledger())
+    try:
+        assert host.services == [
+            v1 + "ProjectorService",
+            "io.angzarr.examples.v1.LedgerQueryService",
+        ]
+    finally:
+        host.stop()

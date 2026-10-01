@@ -14,7 +14,7 @@ from angzarr_blackjack._gen.io.angzarr.examples.v1 import ledger_pb2 as _l
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
-from angzarr_blackjack.prj_ledger import main as ledger_main
+from angzarr_blackjack._runtime.inprocess import InProcess
 from unit_steps._harness import (
     PLAYER,
     TABLE,
@@ -569,15 +569,14 @@ def step_totals_are(context):
 @when("the ledger is rebuilt from the same history")
 def step_rebuild_ledger(context):
     w = context.world
-    router = _az.Router()
-    context.rebuilt_router = router
-    host = ledger_main.build_host(router)
+    components = InProcess()
+    context.rebuilt_components = components
     for domain, root, page in w.log:
         book = _t.EventBook(cover=cover(domain, root, w.correlation))
         book.pages.append(page)
-        host.project(book)
-    host.ledger.refresh_totals()
-    context.rebuilt = host.ledger
+        components.project(book)
+    components.ledger.refresh_totals()
+    context.rebuilt = components.ledger
 
 
 @then("the rebuilt ledger equals the original ledger")
@@ -588,4 +587,4 @@ def step_rebuilt_equals(context):
         assert context.rebuilt.projection == original.projection
         assert context.rebuilt.balanced() == original.balanced()
     finally:
-        context.rebuilt_router.close()
+        context.rebuilt_components.close()

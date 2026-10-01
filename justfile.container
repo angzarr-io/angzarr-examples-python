@@ -9,14 +9,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 # The six deployable components (Containerfile target == image suffix).
 COMPONENTS := "agg-player agg-table pmg-buy-in saga-player-table saga-table-player projector-player-table-ledger"
 
-# The angzarr CLI (codegen plugin) is built from a source checkout. The
-# angzarr-client package (router binding, framework protos, codegen templates)
-# is a path dependency on a checkout of angzarr-client-python at CLIENT_REF:
-# its framework protos and router library are generated at build time and are
-# not in git, so a plain git dependency would install without them.
+# The angzarr CLI (codegen plugin) is built from a source checkout.
 CLI_SRC := env_var_or_default("ANGZARR_CLI_SRC", "../../angzarr-cli/main")
-CLIENT_REF := "36490fab2b1f5827d9e23f96a650f598b89a2859"
-CLIENT_SRC := justfile_directory() + "/.deps/angzarr-client-python"
+# The angzarr-client revision whose codegen templates render the wiring; the
+# pyproject pins the same revision.
+CLIENT_REF := "5e373719f6aba8f8d84bc3006de4bcc8075ae72d"
 
 # Features: the in-process tiers and the cluster tier, read straight from the
 # angzarr-project submodule.
@@ -35,32 +32,10 @@ cli-build:
     mkdir -p .tools/bin
     cd {{CLI_SRC}} && go build -o {{justfile_directory()}}/.tools/bin/angzarr .
 
-# System packages a fresh runner lacks for building the router library:
-# protoc and the protobuf well-known type definitions.
-ci-system-deps:
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq protobuf-compiler libprotobuf-dev
-
-# Everything a fresh checkout needs before tests or image builds: the CLI, the
-# angzarr-client checkout (framework protos and router library) and generated
-# code with the environment.
-ci-setup: cli-build client-setup install
-
-# Check out angzarr-client-python at CLIENT_REF (with its angzarr-project and
-# angzarr-router submodules) and build what its git tree lacks: the framework
-# protos (angzarr_client/proto) and the router library
-# (angzarr_client/router/_lib), with its own recipes.
-client-setup:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ ! -d "{{CLIENT_SRC}}/.git" ]; then
-        git clone -q https://github.com/angzarr-io/angzarr-client-python "{{CLIENT_SRC}}"
-    fi
-    cd "{{CLIENT_SRC}}"
-    git fetch -q origin
-    git checkout -q "{{CLIENT_REF}}"
-    git submodule update -q --init --depth=1
-    just proto router-lib
+# Everything a fresh checkout needs before tests or image builds: the CLI,
+# generated code and the environment (installing angzarr-client builds its
+# router library with cargo).
+ci-setup: cli-build install
 
 # Generate the blackjack message types, gRPC stubs and angzarr dispatch wiring
 # into src/angzarr_blackjack/_gen, then reroot the plugins' path imports:
@@ -71,7 +46,7 @@ proto-gen:
     PATH="{{justfile_directory()}}/.tools/bin:$PATH" buf generate \
         --path angzarr-project/proto/io/angzarr/examples
     touch src/angzarr_blackjack/_gen/__init__.py
-    uv run --project "{{CLIENT_SRC}}" python "{{CLIENT_SRC}}/scripts/fixup_gen_imports.py" \
+    uv run python tools/fixup_gen_imports.py \
         src/angzarr_blackjack/_gen \
         io.angzarr.v1=angzarr_client.proto.io.angzarr.v1 \
         io.angzarr.status=angzarr_client.proto.io.angzarr.status \

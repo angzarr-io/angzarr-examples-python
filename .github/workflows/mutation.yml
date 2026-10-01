@@ -35,6 +35,5 @@ jobs:
           go-version: stable
       - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v6
-      - run: just -f justfile.container ci-system-deps
       - run: just -f justfile.container ci-setup
       - run: just -f justfile.container mutation-test

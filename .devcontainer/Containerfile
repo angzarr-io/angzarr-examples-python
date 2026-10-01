@@ -12,5 +12,18 @@ FROM ${PYTHON_IMAGE}
 # loudly instead of surfacing as a confusing "uv: not found" at run time.
 RUN uv --version
 
+# Installing angzarr-client from source builds its router library with cargo.
+# The toolchain lives under /opt/rust, readable by whichever user the container
+# runs as (root under rootless Docker, the host UID otherwise).
+USER root
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo \
+    PATH=/opt/rust/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path \
+    && chmod -R a+rwX /opt/rust \
+    && cargo --version
+USER angzarr
+
 # Mark as devcontainer for justfile detection
 ENV DEVCONTAINER=true

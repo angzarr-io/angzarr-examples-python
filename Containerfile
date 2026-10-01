@@ -9,9 +9,9 @@
 #   saga-table-player              -> angzarr_blackjack.table.saga_player.main
 #   projector-player-table-ledger  -> angzarr_blackjack.prj_ledger.main
 #
-# The build context must hold the generated ``src/angzarr_blackjack/_gen`` and
-# the prepared angzarr-client checkout ``.deps/angzarr-client-python``
-# (`just ci-setup`): its package, with framework protos and router library.
+# The build context must hold the generated ``src/angzarr_blackjack/_gen``
+# (`just proto-gen`). The deps stage installs angzarr-client from its pinned
+# git revision, which builds its router library with cargo.
 #
 # Each target launches its module with ``uv run`` (uv resolves/paths the locked
 # deps); the package stays on PYTHONPATH so launch uses ``--no-sync``. Components
@@ -31,10 +31,18 @@ FROM docker.io/library/python:${PYTHON_VERSION}-slim AS base
 ARG UV_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     ca-certificates \
     curl \
     git \
     && rm -rf /var/lib/apt/lists/*
+
+# cargo builds angzarr-client's router library when uv installs it.
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo \
+    PATH=/opt/rust/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
@@ -43,17 +51,14 @@ ENV PATH=/root/.local/bin:$PATH
 WORKDIR /app
 
 # ============================================================================
-# Dependencies - resolve the locked env (incl. the angzarr-client path source:
-# its package, protos and router library). Project itself is not
+# Dependencies - resolve the locked env (incl. angzarr-client, built from its
+# git revision). Project itself is not
 # installed; the package is consumed from ``src`` via PYTHONPATH so the build
 # caches deps independently of source churn.
 # ============================================================================
 FROM base AS deps
 
 COPY pyproject.toml uv.lock ./
-COPY .deps/angzarr-client-python/pyproject.toml .deps/angzarr-client-python/VERSION \
-     .deps/angzarr-client-python/README.md ./.deps/angzarr-client-python/
-COPY .deps/angzarr-client-python/angzarr_client ./.deps/angzarr-client-python/angzarr_client
 
 RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     uv sync --no-dev --no-install-project
@@ -88,7 +93,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # ============================================================================
 FROM runtime-base AS app
 COPY --from=deps   --chown=angzarr:angzarr /app/.venv  /app/.venv
-COPY --from=deps   --chown=angzarr:angzarr /app/.deps  /app/.deps
 COPY --from=source --chown=angzarr:angzarr /app/src    /app/src
 # uv launches each component (`uv run` resolves/paths the deps from the locked
 # env). It needs the uv binary + the project manifest/lock alongside the

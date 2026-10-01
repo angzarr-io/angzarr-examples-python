@@ -29,8 +29,7 @@ from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2 as _ch
 from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
 from angzarr_client.proto.io.angzarr.v1 import query_pb2_grpc as _q_grpc
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
-from angzarr_blackjack.player.agg import main as player_main
-from angzarr_blackjack.table.agg import main as table_main
+from angzarr_blackjack._runtime.inprocess import InProcess
 
 PLAYER, TABLE = "player", "table"
 ENDPOINTS = {PLAYER: ("PLAYER_URL", 31320), TABLE: ("TABLE_URL", 31321)}
@@ -54,11 +53,7 @@ class ClusterClient:
         self._channels: dict[str, grpc.Channel] = {}
         self._connect()
         # The components' own appliers fold stored history into state.
-        self._router = _az.Router()
-        self._hosts = {
-            PLAYER: player_main.build_host(self._router),
-            TABLE: table_main.build_host(self._router),
-        }
+        self._components = InProcess()
 
     def _connect(self) -> None:
         for channel in self._channels.values():
@@ -79,7 +74,7 @@ class ClusterClient:
     def close(self) -> None:
         for channel in self._channels.values():
             channel.close()
-        self._router.close()
+        self._components.close()
 
     def reachable(self, timeout: float = 10.0) -> bool:
         try:
@@ -176,10 +171,10 @@ class ClusterClient:
 
     def state(self, domain: str, root: bytes, **query):
         """The aggregate's state, folded from stored history by its own appliers."""
-        return self._hosts[domain].rebuild(self.book(domain, root, **query))
+        return self._components.rebuild(domain, self.book(domain, root, **query))
 
     def fold(self, domain: str, book: _t.EventBook):
-        return self._hosts[domain].rebuild(book)
+        return self._components.rebuild(domain, book)
 
     # --- the ledger --------------------------------------------------------------
 

@@ -18,6 +18,7 @@ from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import unpack
 from unit_steps._harness import (
+    BUY_IN,
     PLAYER,
     TABLE,
     cover,
@@ -89,7 +90,7 @@ def funds_captured(w, label, name, amount, table="Main"):
 
 
 def buy_in_state(w, label: str) -> _b.BuyInState:
-    return w.buy_in.rebuild(w.process_state(conversation(w, label)))
+    return w.components.rebuild(BUY_IN, w.process_state(conversation(w, label)))
 
 
 def asked(context, message_class, domain: str | None = None) -> list:

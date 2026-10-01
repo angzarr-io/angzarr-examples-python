@@ -1,55 +1,31 @@
-"""agg-player: the PlayerAggregate and the PlayerUpcaster on one server."""
+"""agg-player: the PlayerAggregate and the PlayerUpcaster on one host."""
 
 from __future__ import annotations
 
-import structlog
+import os
 
-import angzarr_client.router as _az
 from angzarr_blackjack._gen.io.angzarr.examples.v1.player_aggregate_angzarr import (
     new_player_aggregate_dispatch,
 )
-from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
-from angzarr_client.proto.io.angzarr.v1 import upcaster_pb2_grpc as _up_grpc
-from angzarr_blackjack._runtime.hosts import AggregateHost
-from angzarr_blackjack._runtime.server import configure_logging, run_server
-from angzarr_blackjack._runtime.servicers import (
-    CommandHandlerServicer,
-    UpcasterServicer,
-)
 from angzarr_blackjack.player.agg.handler import PlayerAggregate
 from angzarr_blackjack.player.agg.upcaster import PlayerUpcaster
+from angzarr_client import ComponentHost, configure_logging
 
 DOMAIN = "player"
 DEFAULT_PORT = "50401"
 
 
-def build_host(router: _az.Router) -> AggregateHost:
-    """The PlayerAggregate registered on ``router``."""
-    handler = PlayerAggregate()
-    return AggregateHost(
-        router,
-        new_player_aggregate_dispatch(handler),
-    )
+def register(host: ComponentHost) -> ComponentHost:
+    """The PlayerAggregate and its upcaster on ``host``."""
+    return host.add_aggregate(
+        new_player_aggregate_dispatch(PlayerAggregate())
+    ).add_upcaster(PlayerUpcaster())
 
 
 def main() -> None:
     configure_logging()
-    with _az.Router() as router:
-        host = build_host(router)
-        run_server(
-            _ch_grpc.add_CommandHandlerServiceServicer_to_server,
-            CommandHandlerServicer(host),
-            service_name="agg-player",
-            domain=DOMAIN,
-            default_port=DEFAULT_PORT,
-            logger=structlog.get_logger(),
-            extra_servicers=[
-                (
-                    _up_grpc.add_UpcasterServiceServicer_to_server,
-                    UpcasterServicer(PlayerUpcaster()),
-                )
-            ],
-        )
+    os.environ.setdefault("PORT", DEFAULT_PORT)
+    register(ComponentHost()).run()
 
 
 if __name__ == "__main__":
