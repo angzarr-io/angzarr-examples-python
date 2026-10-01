@@ -460,3 +460,18 @@ def test_recorded_round_result_keeps_wager_and_net():
     assert state.round_results[L.result_key(TABLE, 2)] == _p.RoundResult(
         table_root=TABLE, round=2, wager=30, net=-30, sequence=11
     )
+
+
+def test_profile_update_refusal_message():
+    err = refused(L.validate_update_profile, _p.UpdateProfile(), wallet())
+    assert (err.grpc, err.message) == (IA, "a display name is required")
+
+
+def test_recorded_result_event_carries_the_wager():
+    cmd = _p.RecordRoundResult(table_root=TABLE, round=3, wager=40, net=-40)
+    (event,) = L.compute_record_result(cmd, wallet(), Effect.APPLY)
+    assert event == _p.RoundResultRecorded(table_root=TABLE, round=3, wager=40, net=-40)
+
+
+def test_a_one_chip_hold_balances():
+    assert L.ledger_balances(held(wallet(1000), amount=1))

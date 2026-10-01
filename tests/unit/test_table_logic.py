@@ -634,3 +634,12 @@ def test_dealer_blackjack_settles_at_the_deal(table):
     assert dealt.turn == -1 and dealer.blackjack and not dealer.drawn
     assert settled.outcomes[0].outcome == Outcome.OUTCOME_LOSE
     assert state.phase == Phase.PHASE_IDLE
+
+
+def test_any_positive_wager_counts_as_wagered():
+    from angzarr_blackjack.table.agg.handler import wagered_seats
+
+    state = _table.TableState()
+    state.seated[2].wager = 1
+    state.seated[0].wager = 0
+    assert wagered_seats(state) == [2]

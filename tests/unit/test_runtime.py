@@ -334,3 +334,21 @@ def test_undo_retracts_only_the_named_recording(router):
     assert unpack(page.event, _p.RoundResultRetracted).round == 1
     response = host.handle(compensation_envelope(command_type, prior, (1,)))
     assert response == _ch.BusinessResponse()
+
+
+def test_process_state_folds_from_its_snapshot(router):
+    from angzarr_blackjack._runtime.hosts import fold
+
+    host = buy_in_main.build_host(router)
+    snapshot_state = _b.BuyInState(buy_in_id=H1, amount=500)
+    book = _t.EventBook(
+        snapshot=_t.Snapshot(sequence=0, state=_az.pack(snapshot_state))
+    )
+    book.pages.add()  # a page carrying no event is skipped
+    book.pages.add(event=_az.pack(_b.BuyInFundsHeld(buy_in_id=H1)))
+    state = fold(host.dispatch.rebuilder, book)
+    assert (state.buy_in_id, state.amount) == (H1, 500)
+    assert state.phase == _b.BuyInState.Phase.PHASE_AWAITING_SEAT
+    assert fold(host.dispatch.rebuilder, _t.EventBook(snapshot=_t.Snapshot())) == (
+        _b.BuyInState()
+    )
