@@ -5,10 +5,10 @@ from __future__ import annotations
 import structlog
 
 import angzarr_router_ffi as _az
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import (
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import (
     ledger_pb2_grpc as _l_grpc,
 )
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1.ledger_projector_angzarr import (
+from angzarr_blackjack._gen.io.angzarr.examples.v1.ledger_projector_angzarr import (
     new_ledger_projector_dispatch,
 )
 from angzarr_blackjack._gen.io.angzarr.v1 import projector_pb2_grpc as _prj_grpc

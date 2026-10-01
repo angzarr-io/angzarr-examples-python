@@ -5,7 +5,7 @@ framework. Python is the structural template the Go, Java, C#, C++ and Rust
 examples mirror. The specification — protos, house rules and scenarios —
 lives in the `angzarr-project` submodule:
 
-- protos: `angzarr-project/proto/io/angzarr/examples/blackjack/v1/`
+- protos: `angzarr-project/proto/io/angzarr/examples/v1/`
 - house rules AHR-1..13 and ledger invariants L1..L4:
   `angzarr-project/features/example/blackjack/RULES.md`
 - scenarios: `features/example/blackjack/` (rules),

@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import angzarr_router_ffi as _az
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import buy_in_pb2 as _b
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import buy_in_pb2 as _b
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2 as _pm
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import deferred_command, event_book, unpack

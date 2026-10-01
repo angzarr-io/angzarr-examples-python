@@ -16,7 +16,7 @@ import uuid
 
 import angzarr_router_ffi as _az
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import event_book
 from angzarr_blackjack.cards import (

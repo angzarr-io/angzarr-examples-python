@@ -8,7 +8,7 @@ marks a state-dependent refusal, INVALID_ARGUMENT a malformed request.
 import angzarr_router_ffi as _az
 import pytest
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
 from angzarr_blackjack.player.agg import logic as L
 from angzarr_blackjack.player.agg.logic import Effect
 

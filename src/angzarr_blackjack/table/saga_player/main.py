@@ -7,13 +7,13 @@ from __future__ import annotations
 import structlog
 
 import angzarr_router_ffi as _az
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1.table_player_history_saga_angzarr import (
+from angzarr_blackjack._gen.io.angzarr.examples.v1.table_player_history_saga_angzarr import (
     register_table_player_history_saga,
 )
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1.table_player_loyalty_saga_angzarr import (
+from angzarr_blackjack._gen.io.angzarr.examples.v1.table_player_loyalty_saga_angzarr import (
     register_table_player_loyalty_saga,
 )
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1.table_player_settlement_saga_angzarr import (
+from angzarr_blackjack._gen.io.angzarr.examples.v1.table_player_settlement_saga_angzarr import (
     register_table_player_settlement_saga,
 )
 from angzarr_blackjack._gen.io.angzarr.v1 import saga_pb2_grpc as _saga_grpc

@@ -3,7 +3,7 @@ framework ProjectorService by the projector process."""
 
 from __future__ import annotations
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import (
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import (
     ledger_pb2_grpc as _l_grpc,
 )
 from angzarr_blackjack.prj_ledger.handler import Ledger

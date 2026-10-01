@@ -10,8 +10,8 @@ from __future__ import annotations
 from behave import given, then, when
 
 import angzarr_router_ffi as _az
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from unit_steps._harness import (
     PLAYER,

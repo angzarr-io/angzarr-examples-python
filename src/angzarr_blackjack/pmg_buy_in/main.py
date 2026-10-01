@@ -5,7 +5,7 @@ from __future__ import annotations
 import structlog
 
 import angzarr_router_ffi as _az
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1.buy_in_process_manager_angzarr import (
+from angzarr_blackjack._gen.io.angzarr.examples.v1.buy_in_process_manager_angzarr import (
     new_buy_in_process_manager_dispatch,
 )
 from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2_grpc as _pm_grpc

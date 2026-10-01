@@ -6,9 +6,9 @@ import angzarr_router_ffi as _az
 import grpc
 import pytest
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import buy_in_pb2 as _b
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import buy_in_pb2 as _b
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch
 from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2 as _pm
 from angzarr_blackjack._gen.io.angzarr.v1 import saga_pb2 as _saga
@@ -75,9 +75,7 @@ def test_compensate_is_routed_to_the_undo_handler(router):
         _p.RoundResultRecorded(table_root=TABLE, round=1, wager=20, net=20)
     )
     response = host.handle(
-        compensation_envelope(
-            "io.angzarr.examples.blackjack.v1.RecordRoundResult", prior
-        )
+        compensation_envelope("io.angzarr.examples.v1.RecordRoundResult", prior)
     )
     (page,) = response.events.pages
     assert unpack(page.event, _p.RoundResultRetracted) == _p.RoundResultRetracted(
@@ -88,9 +86,7 @@ def test_compensate_is_routed_to_the_undo_handler(router):
 def test_compensate_with_nothing_to_undo_answers_empty(router):
     host = player_main.build_host(router)
     response = host.handle(
-        compensation_envelope(
-            "io.angzarr.examples.blackjack.v1.RecordRoundResult", registered()
-        )
+        compensation_envelope("io.angzarr.examples.v1.RecordRoundResult", registered())
     )
     assert response == _ch.BusinessResponse()
 
@@ -99,9 +95,7 @@ def test_compensate_without_an_undo_handler_is_unimplemented(router):
     host = player_main.build_host(router)
     with pytest.raises(_az.CodedError) as info:
         host.handle(
-            compensation_envelope(
-                "io.angzarr.examples.blackjack.v1.DepositFunds", registered()
-            )
+            compensation_envelope("io.angzarr.examples.v1.DepositFunds", registered())
         )
     assert (info.value.code, info.value.grpc) == (
         "NO_UNDO_HANDLER",
@@ -292,7 +286,7 @@ def test_pass_through_upcaster_returns_events_unchanged():
 
 
 def test_ledger_query_service_reads_the_ledger(router):
-    from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import ledger_pb2 as _l
+    from angzarr_blackjack._gen.io.angzarr.examples.v1 import ledger_pb2 as _l
     from angzarr_blackjack.prj_ledger import main as ledger_main
     from angzarr_blackjack.prj_ledger.query import LedgerQueryServicer
 
@@ -317,7 +311,7 @@ def test_undo_retracts_only_the_named_recording(router):
         _p.RoundResultRecorded(table_root=TABLE, round=1, wager=20, net=20),
         _p.RoundResultRecorded(table_root=TABLE, round=2, wager=20, net=-20),
     )
-    command_type = "io.angzarr.examples.blackjack.v1.RecordRoundResult"
+    command_type = "io.angzarr.examples.v1.RecordRoundResult"
     response = host.handle(compensation_envelope(command_type, prior, (2,)))
     (page,) = response.events.pages
     assert unpack(page.event, _p.RoundResultRetracted).round == 1

@@ -11,7 +11,7 @@ from collections import Counter
 
 from behave import given, then, when
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack.cards import (
     SplitMix64,
     card_index,

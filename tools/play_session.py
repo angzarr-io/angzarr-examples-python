@@ -12,7 +12,7 @@ import sys
 from acceptance_steps import _play as play
 from acceptance_steps._client import TABLE, ClusterClient
 from acceptance_steps._world import World
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack.cards import format_cards, hand_value, points
 
 

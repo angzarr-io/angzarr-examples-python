@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack.cards import (
     BLACKJACK,
     MAX_CARDS_PER_HAND,

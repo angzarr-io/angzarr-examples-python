@@ -7,7 +7,7 @@ import uuid
 
 from behave import given, step, then, when
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack.cards import format_cards
 from angzarr_blackjack.table.agg import rules
 from unit_steps._harness import TABLE, player_root, request_id, table_root

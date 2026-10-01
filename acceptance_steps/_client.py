@@ -21,8 +21,8 @@ import angzarr_router_ffi as _az
 import grpc
 from google.protobuf import empty_pb2 as _empty
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import ledger_pb2 as _l
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import (
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import ledger_pb2 as _l
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import (
     ledger_pb2_grpc as _l_grpc,
 )
 from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch

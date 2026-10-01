@@ -12,9 +12,9 @@ from collections import Counter
 
 from behave import given, then, when
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import buy_in_pb2 as _b
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import buy_in_pb2 as _b
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack._runtime.books import unpack
 from angzarr_blackjack.player.agg import logic
 from unit_steps._harness import PLAYER, TABLE, player_root, request_id, table_root

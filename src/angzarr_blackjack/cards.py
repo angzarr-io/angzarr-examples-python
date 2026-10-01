@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import cards_pb2 as _cards
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import cards_pb2 as _cards
 
 Card = _cards.Card
 Suit = _cards.Suit

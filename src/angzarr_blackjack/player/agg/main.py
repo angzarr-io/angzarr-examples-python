@@ -5,7 +5,7 @@ from __future__ import annotations
 import structlog
 
 import angzarr_router_ffi as _az
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1.player_aggregate_angzarr import (
+from angzarr_blackjack._gen.io.angzarr.examples.v1.player_aggregate_angzarr import (
     new_player_aggregate_dispatch,
 )
 from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc

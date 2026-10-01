@@ -6,11 +6,11 @@ applies each event once."""
 import angzarr_router_ffi as _az
 import pytest
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import buy_in_pb2 as _b
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import ledger_pb2 as _l
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1.ledger_projector_angzarr import (
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import buy_in_pb2 as _b
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import ledger_pb2 as _l
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1.ledger_projector_angzarr import (
     new_ledger_projector_dispatch,
 )
 from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2 as _pm
@@ -54,7 +54,7 @@ def assert_deferred(book: _t.CommandBook, domain: str, root: bytes):
     (page,) = book.pages
     assert page.header.WhichOneof("sequence_type") == "angzarr_deferred"
     assert page.header.angzarr_deferred == _t.AngzarrDeferredSequence()
-    assert page.command.type_url.startswith("/io.angzarr.examples.blackjack.v1.")
+    assert page.command.type_url.startswith("/io.angzarr.examples.v1.")
 
 
 # --- buy-in process manager -----------------------------------------------------------
@@ -389,7 +389,7 @@ def test_upcaster_rewrites_only_the_legacy_deposit():
     )
     first, second = response.events
     assert first.header.sequence == 3
-    assert first.event.type_url == "/io.angzarr.examples.blackjack.v1.FundsDeposited"
+    assert first.event.type_url == "/io.angzarr.examples.v1.FundsDeposited"
     assert unpack(first.event, _p.FundsDeposited) == _p.FundsDeposited(amount=300)
     assert second == current
     book = _t.EventBook(cover=cover("player", ALICE), pages=[legacy])

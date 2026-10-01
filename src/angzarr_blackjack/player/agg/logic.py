@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import enum
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
 from angzarr_blackjack.errors import invalid, precondition
 
 Hold = _p.Hold

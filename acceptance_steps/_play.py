@@ -11,8 +11,8 @@ import grpc
 
 from acceptance_steps._client import CASCADE_ERROR, MERGE, PLAYER, SYNC, TABLE
 from acceptance_steps._world import World, eventually
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack._runtime.books import type_name, unpack
 
 TABLE_CONFIG = dict(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import parse
 from behave import given, register_type, step, then, when
 
-from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_blackjack.cards import (
     format_card,
     format_cards,
