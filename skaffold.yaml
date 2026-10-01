@@ -1,12 +1,12 @@
 apiVersion: skaffold/v4beta11
 kind: Config
 metadata:
-  name: poker-python
+  name: blackjack-python
 
-# Requires base angzarr infrastructure
-requires:
-  - path: ../../core/main/skaffold.yaml
-
+# Builds the six component images (content-addressed tags, so kind never
+# serves a stale image) and deploys them with the angzarr chart. The chart
+# path is the local core checkout's chart; override with
+# `skaffold run --set ...` or ANGZARR_CHART in the justfile.
 build:
   tagPolicy:
     gitCommit:
@@ -15,114 +15,157 @@ build:
   local:
     push: false
     useBuildkit: true
-    concurrency: 1
+    concurrency: 2
   artifacts:
-    - image: ghcr.io/angzarr-io/poker-python-player
-      context: .
-      docker:
-        dockerfile: Containerfile
-        target: agg-player
-
-    - image: ghcr.io/angzarr-io/poker-python-table
-      context: .
-      docker:
-        dockerfile: Containerfile
-        target: agg-table
-
-    - image: ghcr.io/angzarr-io/poker-python-hand
-      context: .
-      docker:
-        dockerfile: Containerfile
-        target: agg-hand
-
-    - image: ghcr.io/angzarr-io/poker-python-prj-training
-      context: .
-      docker:
-        dockerfile: Containerfile
-        target: prj-training
+    - image: ghcr.io/angzarr-io/examples-python-agg-player
+      docker: {dockerfile: Containerfile, target: agg-player}
+    - image: ghcr.io/angzarr-io/examples-python-agg-table
+      docker: {dockerfile: Containerfile, target: agg-table}
+    - image: ghcr.io/angzarr-io/examples-python-pmg-buy-in
+      docker: {dockerfile: Containerfile, target: pmg-buy-in}
+    - image: ghcr.io/angzarr-io/examples-python-saga-player-table
+      docker: {dockerfile: Containerfile, target: saga-player-table}
+    - image: ghcr.io/angzarr-io/examples-python-saga-table-player
+      docker: {dockerfile: Containerfile, target: saga-table-player}
+    - image: ghcr.io/angzarr-io/examples-python-projector-player-table-ledger
+      docker: {dockerfile: Containerfile, target: projector-player-table-ledger}
 
 deploy:
   helm:
     releases:
-      - name: poker-python
+      - name: blackjack
         chartPath: ../../core/main/deploy/k8s/helm/angzarr
         namespace: angzarr
         createNamespace: true
         valuesFiles:
           - values.yaml
-        setValues:
-          # Player aggregate
-          applications.business[0].name: poker-player
-          applications.business[0].image.repository: ghcr.io/angzarr-io/poker-python-player
-          applications.business[0].image.tag: latest
-          applications.business[0].domain: player
-          applications.business[0].port: 50301
-          # Table aggregate
-          applications.business[1].name: poker-table
-          applications.business[1].image.repository: ghcr.io/angzarr-io/poker-python-table
-          applications.business[1].image.tag: latest
-          applications.business[1].domain: table
-          applications.business[1].port: 50302
-          # Hand aggregate
-          applications.business[2].name: poker-hand
-          applications.business[2].image.repository: ghcr.io/angzarr-io/poker-python-hand
-          applications.business[2].image.tag: latest
-          applications.business[2].domain: hand
-          applications.business[2].port: 50303
+        # Credentials come from the in-cluster Secret angzarr-credentials;
+        # `just up` exports them as ANGZARR_DB_PASSWORD / ANGZARR_MQ_PASSWORD.
+        # Helm replaces a list given on the command line wholesale, so each
+        # application entry is set in full here, with the image skaffold built.
+        setValueTemplates:
+          storage.postgres.password: "{{.ANGZARR_DB_PASSWORD}}"
+          storage.postgres.uri: "postgres://angzarr:{{.ANGZARR_DB_PASSWORD}}@angzarr-db:5432/angzarr"
+          messaging.amqp.url: "amqp://angzarr:{{.ANGZARR_MQ_PASSWORD}}@angzarr-mq:5672/%2F"
+          applications.business[0].name: "agg-player"
+          applications.business[0].domain: "player"
+          applications.business[0].port: "50401"
+          applications.business[0].debug.enabled: "true"
+          applications.business[0].debug.nodePort: "31320"
+          applications.business[0].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_agg_player}}"
+          applications.business[0].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_agg_player}}"
+          applications.business[0].image.pullPolicy: "IfNotPresent"
+          applications.business[1].name: "agg-table"
+          applications.business[1].domain: "table"
+          applications.business[1].port: "50402"
+          applications.business[1].debug.enabled: "true"
+          applications.business[1].debug.nodePort: "31321"
+          applications.business[1].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_agg_table}}"
+          applications.business[1].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_agg_table}}"
+          applications.business[1].image.pullPolicy: "IfNotPresent"
+          applications.sagas[0].name: "saga-player-table"
+          applications.sagas[0].sourceDomain: "player"
+          applications.sagas[0].domain: "table"
+          applications.sagas[0].port: "50411"
+          applications.sagas[0].topics[0]: "player"
+          applications.sagas[0].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_saga_player_table}}"
+          applications.sagas[0].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_saga_player_table}}"
+          applications.sagas[0].image.pullPolicy: "IfNotPresent"
+          applications.sagas[1].name: "saga-table-player"
+          applications.sagas[1].sourceDomain: "table"
+          applications.sagas[1].domain: "player"
+          applications.sagas[1].port: "50412"
+          applications.sagas[1].topics[0]: "table"
+          applications.sagas[1].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_saga_table_player}}"
+          applications.sagas[1].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_saga_table_player}}"
+          applications.sagas[1].image.pullPolicy: "IfNotPresent"
+          applications.processManagers[0].name: "pmg-buy-in"
+          applications.processManagers[0].domain: "buy-in"
+          applications.processManagers[0].port: "50421"
+          applications.processManagers[0].topics[0]: "table"
+          applications.processManagers[0].topics[1]: "player"
+          applications.processManagers[0].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_pmg_buy_in}}"
+          applications.processManagers[0].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_pmg_buy_in}}"
+          applications.processManagers[0].image.pullPolicy: "IfNotPresent"
+          applications.projectors[0].name: "projector-player-table-ledger"
+          applications.projectors[0].domain: "ledger"
+          applications.projectors[0].port: "50431"
+          applications.projectors[0].debug.enabled: "true"
+          applications.projectors[0].debug.nodePort: "31325"
+          applications.projectors[0].topics[0]: "player"
+          applications.projectors[0].topics[1]: "table"
+          applications.projectors[0].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_projector_player_table_ledger}}"
+          applications.projectors[0].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_projector_player_table_ledger}}"
+          applications.projectors[0].image.pullPolicy: "IfNotPresent"
 
 profiles:
-  # Debug profile - debugpy enabled for remote debugging
-  - name: debug
-    build:
-      local:
-        push: false
-      artifacts:
-        - image: ghcr.io/angzarr-io/poker-python-player
-          context: ../..
-          docker:
-            dockerfile: examples/python/Containerfile
-            target: agg-player-debug
-
-        - image: ghcr.io/angzarr-io/poker-python-table
-          context: ../..
-          docker:
-            dockerfile: examples/python/Containerfile
-            target: agg-table-debug
-
-        - image: ghcr.io/angzarr-io/poker-python-hand
-          context: ../..
-          docker:
-            dockerfile: examples/python/Containerfile
-            target: agg-hand-debug
+  # CI deploys with the published chart instead of a local core checkout.
+  - name: ci
     deploy:
       helm:
         releases:
-          - name: poker-python
-            chartPath: ../../core/main/deploy/k8s/helm/angzarr
+          - name: blackjack
+            remoteChart: oci://ghcr.io/angzarr-io/charts/angzarr
+            version: 0.5.1
             namespace: angzarr
             createNamespace: true
             valuesFiles:
               - values.yaml
-              - values-debug.yaml
-            setValues:
-              # Player aggregate with debug port
-              applications.business[0].name: poker-player
-              applications.business[0].image.repository: ghcr.io/angzarr-io/poker-python-player
-              applications.business[0].image.tag: latest
-              applications.business[0].domain: player
-              applications.business[0].port: 50301
-              applications.business[0].debugPort: 56780
-              # Table aggregate with debug port
-              applications.business[1].name: poker-table
-              applications.business[1].image.repository: ghcr.io/angzarr-io/poker-python-table
-              applications.business[1].image.tag: latest
-              applications.business[1].domain: table
-              applications.business[1].port: 50302
-              applications.business[1].debugPort: 56781
-              # Hand aggregate with debug port
-              applications.business[2].name: poker-hand
-              applications.business[2].image.repository: ghcr.io/angzarr-io/poker-python-hand
-              applications.business[2].image.tag: latest
-              applications.business[2].domain: hand
-              applications.business[2].port: 50303
-              applications.business[2].debugPort: 56782
+            # Credentials come from the in-cluster Secret angzarr-credentials;
+            # `just up` exports them as ANGZARR_DB_PASSWORD / ANGZARR_MQ_PASSWORD.
+            # Helm replaces a list given on the command line wholesale, so each
+            # application entry is set in full here, with the image skaffold built.
+            setValueTemplates:
+              storage.postgres.password: "{{.ANGZARR_DB_PASSWORD}}"
+              storage.postgres.uri: "postgres://angzarr:{{.ANGZARR_DB_PASSWORD}}@angzarr-db:5432/angzarr"
+              messaging.amqp.url: "amqp://angzarr:{{.ANGZARR_MQ_PASSWORD}}@angzarr-mq:5672/%2F"
+              applications.business[0].name: "agg-player"
+              applications.business[0].domain: "player"
+              applications.business[0].port: "50401"
+              applications.business[0].debug.enabled: "true"
+              applications.business[0].debug.nodePort: "31320"
+              applications.business[0].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_agg_player}}"
+              applications.business[0].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_agg_player}}"
+              applications.business[0].image.pullPolicy: "IfNotPresent"
+              applications.business[1].name: "agg-table"
+              applications.business[1].domain: "table"
+              applications.business[1].port: "50402"
+              applications.business[1].debug.enabled: "true"
+              applications.business[1].debug.nodePort: "31321"
+              applications.business[1].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_agg_table}}"
+              applications.business[1].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_agg_table}}"
+              applications.business[1].image.pullPolicy: "IfNotPresent"
+              applications.sagas[0].name: "saga-player-table"
+              applications.sagas[0].sourceDomain: "player"
+              applications.sagas[0].domain: "table"
+              applications.sagas[0].port: "50411"
+              applications.sagas[0].topics[0]: "player"
+              applications.sagas[0].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_saga_player_table}}"
+              applications.sagas[0].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_saga_player_table}}"
+              applications.sagas[0].image.pullPolicy: "IfNotPresent"
+              applications.sagas[1].name: "saga-table-player"
+              applications.sagas[1].sourceDomain: "table"
+              applications.sagas[1].domain: "player"
+              applications.sagas[1].port: "50412"
+              applications.sagas[1].topics[0]: "table"
+              applications.sagas[1].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_saga_table_player}}"
+              applications.sagas[1].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_saga_table_player}}"
+              applications.sagas[1].image.pullPolicy: "IfNotPresent"
+              applications.processManagers[0].name: "pmg-buy-in"
+              applications.processManagers[0].domain: "buy-in"
+              applications.processManagers[0].port: "50421"
+              applications.processManagers[0].topics[0]: "table"
+              applications.processManagers[0].topics[1]: "player"
+              applications.processManagers[0].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_pmg_buy_in}}"
+              applications.processManagers[0].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_pmg_buy_in}}"
+              applications.processManagers[0].image.pullPolicy: "IfNotPresent"
+              applications.projectors[0].name: "projector-player-table-ledger"
+              applications.projectors[0].domain: "ledger"
+              applications.projectors[0].port: "50431"
+              applications.projectors[0].debug.enabled: "true"
+              applications.projectors[0].debug.nodePort: "31325"
+              applications.projectors[0].topics[0]: "player"
+              applications.projectors[0].topics[1]: "table"
+              applications.projectors[0].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_projector_player_table_ledger}}"
+              applications.projectors[0].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_projector_player_table_ledger}}"
+              applications.projectors[0].image.pullPolicy: "IfNotPresent"

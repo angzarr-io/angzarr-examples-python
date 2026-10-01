@@ -289,3 +289,11 @@ def test_unconsumed_events_are_acknowledged(router):
             _saga.SagaHandleRequest(source=_t.EventBook(cover=source.cover)), context
         )
     assert context.code == grpc.StatusCode.INVALID_ARGUMENT
+
+
+def test_pass_through_upcaster_returns_events_unchanged():
+    from angzarr_blackjack._gen.io.angzarr.v1 import upcaster_pb2 as _up
+
+    page = _t.EventPage(event=_az.pack(_table.TableCreated(name="Main")))
+    request = _up.UpcastRequest(domain="table", events=[page])
+    assert list(servicers.PassThroughUpcaster().upcast(request).events) == [page]

@@ -5,537 +5,141 @@ on:
     branches: [main]
     tags: ['v*.*.*']
   pull_request:
-    # Fire on all PRs so stacked PRs (base != main) get checks too.
     branches: ['**']
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:
 
 env:
-  UV_VERSION: "0.10.3"
-  REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/angzarr-io/examples-python
-  # Opt into Node.js 24 for GitHub Actions (required after June 2026)
+  # The angzarr CLI (codegen plugin) and angzarr-router (Python binding +
+  # cdylib) are built from source at these refs.
+  ANGZARR_CLI_REF: rem/review-2026-09
+  ANGZARR_ROUTER_REF: rem/review-2026-09
+  ANGZARR_CLI_SRC: .deps/angzarr-cli
+  ANGZARR_ROUTER_SRC: .deps/angzarr-router
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # Unbypassable guard against `--no-verify` / `LEFTHOOK=0` locally. Mirrors
-  # the parent-side check that lefthook runs on pre-commit. Pointer-only
-  # bumps pass; dirty submodule working trees fail.
+  # Unbypassable guard against `--no-verify`: submodule working trees are clean.
   submodules:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Install just
-        uses: extractions/setup-just@v2
-      - name: Verify submodules are clean
-        run: just check-submodules-clean
+      - uses: extractions/setup-just@v2
+      - run: just check-submodules-clean
 
   test:
-    name: Build & Test
+    name: Test
     runs-on: ubuntu-latest
     needs: [submodules]
-    container:
-      image: ghcr.io/angzarr-io/angzarr-python:latest
-      # The image's USER is `angzarr` (uid 1000) for justfile/local-dev use;
-      # GHA's runner-mounted dirs (e.g. /__w/_temp) are owned by uid 1001,
-      # so a non-overridden container user can't write to them. Force root
-      # in the GHA `container:` flow (GHA-recommended; fixuid only triggers
-      # outside this flow).
-      options: --user 0
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: false  # fetched manually below without --depth=1
-
-      - name: Configure git safe directory
-        run: git config --global --add safe.directory '*'
-
-      - name: Fetch submodules (unshallow; avoids HTTP 500 direct-fetch path)
-        run: git submodule update --init
-
-      - name: Init nested angzarr-project (non-recursive, avoids circular submodule ref)
-        run: |
-          cd angzarr-client-python
-          git submodule update --init angzarr-project
-
-      - name: Use container justfile
-        run: cp justfile.container justfile
-
-      - name: Install buf
-        uses: bufbuild/buf-action@v1
+          submodules: true
+      - uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-cli
+          ref: ${{ env.ANGZARR_CLI_REF }}
+          path: .deps/angzarr-cli
+      - uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-router
+          ref: ${{ env.ANGZARR_ROUTER_REF }}
+          path: .deps/angzarr-router
+      - uses: extractions/setup-just@v2
+      - uses: bufbuild/buf-action@v1
         with:
           setup_only: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v6
+      - run: just -f justfile.container ci-setup
+      - run: just -f justfile.container ci-test
 
-      - name: Generate protos for angzarr-client-python
-        run: |
-          cd angzarr-client-python
-          buf generate
-          python scripts/generate_protos.py
-
-      - name: Update uv
-        run: |
-          curl -LsSf https://astral.sh/uv/${{ env.UV_VERSION }}/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install dependencies
-        run: just install
-
-      - name: Test (pytest)
-        run: just test-pytest
-
-      - name: Test (example unit behave)
-        run: just test-example-unit
-
-      # Mutation testing runs on a schedule (.github/workflows/mutation.yml)
-      # against main rather than per-PR. Keeps PR CI fast while mutation
-      # remains a quality gate on the integrated branch.
-
-      - name: Lint
-        run: just lint
-
-      - name: Format check
-        run: just fmt --check
-
-  build-images:
-    name: Build & Push Images
+  images:
+    name: Images
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test]
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        target:
-          - agg-player
-          - agg-table
-          - agg-hand
-          - agg-tournament
-          - agg-reservation
-          - pmg-reservation
-          - saga-table-hand
-          - saga-table-player
-          - saga-hand-table
-          - saga-hand-player
-          - prj-training
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: false  # fetched manually below without --depth=1
-
-      - name: Fetch submodules (unshallow; avoids HTTP 500 direct-fetch path)
-        run: git submodule update --init
-
-      - name: Init nested angzarr-project (non-recursive, avoids circular submodule ref)
-        run: |
-          cd angzarr-client-python
-          git submodule update --init angzarr-project
-
-      - name: Install buf
-        uses: bufbuild/buf-action@v1
-        with:
-          setup_only: true
-
-      - name: Generate protos
-        run: |
-          buf generate
-          cd angzarr-client-python
-          buf generate
-          python scripts/generate_protos.py
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install versionator
-        # Pinned by sha256 digest; matches the supply-chain rule from
-        # the container-versioning blog post. The tarball ships the
-        # binary as `versionator-linux-amd64`; rename on install.
-        run: |
-          curl -fsSL -o /tmp/versionator.tgz \
-            https://github.com/benjaminabbitt/versionator/releases/download/v0.1.1/versionator-linux-amd64.tar.gz
-          echo "66ed07135eaeaa72d9ece6fa5c2814d239738d61e134b9b5dcbad0a4d07d458b  /tmp/versionator.tgz" | sha256sum -c -
-          tar -xz -f /tmp/versionator.tgz -C /tmp versionator-linux-amd64
-          sudo install -m 0755 /tmp/versionator-linux-amd64 /usr/local/bin/versionator
-          versionator output version
-
-      - name: Compute version variables
-        id: version
-        run: versionator output ci --format=github
-
-      - name: Generate image tags
-        id: tags
-        # Tagging policy (mirrors examples-rust / angzarr/core release):
-        #   * pull_request         → pr-<N>-<short-sha>
-        #   * push to main         → v<semver>-dev.<short-sha>, dev
-        #   * tag push v*.*.*      → v<semver>, v<major>.<minor>, v<major>
-        # No :latest ever. See blog/container-versioning-no-latest.
-        run: |
-          REPO="${{ env.IMAGE_PREFIX }}-${{ matrix.target }}"
-          V="${VERSION}"
-          MAJ="${VERSION_MAJOR}"
-          MIN="${VERSION_MAJOR}.${VERSION_MINOR}"
-          SHORT="${GIT_SHA_SHORT}"
-          tags=""
-          append() { tags="${tags:+$tags,}$1"; }
-
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_NUM="${{ github.event.pull_request.number }}"
-            append "$REPO:pr-${PR_NUM}-${SHORT}"
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            TAG_V="${GITHUB_REF#refs/tags/v}"
-            if [ "$TAG_V" != "$V" ]; then
-              echo "::error::Tag v$TAG_V does not match VERSION file ($V). Bump VERSION before tagging."
-              exit 1
-            fi
-            append "$REPO:v$V"
-            append "$REPO:v$MIN"
-            append "$REPO:v$MAJ"
-          else
-            append "$REPO:v${V}-dev.${SHORT}"
-            append "$REPO:dev"
-          fi
-          echo "Computed tags: $tags"
-          echo "tags=$tags" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Containerfile
-          target: ${{ matrix.target }}
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
-          tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Export image for acceptance tests
-        if: github.event_name == 'pull_request'
-        run: docker save -o /tmp/${{ matrix.target }}.tar "${{ steps.tags.outputs.tags }}"
-
-      - name: Upload image artifact
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-${{ matrix.target }}
-          path: /tmp/${{ matrix.target }}.tar
-          retention-days: 1
-
-  acceptance-test:
-    name: Acceptance Tests
-    runs-on: ubuntu-latest
-    needs: build-images
-    permissions:
-      contents: read
-      packages: read
-    steps:
+          submodules: true
       - uses: actions/checkout@v4
         with:
-          submodules: false  # fetched manually below without --depth=1
-
-      - name: Fetch submodules (unshallow; avoids HTTP 500 direct-fetch path)
-        run: git submodule update --init
-
-      - name: Init nested angzarr-project (non-recursive, avoids circular submodule ref)
-        run: |
-          cd angzarr-client-python
-          git submodule update --init angzarr-project
-
-      - name: Install versionator
-        # Pinned by sha256 digest; matches build-images. Needed so the
-        # tag computed here matches the versioned tag build-images pushes.
-        run: |
-          curl -fsSL -o /tmp/versionator.tgz \
-            https://github.com/benjaminabbitt/versionator/releases/download/v0.1.1/versionator-linux-amd64.tar.gz
-          echo "66ed07135eaeaa72d9ece6fa5c2814d239738d61e134b9b5dcbad0a4d07d458b  /tmp/versionator.tgz" | sha256sum -c -
-          tar -xz -f /tmp/versionator.tgz -C /tmp versionator-linux-amd64
-          sudo install -m 0755 /tmp/versionator-linux-amd64 /usr/local/bin/versionator
-
-      - name: Compute version variables
-        run: versionator output ci --format=github
-
-      - name: Generate image tag
-        id: tag
-        # Must match build-images exactly so acceptance pulls the images
-        # that job just pushed.
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_NUM="${{ github.event.pull_request.number }}"
-            echo "tag=pr-${PR_NUM}-${GIT_SHA_SHORT}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=v${VERSION}-dev.${GIT_SHA_SHORT}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Install tools
-        run: |
-          # Install just
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
-
-      - name: Install buf
-        uses: bufbuild/buf-action@v1
+          repository: angzarr-io/angzarr-cli
+          ref: ${{ env.ANGZARR_CLI_REF }}
+          path: .deps/angzarr-cli
+      - uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-router
+          ref: ${{ env.ANGZARR_ROUTER_REF }}
+          path: .deps/angzarr-router
+      - uses: extractions/setup-just@v2
+      - uses: bufbuild/buf-action@v1
         with:
           setup_only: true
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/${{ env.UV_VERSION }}/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install Python dependencies
-        run: uv sync
-
-      - name: Create Kind cluster
-        uses: helm/kind-action@v1
+      - uses: actions/setup-go@v5
         with:
-          cluster_name: angzarr-test
-          config: deploy/kind/cluster.yaml
-          node_image: kindest/node:v1.31.0
-          wait: 120s
-
-      - name: Create namespace
-        run: kubectl create namespace angzarr-test --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Create image pull secret
-        run: |
-          kubectl create secret docker-registry ghcr-pull-secret \
-            --docker-server=ghcr.io \
-            --docker-username=${{ github.actor }} \
-            --docker-password="${{ secrets.GITHUB_TOKEN }}" \
-            --namespace=angzarr-test \
-            --dry-run=client -o yaml | kubectl apply -f -
-          kubectl patch serviceaccount default -n angzarr-test \
-            -p '{"imagePullSecrets": [{"name": "ghcr-pull-secret"}]}' || true
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
+          go-version: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v6
+      - uses: yokawasa/action-setup-kube-tools@v0.11.2
+        with:
+          setup-tools: skaffold
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log in to Helm registry
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: Pull and load coordinator images
-        # Pinned by digest for supply-chain safety; must match the `images:`
-        # and `infrastructure.gateway.image` blocks in values.yaml. The
-        # `repo:tag@sha256:digest` form is a valid docker reference where
-        # the runtime resolves by digest — the tag is advisory.
-        run: |
-          COORDINATOR_IMAGES=(
-            "ghcr.io/angzarr-io/angzarr-aggregate:b98e8de@sha256:4799c8b2a85c148fac2368be4328f5cab599e68b14865ba03fe51698ba59b9fe"
-            "ghcr.io/angzarr-io/angzarr-saga:b98e8de@sha256:1b64face0a2f8fc346d506d3ab0d62dcc85bba54e3848aaab3897b808968a119"
-            "ghcr.io/angzarr-io/angzarr-projector:b98e8de@sha256:b9f3a52a37e0e9b3c47b8331d1d8c5f9c68331e655f13579b4bcf591b6f8aea1"
-            "ghcr.io/angzarr-io/angzarr-process-manager:b98e8de@sha256:49af52fe739d6b3552e32a8f182584e8bc9e7d57674089d2b57e9b102217f954"
-            "ghcr.io/angzarr-io/angzarr-stream-dev:ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:bb0bb16dc8b1039ba0cf63f38e6dbea380a389fbaae3143deaf70b4e0c38778f"
-            "ghcr.io/angzarr-io/angzarr-log-dev:ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:bf96d6a207d9328c3792c6d15d8a06eee2b3711b81beb74809bde41e20cfdf64"
-            "ghcr.io/angzarr-io/angzarr-grpc-gateway:b98e8de@sha256:87bda37983c8ebafe59d1b7e5b436962e67fae93b28cbcba4950c641620c8b30"
-          )
-          for ref in "${COORDINATOR_IMAGES[@]}"; do
-            echo "Pulling $ref..."
-            docker pull "$ref"
-            # Docker stores digest-pulled images under their digest ref; add a
-            # tag ref so `kind load docker-image` can reach it by name.
-            tagged="${ref%@sha256:*}"
-            docker tag "$ref" "$tagged"
-            kind load docker-image "$tagged" --name angzarr-test
-          done
-
-      - name: Download image artifacts
-        if: github.event_name == 'pull_request'
-        uses: actions/download-artifact@v4
+      - run: just -f justfile.container ci-setup
+      - run: just ci-images
+        env:
+          SKAFFOLD_PUSH: ${{ github.event_name != 'pull_request' }}
+      - uses: actions/upload-artifact@v4
         with:
-          path: /tmp/images
-          pattern: image-*
+          name: build-artifacts
+          path: build.json
 
-      - name: Load example images into Kind (PR)
-        if: github.event_name == 'pull_request'
-        run: |
-          for tarball in /tmp/images/image-*/*.tar; do
-            echo "Loading $tarball..."
-            kind load image-archive "$tarball" --name angzarr-test
-          done
-
-      - name: Pull and load example images (push)
-        if: github.event_name != 'pull_request'
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          TARGETS=(agg-player agg-table agg-hand agg-tournament agg-reservation pmg-reservation saga-table-hand saga-table-player saga-hand-table saga-hand-player prj-training)
-          for target in "${TARGETS[@]}"; do
-            img="${{ env.IMAGE_PREFIX }}-${target}:${TAG}"
-            echo "Pulling $img..."
-            docker pull "$img"
-            kind load docker-image "$img" --name angzarr-test
-          done
-
-      - name: Deploy infrastructure
-        run: |
-          echo "=== Deploying PostgreSQL ==="
-          helm upgrade --install angzarr-db \
-            oci://ghcr.io/angzarr-io/charts/angzarr-db-postgres-simple \
-            --namespace angzarr-test \
-            --wait --timeout 2m
-
-          echo "=== Deploying RabbitMQ ==="
-          helm upgrade --install angzarr-mq \
-            oci://ghcr.io/angzarr-io/charts/angzarr-mq-rabbitmq-simple \
-            --namespace angzarr-test \
-            --wait --timeout 3m
-
-      - name: Create gateway descriptor configmap
-        run: |
-          # Generate protobuf descriptor set for the gRPC gateway
-          # The gateway uses this to transcode HTTP/JSON to gRPC
-          cd angzarr-project/proto
-          buf build -o /tmp/types.bin
-          cd ../..
-          kubectl create configmap gateway-descriptor \
-            --from-file=types.bin=/tmp/types.bin \
-            --namespace angzarr-test
-
-      - name: Deploy applications
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          helm upgrade --install poker \
-            oci://ghcr.io/angzarr-io/charts/angzarr \
-            --version 0.5.1 \
-            -f values.yaml \
-            -f deploy/k8s/helm/values-ci.yaml \
-            --set "applications.business[0].image.tag=${TAG}" \
-            --set "applications.business[1].image.tag=${TAG}" \
-            --set "applications.business[2].image.tag=${TAG}" \
-            --set "applications.business[3].image.tag=${TAG}" \
-            --set "applications.business[4].image.tag=${TAG}" \
-            --set "applications.sagas[0].image.tag=${TAG}" \
-            --set "applications.sagas[1].image.tag=${TAG}" \
-            --set "applications.sagas[2].image.tag=${TAG}" \
-            --set "applications.sagas[3].image.tag=${TAG}" \
-            --set "applications.processManagers[0].image.tag=${TAG}" \
-            --set "applications.projectors[0].image.tag=${TAG}" \
-            --namespace angzarr-test \
-            --wait --timeout 5m
-
-      - name: Wait for pods to be ready
-        run: |
-          echo "Waiting for all pods to be ready..."
-          kubectl wait --for=condition=ready pod --all \
-            -n angzarr-test --timeout=120s || true
-          echo ""
-          echo "=== Pod Status ==="
-          kubectl get pods -n angzarr-test -o wide
-
-      - name: Run smoke tests
-        run: |
-          # Smoke test: verify all pods are running and services are healthy
-          echo "=== Verifying all pods are ready ==="
-          kubectl wait --for=condition=ready pod --all \
-            -n angzarr-test --timeout=30s
-
-          echo ""
-          echo "=== Pod Status ==="
-          kubectl get pods -n angzarr-test
-
-          echo ""
-          echo "=== Smoke Test: Gateway Reachable ==="
-          # Gateway is gRPC-only; verify the port is open via NodePort
-          nc -z localhost 9084 && echo "Gateway port 9084 OK" || {
-            echo "ERROR: Gateway port 9084 not reachable"
-            exit 1
-          }
-
-      - name: Generate protos for acceptance tests
-        run: |
-          cd angzarr-client-python
-          buf generate
-          python scripts/generate_protos.py
-
-      - name: Run acceptance tests
-        run: |
-          # Wait for player aggregate pod to be ready
-          echo "Waiting for player aggregate pod..."
-          kubectl wait --for=condition=ready pod -l angzarr.io/domain=player \
-            -n angzarr-test --timeout=180s || {
-            echo "Player aggregate pod not ready, checking status..."
-            kubectl get pods -n angzarr-test
-            exit 1
-          }
-
-          # Port-forward all aggregate coordinators. Every domain the tests
-          # address needs its own forward — CommandClient dispatches by
-          # domain to the matching stub; unmapped domains silently fall
-          # back to PLAYER_URL and get dispatched to the wrong pod.
-          kubectl port-forward -n angzarr-test svc/player-aggregate 1310:1310 &
-          kubectl port-forward -n angzarr-test svc/table-aggregate 1311:1310 &
-          kubectl port-forward -n angzarr-test svc/hand-aggregate 1312:1310 &
-          kubectl port-forward -n angzarr-test svc/tournament-aggregate 1313:1310 &
-          kubectl port-forward -n angzarr-test svc/reservation-aggregate 1314:1310 &
-          sleep 3
-
-          # Run behave acceptance tests
-          export PLAYER_URL=localhost:1310
-          export TABLE_URL=localhost:1311
-          export HAND_URL=localhost:1312
-          export TOURNAMENT_URL=localhost:1313
-          export RESERVATION_URL=localhost:1314
-          # Cluster-tier steps (kubectl logs/delete) default to the `angzarr`
-          # namespace for local dev; the CI helm release lands in `angzarr-test`.
-          export ANGZARR_NAMESPACE=angzarr-test
-          uv run behave --stage acceptance \
-            angzarr-project/features/example/acceptance/ \
-            --tags="~@wip" --no-capture
-
-      - name: Show logs on failure
-        if: failure()
-        run: |
-          echo "=== Pod Status ==="
-          kubectl get pods -n angzarr-test -o wide
-          echo ""
-          echo "=== Recent Events ==="
-          kubectl get events -n angzarr-test --sort-by='.lastTimestamp' | tail -30
-          echo ""
-          echo "=== Pod Logs ==="
-          for pod in $(kubectl get pods -n angzarr-test -o name 2>/dev/null); do
-            echo "--- $pod ---"
-            kubectl logs $pod -n angzarr-test --all-containers --tail=50 || true
-          done
-
-  summary:
-    name: Summary
+  acceptance:
+    name: Acceptance
     runs-on: ubuntu-latest
-    needs: [test, build-images, acceptance-test]
-    if: always()
+    needs: [test]
     steps:
-      - name: Check results
-        run: |
-          echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Test | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build Images | ${{ needs.build-images.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Acceptance Tests | ${{ needs.acceptance-test.result }} |" >> $GITHUB_STEP_SUMMARY
-
-          # All jobs must pass to merge
-          if [ "${{ needs.test.result }}" != "success" ] || \
-             [ "${{ needs.build-images.result }}" != "success" ] || \
-             [ "${{ needs.acceptance-test.result }}" != "success" ]; then
-            echo "One or more required jobs failed"
-            exit 1
-          fi
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-cli
+          ref: ${{ env.ANGZARR_CLI_REF }}
+          path: .deps/angzarr-cli
+      - uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-router
+          ref: ${{ env.ANGZARR_ROUTER_REF }}
+          path: .deps/angzarr-router
+      - uses: extractions/setup-just@v2
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v6
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+      - uses: yokawasa/action-setup-kube-tools@v0.11.2
+        with:
+          setup-tools: |
+            skaffold
+            helm
+      - run: just -f justfile.container ci-setup
+      - run: just ci-acceptance

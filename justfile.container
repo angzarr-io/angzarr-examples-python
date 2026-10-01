@@ -35,6 +35,14 @@ cli-build:
     mkdir -p .tools/bin
     cd {{CLI_SRC}} && go build -o {{justfile_directory()}}/.tools/bin/angzarr .
 
+# Build the angzarr-router FFI cdylib (Rust) in the router checkout.
+router-build:
+    cd {{ROUTER_SRC}} && cargo build -p angzarr-router-ffi
+
+# Everything a fresh checkout needs before tests or image builds: the CLI, the
+# router cdylib and binding, generated code and the environment.
+ci-setup: cli-build router-build vendor-router install
+
 # Stage the angzarr-router Python binding under vendor/angzarr-router-ffi: its
 # Python sources, the cdylib, and its generated protobuf tree. The framework
 # protos come from this repo's angzarr-project pin (not the router's), so the

@@ -23,6 +23,7 @@ from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2_grpc as _pm
 from angzarr_blackjack._gen.io.angzarr.v1 import projector_pb2_grpc as _prj_grpc
 from angzarr_blackjack._gen.io.angzarr.v1 import saga_pb2 as _saga
 from angzarr_blackjack._gen.io.angzarr.v1 import saga_pb2_grpc as _saga_grpc
+from angzarr_blackjack._gen.io.angzarr.v1 import upcaster_pb2 as _up
 from angzarr_blackjack._gen.io.angzarr.v1 import upcaster_pb2_grpc as _up_grpc
 from angzarr_blackjack._runtime.hosts import AggregateHost, ProcessManagerHost
 from angzarr_blackjack.errors import status_message
@@ -61,6 +62,14 @@ class CommandHandlerServicer(_ch_grpc.CommandHandlerServiceServicer):
 
     def Replay(self, request, context):  # noqa: N802
         return _call(context, self._host.replay, request)
+
+
+class PassThroughUpcaster:
+    """The upcaster of a domain with no legacy event shapes: events come back
+    unchanged."""
+
+    def upcast(self, request: _up.UpcastRequest) -> _up.UpcastResponse:
+        return _up.UpcastResponse(events=request.events)
 
 
 class UpcasterServicer(_up_grpc.UpcasterServiceServicer):

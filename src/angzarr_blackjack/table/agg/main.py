@@ -1,4 +1,5 @@
-"""agg-table: the TableAggregate."""
+"""agg-table: the TableAggregate, with a pass-through UpcasterService (the
+table has no legacy event shapes) for coordinators that upcast on load."""
 
 from __future__ import annotations
 
@@ -9,9 +10,14 @@ from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1.table_aggregate_ang
     new_table_aggregate_dispatch,
 )
 from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
+from angzarr_blackjack._gen.io.angzarr.v1 import upcaster_pb2_grpc as _up_grpc
 from angzarr_blackjack._runtime.hosts import AggregateHost
 from angzarr_blackjack._runtime.server import configure_logging, run_server
-from angzarr_blackjack._runtime.servicers import CommandHandlerServicer
+from angzarr_blackjack._runtime.servicers import (
+    CommandHandlerServicer,
+    PassThroughUpcaster,
+    UpcasterServicer,
+)
 from angzarr_blackjack.table.agg.handler import TableAggregate
 
 DOMAIN = "table"
@@ -33,6 +39,12 @@ def main() -> None:
             domain=DOMAIN,
             default_port=DEFAULT_PORT,
             logger=structlog.get_logger(),
+            extra_servicers=[
+                (
+                    _up_grpc.add_UpcasterServiceServicer_to_server,
+                    UpcasterServicer(PassThroughUpcaster()),
+                )
+            ],
         )
 
 
