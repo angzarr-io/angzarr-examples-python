@@ -390,8 +390,14 @@ def test_rejection_reasons_carry_their_code():
     assert rejection_code(": empty head") == ": empty head"
 
 
+def test_type_names_accept_any_prefix():
+    assert type_name("io.angzarr.v1.Notification") == "io.angzarr.v1.Notification"
+    assert type_name("/io.angzarr.v1.Notification") == "io.angzarr.v1.Notification"
+    assert type_name("type.googleapis.com/a/io.x.Y") == "io.x.Y"
+
+
 def test_current_root_needs_a_cover():
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="^no cover is being handled$"):
         current_root()
     with handling(cover("table", TABLE)):
         assert current_root() == TABLE

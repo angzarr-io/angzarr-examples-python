@@ -48,6 +48,7 @@ VALID = dict(seats=3, decks=1, min_bet=10, max_bet=100, min_buy_in=100, max_buy_
         ({"min_buy_in": 0}, False),
         ({"min_buy_in": 1000, "max_buy_in": 100}, False),
         ({"min_buy_in": 10}, True),
+        ({"min_buy_in": 500, "max_buy_in": 500}, True),
         ({"min_buy_in": 5}, False),
     ],
 )
