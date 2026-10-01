@@ -38,7 +38,6 @@ def build_host(router: _az.Router) -> AggregateHost:
                 _p.CashOutCredited, handler.handle_cash_out_credited
             ),
         },
-        sequenced=frozenset({_p.RoundResultRecorded.DESCRIPTOR.full_name}),
     )
 
 

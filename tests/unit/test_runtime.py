@@ -291,17 +291,6 @@ def test_pass_through_upcaster_returns_events_unchanged():
     assert list(servicers.PassThroughUpcaster().upcast(request).events) == [page]
 
 
-def test_a_snapshot_without_state_leaves_the_state_alone(router):
-    from angzarr_blackjack._runtime.hosts import fold
-
-    host = player_main.build_host(router)
-    state = fold(
-        host.dispatch.rebuilder,
-        _t.EventBook(snapshot=_t.Snapshot(sequence=3)),
-    )
-    assert state == _p.PlayerState()
-
-
 def test_ledger_query_service_reads_the_ledger(router):
     from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import ledger_pb2 as _l
     from angzarr_blackjack.prj_ledger import main as ledger_main
@@ -336,19 +325,23 @@ def test_undo_retracts_only_the_named_recording(router):
     assert response == _ch.BusinessResponse()
 
 
-def test_process_state_folds_from_its_snapshot(router):
-    from angzarr_blackjack._runtime.hosts import fold
-
+def test_process_state_replays_from_its_snapshot(router):
     host = buy_in_main.build_host(router)
     snapshot_state = _b.BuyInState(buy_in_id=H1, amount=500)
     book = _t.EventBook(
         snapshot=_t.Snapshot(sequence=0, state=_az.pack(snapshot_state))
     )
-    book.pages.add()  # a page carrying no event is skipped
-    book.pages.add(event=_az.pack(_b.BuyInFundsHeld(buy_in_id=H1)))
-    state = fold(host.dispatch.rebuilder, book)
+    book.pages.add(event=_az.pack(_b.BuyInFundsHeld(buy_in_id=H1))).header.sequence = 1
+    state = host.rebuild(book)
     assert (state.buy_in_id, state.amount) == (H1, 500)
     assert state.phase == _b.BuyInState.Phase.PHASE_AWAITING_SEAT
-    assert fold(host.dispatch.rebuilder, _t.EventBook(snapshot=_t.Snapshot())) == (
-        _b.BuyInState()
+    assert host.rebuild(None) == _b.BuyInState()
+
+
+def test_recorded_results_keep_their_page_sequence(router):
+    host = player_main.build_host(router)
+    state = host.rebuild(
+        registered(_p.RoundResultRecorded(table_root=TABLE, round=1, wager=20, net=20))
     )
+    (result,) = state.round_results.values()
+    assert result.sequence == 2

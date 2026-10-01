@@ -16,7 +16,6 @@ from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as
 from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import event_book, unpack
-from angzarr_blackjack._runtime.hosts import applied_page_sequence
 from angzarr_blackjack.errors import rejection_code
 from angzarr_blackjack.player.agg import logic as L
 
@@ -196,7 +195,7 @@ class PlayerAggregate:
         L.apply_loyalty_enrolled(state, event)
 
     def apply_round_result_recorded(self, state, event):
-        L.apply_round_result_recorded(state, event, applied_page_sequence())
+        L.apply_round_result_recorded(state, event, _az.current_page().sequence)
 
     def apply_round_result_retracted(self, state, event):
         L.apply_round_result_retracted(state, event)
