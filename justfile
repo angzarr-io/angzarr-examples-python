@@ -37,8 +37,12 @@ _container +ARGS: _build-image
     else
         # Rootless Docker maps the container's root to the host user, so files
         # written in the mounted repo stay host-owned only when the container
-        # runs as root; rootful Docker needs the host UID/GID instead.
-        if docker info 2>/dev/null | grep -qi rootless; then
+        # runs as root; rootful Docker needs the host UID/GID instead. The
+        # security options are read whole before matching: under pipefail,
+        # `docker info | grep -q` fails whenever grep exits before docker
+        # finishes writing.
+        security_options="$(docker info --format '{{{{json .SecurityOptions}}')"
+        if [[ "${security_options}" == *rootless* ]]; then
             user_flag=(-u 0:0)
         else
             user_flag=(-u {{UID}}:{{GID}})
