@@ -1,0 +1,14 @@
+# Only what the images copy: src/, pyproject.toml, uv.lock and the prepared
+# angzarr-client package.
+.venv
+.git
+.uv-cache
+.tools
+mutants
+vendor
+.deps/angzarr-client-python/.git
+.deps/angzarr-client-python/.venv
+.deps/angzarr-client-python/.router-target
+.deps/angzarr-client-python/angzarr-router
+.deps/angzarr-client-python/angzarr-project
+angzarr-project

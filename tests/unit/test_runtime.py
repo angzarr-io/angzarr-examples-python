@@ -2,17 +2,17 @@
 Replay, undo, PM compensation, the handled cover) and how a rejection is
 reported over gRPC."""
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 import grpc
 import pytest
 
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import buy_in_pb2 as _b
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
-from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch
-from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2 as _pm
-from angzarr_blackjack._gen.io.angzarr.v1 import saga_pb2 as _saga
-from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
+from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2 as _ch
+from angzarr_client.proto.io.angzarr.v1 import process_manager_pb2 as _pm
+from angzarr_client.proto.io.angzarr.v1 import saga_pb2 as _saga
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime import servicers
 from angzarr_blackjack._runtime.books import unpack
 from angzarr_blackjack.player.agg import main as player_main
@@ -278,7 +278,7 @@ def test_unconsumed_events_are_acknowledged(router):
 
 
 def test_pass_through_upcaster_returns_events_unchanged():
-    from angzarr_blackjack._gen.io.angzarr.v1 import upcaster_pb2 as _up
+    from angzarr_client.proto.io.angzarr.v1 import upcaster_pb2 as _up
 
     page = _t.EventPage(event=_az.pack(_table.TableCreated(name="Main")))
     request = _up.UpcastRequest(domain="table", events=[page])

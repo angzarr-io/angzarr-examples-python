@@ -10,12 +10,13 @@
 #   projector-player-table-ledger  -> angzarr_blackjack.prj_ledger.main
 #
 # The build context must hold the generated ``src/angzarr_blackjack/_gen`` and
-# the staged ``vendor/angzarr-router-ffi`` (`just install` / `just vendor-router`).
+# the prepared angzarr-client checkout ``.deps/angzarr-client-python``
+# (`just ci-setup`): its package, with framework protos and router library.
 #
 # Each target launches its module with ``uv run`` (uv resolves/paths the locked
 # deps); the package stays on PYTHONPATH so launch uses ``--no-sync``. Components
-# dispatch through the FFI router (``angzarr_router_ffi``), an editable path dep
-# at ``vendor/angzarr-router-ffi`` whose cdylib is located via ANGZARR_ROUTER_LIB.
+# dispatch through the router binding ``angzarr_client.router``; its library
+# ships inside the angzarr-client package.
 #
 # Build: docker build -t examples-python-agg-player --target agg-player .
 
@@ -42,15 +43,17 @@ ENV PATH=/root/.local/bin:$PATH
 WORKDIR /app
 
 # ============================================================================
-# Dependencies - resolve the locked env (incl. the editable router-ffi path
-# source: its Python binding + cdylib under vendor/). Project itself is not
+# Dependencies - resolve the locked env (incl. the angzarr-client path source:
+# its package, protos and router library). Project itself is not
 # installed; the package is consumed from ``src`` via PYTHONPATH so the build
 # caches deps independently of source churn.
 # ============================================================================
 FROM base AS deps
 
 COPY pyproject.toml uv.lock ./
-COPY vendor ./vendor
+COPY .deps/angzarr-client-python/pyproject.toml .deps/angzarr-client-python/VERSION \
+     .deps/angzarr-client-python/README.md ./.deps/angzarr-client-python/
+COPY .deps/angzarr-client-python/angzarr_client ./.deps/angzarr-client-python/angzarr_client
 
 RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     uv sync --no-dev --no-install-project
@@ -77,16 +80,15 @@ USER angzarr
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/src \
-    ANGZARR_ROUTER_LIB=/app/vendor/angzarr-router-ffi/libangzarr_router_ffi.so
+    PYTHONPATH=/app/src
 
 # ============================================================================
-# App base - the resolved venv + router-ffi cdylib + the blackjack package. Every
+# App base - the resolved venv + angzarr-client + the blackjack package. Every
 # component target shares this; each only sets its PORT + entrypoint module.
 # ============================================================================
 FROM runtime-base AS app
 COPY --from=deps   --chown=angzarr:angzarr /app/.venv  /app/.venv
-COPY --from=deps   --chown=angzarr:angzarr /app/vendor /app/vendor
+COPY --from=deps   --chown=angzarr:angzarr /app/.deps  /app/.deps
 COPY --from=source --chown=angzarr:angzarr /app/src    /app/src
 # uv launches each component (`uv run` resolves/paths the deps from the locked
 # env). It needs the uv binary + the project manifest/lock alongside the

@@ -73,8 +73,8 @@ default:
 cli-build:
     just _container cli-build
 
-vendor-router:
-    just _container vendor-router
+client-setup:
+    just -f justfile.container client-setup
 
 proto-gen:
     just _container proto-gen

@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import subprocess
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 import grpc
 from google.protobuf import empty_pb2 as _empty
 
@@ -25,10 +25,10 @@ from angzarr_blackjack._gen.io.angzarr.examples.v1 import ledger_pb2 as _l
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import (
     ledger_pb2_grpc as _l_grpc,
 )
-from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch
-from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
-from angzarr_blackjack._gen.io.angzarr.v1 import query_pb2_grpc as _q_grpc
-from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
+from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2 as _ch
+from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
+from angzarr_client.proto.io.angzarr.v1 import query_pb2_grpc as _q_grpc
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack.player.agg import main as player_main
 from angzarr_blackjack.table.agg import main as table_main
 

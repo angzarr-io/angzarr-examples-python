@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import structlog
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 from angzarr_blackjack._gen.io.angzarr.examples.v1.player_table_saga_angzarr import (
     register_player_table_saga,
 )
-from angzarr_blackjack._gen.io.angzarr.v1 import saga_pb2_grpc as _saga_grpc
+from angzarr_client.proto.io.angzarr.v1 import saga_pb2_grpc as _saga_grpc
 from angzarr_blackjack._runtime.server import configure_logging, run_server
 from angzarr_blackjack._runtime.servicers import SagaServicer
 from angzarr_blackjack.player.saga_table.handler import PlayerTableSaga

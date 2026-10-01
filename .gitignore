@@ -49,3 +49,4 @@ vendor/
 .agents/
 .codex/config.toml
 build.json
+.deps/

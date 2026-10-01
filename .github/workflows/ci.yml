@@ -9,12 +9,11 @@ on:
   workflow_dispatch:
 
 env:
-  # The angzarr CLI (codegen plugin) and angzarr-router (Python binding +
-  # cdylib) are built from source at these refs.
-  ANGZARR_CLI_REF: rem/review-2026-09
-  ANGZARR_ROUTER_REF: rem/review-2026-09
+  # The angzarr CLI (codegen plugin) is built from source at this ref;
+  # angzarr-client-python is checked out and built by `just client-setup`
+  # at the revision justfile.container pins.
+  ANGZARR_CLI_REF: 734b1bbdd4e913f19f8cb87f3f1dd95c06053d99
   ANGZARR_CLI_SRC: .deps/angzarr-cli
-  ANGZARR_ROUTER_SRC: .deps/angzarr-router
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -41,12 +40,6 @@ jobs:
           repository: angzarr-io/angzarr-cli
           ref: ${{ env.ANGZARR_CLI_REF }}
           path: .deps/angzarr-cli
-      - uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-router
-          ref: ${{ env.ANGZARR_ROUTER_REF }}
-          path: .deps/angzarr-router
-          submodules: true
       - uses: extractions/setup-just@v2
       - uses: bufbuild/buf-action@v1
         with:
@@ -76,12 +69,6 @@ jobs:
           repository: angzarr-io/angzarr-cli
           ref: ${{ env.ANGZARR_CLI_REF }}
           path: .deps/angzarr-cli
-      - uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-router
-          ref: ${{ env.ANGZARR_ROUTER_REF }}
-          path: .deps/angzarr-router
-          submodules: true
       - uses: extractions/setup-just@v2
       - uses: bufbuild/buf-action@v1
         with:
@@ -127,12 +114,6 @@ jobs:
           repository: angzarr-io/angzarr-cli
           ref: ${{ env.ANGZARR_CLI_REF }}
           path: .deps/angzarr-cli
-      - uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-router
-          ref: ${{ env.ANGZARR_ROUTER_REF }}
-          path: .deps/angzarr-router
-          submodules: true
       - uses: extractions/setup-just@v2
       - uses: bufbuild/buf-action@v1
         with:

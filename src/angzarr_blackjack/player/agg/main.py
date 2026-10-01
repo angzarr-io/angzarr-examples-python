@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import structlog
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 from angzarr_blackjack._gen.io.angzarr.examples.v1.player_aggregate_angzarr import (
     new_player_aggregate_dispatch,
 )
-from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
-from angzarr_blackjack._gen.io.angzarr.v1 import upcaster_pb2_grpc as _up_grpc
+from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
+from angzarr_client.proto.io.angzarr.v1 import upcaster_pb2_grpc as _up_grpc
 from angzarr_blackjack._runtime.hosts import AggregateHost
 from angzarr_blackjack._runtime.server import configure_logging, run_server
 from angzarr_blackjack._runtime.servicers import (

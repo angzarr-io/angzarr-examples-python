@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import structlog
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import (
     ledger_pb2_grpc as _l_grpc,
 )
 from angzarr_blackjack._gen.io.angzarr.examples.v1.ledger_projector_angzarr import (
     new_ledger_projector_dispatch,
 )
-from angzarr_blackjack._gen.io.angzarr.v1 import projector_pb2_grpc as _prj_grpc
+from angzarr_client.proto.io.angzarr.v1 import projector_pb2_grpc as _prj_grpc
 from angzarr_blackjack._runtime.server import configure_logging, run_server
 from angzarr_blackjack._runtime.servicers import ProjectorServicer
 from angzarr_blackjack.prj_ledger.handler import LedgerProjectorHost

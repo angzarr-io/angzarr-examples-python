@@ -9,14 +9,14 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 # The six deployable components (Containerfile target == image suffix).
 COMPONENTS := "agg-player agg-table pmg-buy-in saga-player-table saga-table-player projector-player-table-ledger"
 
-# Source checkouts for the angzarr CLI (codegen plugin) and the angzarr-router
-# Python binding + cdylib. Neither is a published package yet.
+# The angzarr CLI (codegen plugin) is built from a source checkout. The
+# angzarr-client package (router binding, framework protos, codegen templates)
+# is a path dependency on a checkout of angzarr-client-python at CLIENT_REF:
+# its framework protos and router library are generated at build time and are
+# not in git, so a plain git dependency would install without them.
 CLI_SRC := env_var_or_default("ANGZARR_CLI_SRC", "../../angzarr-cli/main")
-ROUTER_SRC := env_var_or_default("ANGZARR_ROUTER_SRC", "../../angzarr-router/main")
-ROUTER_CDYLIB := env_var_or_default("ANGZARR_ROUTER_CDYLIB", ROUTER_SRC + "/target/debug/libangzarr_router_ffi.so")
-
-# The binding's cdylib, once staged by vendor-router.
-ROUTER_LIB := justfile_directory() + "/vendor/angzarr-router-ffi/libangzarr_router_ffi.so"
+CLIENT_REF := "36490fab2b1f5827d9e23f96a650f598b89a2859"
+CLIENT_SRC := justfile_directory() + "/.deps/angzarr-client-python"
 
 # Features: the in-process tiers and the cluster tier, read straight from the
 # angzarr-project submodule.
@@ -35,53 +35,48 @@ cli-build:
     mkdir -p .tools/bin
     cd {{CLI_SRC}} && go build -o {{justfile_directory()}}/.tools/bin/angzarr .
 
-# Build the angzarr-router FFI cdylib (Rust) in the router checkout.
-# Needs the router checkout's angzarr-project submodule (its build scripts
-# and buf workspace read the framework protos from it), protoc and the
-# protobuf well-known types (`ci-system-deps`).
-router-build:
-    cd {{ROUTER_SRC}} && cargo build -p angzarr-router-ffi
-
-# System packages a fresh runner lacks for router-build: protoc and the
-# protobuf well-known type definitions.
+# System packages a fresh runner lacks for building the router library:
+# protoc and the protobuf well-known type definitions.
 ci-system-deps:
     sudo apt-get update -qq
     sudo apt-get install -y -qq protobuf-compiler libprotobuf-dev
 
 # Everything a fresh checkout needs before tests or image builds: the CLI, the
-# router cdylib and binding, generated code and the environment.
-ci-setup: cli-build router-build vendor-router install
+# angzarr-client checkout (framework protos and router library) and generated
+# code with the environment.
+ci-setup: cli-build client-setup install
 
-# Stage the angzarr-router Python binding under vendor/angzarr-router-ffi: its
-# Python sources, the cdylib, and its generated protobuf tree. The framework
-# protos come from this repo's angzarr-project pin (not the router's), so the
-# binding and the example register byte-identical framework descriptors.
-vendor-router:
-    rm -rf vendor/angzarr-router-ffi
-    mkdir -p vendor/angzarr-router-ffi/angzarr_router_ffi
-    cp {{ROUTER_SRC}}/bindings/python/pyproject.toml vendor/angzarr-router-ffi/
-    cp {{ROUTER_SRC}}/bindings/python/angzarr_router_ffi/*.py vendor/angzarr-router-ffi/angzarr_router_ffi/
-    cp {{ROUTER_CDYLIB}} vendor/angzarr-router-ffi/libangzarr_router_ffi.so
-    buf generate angzarr-project/proto --template tools/router-binding.gen.yaml \
-        --exclude-path angzarr-project/proto/google \
-        --exclude-path angzarr-project/proto/io/angzarr/examples
-    buf generate {{ROUTER_SRC}} --template tools/router-binding.gen.yaml \
-        --path {{ROUTER_SRC}}/proto/io/angzarr/router
-    python3 {{ROUTER_SRC}}/bindings/python/scripts/fixup_gen_imports.py \
-        vendor/angzarr-router-ffi/angzarr_router_ffi/gen
+# Check out angzarr-client-python at CLIENT_REF (with its angzarr-project and
+# angzarr-router submodules) and build what its git tree lacks: the framework
+# protos (angzarr_client/proto) and the router library
+# (angzarr_client/router/_lib), with its own recipes.
+client-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -d "{{CLIENT_SRC}}/.git" ]; then
+        git clone -q https://github.com/angzarr-io/angzarr-client-python "{{CLIENT_SRC}}"
+    fi
+    cd "{{CLIENT_SRC}}"
+    git fetch -q origin
+    git checkout -q "{{CLIENT_REF}}"
+    git submodule update -q --init --depth=1
+    just proto router-lib
 
-# Generate message types, gRPC stubs and angzarr dispatch wiring into
-# src/angzarr_blackjack/_gen, then rewrite the buf imports to relative so the
-# tree is self-contained (never shadows stdlib `io`). google/* is not
-# generated: it comes from the protobuf runtime and googleapis-common-protos,
-# exactly as the binding does.
+# Generate the blackjack message types, gRPC stubs and angzarr dispatch wiring
+# into src/angzarr_blackjack/_gen, then reroot the plugins' path imports:
+# framework protos under angzarr_client.proto, the example protos under the
+# package (never shadowing stdlib `io`).
 proto-gen:
     rm -rf src/angzarr_blackjack/_gen
-    PATH="{{justfile_directory()}}/.tools/bin:$PATH" buf generate --exclude-path angzarr-project/proto/google
-    buf build angzarr-project/proto -o .gen-image.binpb
-    uvx --from protoletariat protol --create-package --in-place --python-out src/angzarr_blackjack/_gen \
-        --exclude-imports-glob 'google/*' raw .gen-image.binpb
-    rm -f .gen-image.binpb
+    PATH="{{justfile_directory()}}/.tools/bin:$PATH" buf generate \
+        --path angzarr-project/proto/io/angzarr/examples
+    touch src/angzarr_blackjack/_gen/__init__.py
+    uv run --project "{{CLIENT_SRC}}" python "{{CLIENT_SRC}}/scripts/fixup_gen_imports.py" \
+        src/angzarr_blackjack/_gen \
+        io.angzarr.v1=angzarr_client.proto.io.angzarr.v1 \
+        io.angzarr.status=angzarr_client.proto.io.angzarr.status \
+        sererr=angzarr_client.proto.sererr \
+        io.angzarr.examples.v1=angzarr_blackjack._gen.io.angzarr.examples.v1
 
 # Generate code and sync the environment.
 install *FLAGS: proto-gen
@@ -90,24 +85,24 @@ install *FLAGS: proto-gen
 # Native unit tests: pure handler logic, rules, shoe golden vectors, ledger
 # property tests.
 test-unit:
-    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" uv run pytest tests/unit
+    uv run pytest tests/unit
 
 # The behave unit tier: every blackjack and blackjack-framework scenario, run
 # in-process through the router binding. Undefined or pending steps fail.
 test-example-unit:
-    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" uv run behave --stage unit --format progress \
+    uv run behave --stage unit --format progress \
         --no-skipped --tags="not @wip" {{UNIT_FEATURES}}
 
 # The cluster acceptance tier against a deployed example. Scenarios that wait
 # on a framework fix (@needs-core-X-NNN) are excluded from the required run.
 test-example-acceptance:
-    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" uv run behave --stage acceptance --format progress \
+    uv run behave --stage acceptance --format progress \
         --tags="not @wip and not @needs-core-*" \
         {{ACCEPTANCE_FEATURES}}
 
 # Parse every acceptance scenario and resolve every step without a cluster.
 acceptance-dry-run:
-    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" uv run behave --stage acceptance --dry-run --format progress \
+    uv run behave --stage acceptance --dry-run --format progress \
         {{ACCEPTANCE_FEATURES}}
 
 # Unit + behave tiers.
@@ -128,7 +123,7 @@ lint:
 
 # Run one component locally (e.g. `just run agg-player`).
 run component:
-    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" PYTHONPATH=src uv run python -m \
+    PYTHONPATH=src uv run python -m \
         "angzarr_blackjack.$(just -f {{justfile()}} _module {{component}})"
 
 [private]
@@ -146,7 +141,7 @@ _module component:
 
 # Drive a short basic-strategy session against a deployed cluster.
 demo-session *ARGS:
-    ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}" PYTHONPATH=.:src uv run python tools/play_session.py {{ARGS}}
+    PYTHONPATH=.:src uv run python tools/play_session.py {{ARGS}}
 
 # Mutation testing (mutmut over the business logic, killed by pytest + the
 # behave bridge). Fails below a 90% kill rate.
@@ -154,6 +149,5 @@ mutation-test:
     #!/usr/bin/env bash
     set -euo pipefail
     rm -rf mutants
-    export ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}"
     uv run mutmut run --max-children "${MUTMUT_CHILDREN:-4}"
     uv run python tools/mutation_gate.py mutants 90

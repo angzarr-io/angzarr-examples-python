@@ -1,7 +1,7 @@
 """In-process coordinator over the real blackjack components.
 
 Every component — wallet, table, buy-in process, the four translators and the
-ledger — is registered on one ``angzarr_router_ffi.Router`` exactly as its
+ledger — is registered on one ``angzarr_client.router.Router`` exactly as its
 deployable registers it (each ``main.build_host`` / ``register``). The
 :class:`World` plays the coordinators' part in memory: it keeps each
 aggregate's event stream, loads prior history (from the latest snapshot, with
@@ -23,13 +23,13 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 from google.protobuf.timestamp_pb2 import Timestamp
 
-from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch
-from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2 as _pm
-from angzarr_blackjack._gen.io.angzarr.v1 import saga_pb2 as _saga
-from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
+from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2 as _ch
+from angzarr_client.proto.io.angzarr.v1 import process_manager_pb2 as _pm
+from angzarr_client.proto.io.angzarr.v1 import saga_pb2 as _saga
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import type_name, unpack
 from angzarr_blackjack._runtime.hosts import AggregateHost
 from angzarr_blackjack.errors import status_message

@@ -23,7 +23,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 
 _LOG = logging.getLogger(__name__)
 EVENTS_EXCHANGE = "angzarr.events"

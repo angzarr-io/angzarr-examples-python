@@ -9,10 +9,8 @@ on:
   workflow_dispatch:
 
 env:
-  ANGZARR_CLI_REF: rem/review-2026-09
-  ANGZARR_ROUTER_REF: rem/review-2026-09
+  ANGZARR_CLI_REF: 734b1bbdd4e913f19f8cb87f3f1dd95c06053d99
   ANGZARR_CLI_SRC: .deps/angzarr-cli
-  ANGZARR_ROUTER_SRC: .deps/angzarr-router
 
 jobs:
   mutation:
@@ -28,12 +26,6 @@ jobs:
           repository: angzarr-io/angzarr-cli
           ref: ${{ env.ANGZARR_CLI_REF }}
           path: .deps/angzarr-cli
-      - uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-router
-          ref: ${{ env.ANGZARR_ROUTER_REF }}
-          path: .deps/angzarr-router
-          submodules: true
       - uses: extractions/setup-just@v2
       - uses: bufbuild/buf-action@v1
         with:

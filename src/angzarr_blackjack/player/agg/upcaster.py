@@ -7,11 +7,11 @@ other event passes through untouched. Served by the agg-player process through
 
 from __future__ import annotations
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
-from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
-from angzarr_blackjack._gen.io.angzarr.v1 import upcaster_pb2 as _up
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
+from angzarr_client.proto.io.angzarr.v1 import upcaster_pb2 as _up
 from angzarr_blackjack._runtime.books import is_type, unpack
 
 

@@ -5,7 +5,7 @@ Codes are part of the cross-language contract (player.proto); FAILED_PRECONDITIO
 marks a state-dependent refusal, INVALID_ARGUMENT a malformed request.
 """
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 import pytest
 
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p

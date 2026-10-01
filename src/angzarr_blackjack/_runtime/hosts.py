@@ -8,11 +8,11 @@ through the binding's generated dispatch.
 from __future__ import annotations
 
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 
-from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch
-from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2 as _pm
-from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
+from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2 as _ch
+from angzarr_client.proto.io.angzarr.v1 import process_manager_pb2 as _pm
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import unpack
 
 

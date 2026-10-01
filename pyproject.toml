@@ -4,16 +4,16 @@ version = "0.1.0"
 description = "Blackjack table example built on the angzarr CQRS/ES framework"
 requires-python = ">=3.11"
 dependencies = [
-    # The FFI router binding every component dispatches through. It is not a
-    # published package; `just vendor-router` stages it (binding source, its
-    # generated framework protos and the cdylib) under vendor/, consumed here as
-    # an editable path source. The cdylib is located via ANGZARR_ROUTER_LIB.
-    "angzarr-router-ffi",
-    # The 7.x runtime the protocolbuffers/python v35.1 gencode targets (the
-    # generated _gen embeds a runtime-version check) and the binding pins.
+    # The router binding (angzarr_client.router), the framework protos
+    # (angzarr_client.proto) and the codegen templates. Not released yet:
+    # `just client-setup` checks out angzarr-client-python at CLIENT_REF and
+    # builds its protos and router library, consumed here as a path source.
+    "angzarr-client",
+    # The 7.x runtime the protocolbuffers/python v35.1 gencode targets.
     "protobuf>=7.35.1,<8",
-    "grpcio>=1.60.0",
-    "grpcio-health-checking>=1.60.0",
+    # grpc/python v1.76.0 gencode checks the runtime is at least that version.
+    "grpcio>=1.76.0",
+    "grpcio-health-checking>=1.76.0",
     "structlog>=24.0.0",
 ]
 
@@ -31,7 +31,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-angzarr-router-ffi = { path = "vendor/angzarr-router-ffi", editable = true }
+angzarr-client = { path = ".deps/angzarr-client-python", editable = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -51,7 +51,7 @@ extend-exclude = '''
 (
     angzarr-project
     | mutants
-    | vendor
+    | \.deps
     | _gen
 )
 '''
@@ -73,7 +73,6 @@ do_not_mutate = [
 # The bridge runs behave over the submodule's features with the unit steps,
 # through the staged router binding.
 also_copy = [
-    "vendor/",
     "unit_steps/",
     "unit_environment.py",
     "angzarr-project/features/",
@@ -84,7 +83,7 @@ also_copy = [
 extend-exclude = [
     "**/_gen/**",
     "angzarr-project",
-    "vendor",
+    ".deps",
     "mutants",
 ]
 

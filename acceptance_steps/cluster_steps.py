@@ -40,7 +40,7 @@ from acceptance_steps._play import (
 from acceptance_steps._world import eventually
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
-from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import type_name, unpack
 from angzarr_blackjack.cards import format_card, parse_card
 from angzarr_blackjack.player.agg import logic

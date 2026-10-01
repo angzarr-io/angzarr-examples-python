@@ -6,7 +6,7 @@ that is wrong whatever the state is INVALID_ARGUMENT.
 
 from __future__ import annotations
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 
 
 class Rejection(_az.CodedError):

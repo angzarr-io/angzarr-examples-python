@@ -28,26 +28,25 @@ shoe (SplitMix64 + Fisher–Yates, exactly as `cards.proto` pins it) and hand
 values.
 
 Each component implements the handler interface the angzarr CLI generates from
-the protos (`src/angzarr_blackjack/_gen`, not committed) and is registered on
-the angzarr-router Python binding (`angzarr_router_ffi`). `_runtime/` hosts
-each component behind its framework gRPC service; commands, rejections,
-undo, facts and `Replay` all dispatch through the binding, and handlers read
-the cover they are handling from `angzarr_router_ffi.current_cover()`.
+the protos with angzarr-client-python's codegen templates
+(`src/angzarr_blackjack/_gen`, not committed) and is registered on the router
+binding `angzarr_client.router`; framework protos come from
+`angzarr_client.proto`. `_runtime/` hosts each component behind its framework
+gRPC service; commands, rejections, undo, facts and `Replay` all dispatch
+through the binding, and handlers read the cover they are handling from their
+context (`cctx.cover`, a `PageContext`, or `angzarr_client.router.current_cover()`).
 
 ## Setup
 
-The CLI and the router binding are built from source checkouts:
+The CLI is built from a source checkout; angzarr-client is not released yet,
+so `client-setup` checks out angzarr-client-python at the pinned revision
+(`.deps/angzarr-client-python`) and builds its framework protos and router
+library, and the project depends on that checkout:
 
 ```bash
 export ANGZARR_CLI_SRC=../../angzarr-cli/main
-export ANGZARR_ROUTER_SRC=../../angzarr-router/main
-just -f justfile.container ci-setup     # cli-build, router-build, vendor-router, install
+just -f justfile.container ci-setup     # cli-build, client-setup, install
 ```
-
-`vendor-router` stages the binding under `vendor/angzarr-router-ffi`, with its
-framework protos generated from this repo's `angzarr-project` pin so the
-binding and the example register byte-identical descriptors. Set
-`ANGZARR_ROUTER_LIB` to the staged cdylib when running outside the recipes.
 
 ## Tests
 

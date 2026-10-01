@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
-from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch
-from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
+from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2 as _ch
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import event_book, unpack
 from angzarr_blackjack.errors import rejection_code
 from angzarr_blackjack.player.agg import logic as L

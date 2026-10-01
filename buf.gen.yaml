@@ -1,24 +1,31 @@
-# Generates the message types (pb2), the gRPC stubs (pb2_grpc) and the angzarr
-# dispatch wiring (*_angzarr.py) into the package's gitignored _gen/ tree. The
-# angzarr emitter writes relative imports; protoletariat (proto-gen recipe)
-# rewrites the buf pb2/grpc imports the same way, so the whole tree is
-# self-contained under angzarr_blackjack._gen and never shadows stdlib `io`.
+# Generates the blackjack message types (pb2), gRPC stubs (pb2_grpc) and the
+# angzarr dispatch wiring (*_angzarr.py) into the package's gitignored _gen/
+# tree. Only the example protos are generated (`just proto-gen` passes
+# --path): the framework protos (io/angzarr/v1, sererr) come from the
+# angzarr-client package (angzarr_client.proto), and the wiring imports the
+# router binding as angzarr_client.router — both set by angzarr-client-python's
+# codegen templates.
 #
-# BYTE-IDENTITY (load-bearing). This package imports angzarr_router_ffi, which
-# registers the framework protos (io/angzarr/v1/*, sererr) into the
-# process-global descriptor_pool.Default(). Our _gen registers them too, so the
-# two copies must be byte-identical or they collide ("duplicate file name").
-# `just vendor-router` generates the binding's copy from this repo's
-# angzarr-project pin with the same plugin version and no managed mode, so both
-# copies come from identical inputs.
+# Managed mode only adds a go_package, which the angzarr CLI requires on every
+# file; it changes nothing in the Python output.
 version: v2
 inputs:
   - directory: angzarr-project/proto
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: angzarr.local/gen
 plugins:
   - remote: buf.build/protocolbuffers/python:v35.1
     out: src/angzarr_blackjack/_gen
-  - remote: buf.build/grpc/python:v1.68.1
+  - remote: buf.build/protocolbuffers/pyi:v35.1
+    out: src/angzarr_blackjack/_gen
+  - remote: buf.build/grpc/python:v1.76.0
     out: src/angzarr_blackjack/_gen
   - local: ["angzarr", "codegen", "python"]
     out: src/angzarr_blackjack/_gen
-    opt: paths=source_relative
+    opt:
+      - paths=source_relative
+      - templates=github.com/angzarr-io/angzarr-client-python@36490fab2b1f5827d9e23f96a650f598b89a2859
+    strategy: all

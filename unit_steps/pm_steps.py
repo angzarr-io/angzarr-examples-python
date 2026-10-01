@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import re
 
-import angzarr_router_ffi as _az
+import angzarr_client.router as _az
 from behave import given, then, when
 
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import buy_in_pb2 as _b
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
-from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import unpack
 from unit_steps._harness import (
     PLAYER,
