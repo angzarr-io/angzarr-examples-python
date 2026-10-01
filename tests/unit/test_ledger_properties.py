@@ -19,14 +19,17 @@ from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 a
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import type_name, unpack
-from angzarr_blackjack._runtime.context import handling
 from angzarr_blackjack.player.agg import logic as L
 from angzarr_blackjack.player.agg.handler import PlayerAggregate
 from angzarr_blackjack.table.agg import rules
 from angzarr_blackjack.table.agg.handler import TableAggregate
 
 TABLE_ROOT = b"\x07" * 16
-CCTX = _az.CommandContext(next_sequence=1, had_prior_events=True)
+CCTX = _az.CommandContext(
+    next_sequence=1,
+    had_prior_events=True,
+    cover=_t.Cover(domain="table", root=_t.UUID(value=TABLE_ROOT)),
+)
 HOLD_IDS = [bytes([i]) * 16 for i in range(1, 6)]
 
 _PLAYER_APPLY = {
@@ -140,8 +143,7 @@ def test_wallet_ledger_balances_after_every_event(steps):
 
 
 def _run(table, method, cmd, state):
-    with handling(_t.Cover(domain="table", root=_t.UUID(value=TABLE_ROOT))):
-        book = getattr(table, method)(cmd, state, CCTX)
+    book = getattr(table, method)(cmd, state, CCTX)
     if book is None:
         return
     for page in book.pages:

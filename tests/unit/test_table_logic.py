@@ -9,7 +9,6 @@ import pytest
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import type_name, unpack
-from angzarr_blackjack._runtime.context import handling
 from angzarr_blackjack.cards import next_seed, parse_cards, shuffle
 from angzarr_blackjack.table.agg import rules
 from angzarr_blackjack.table.agg.handler import TableAggregate, cashout_id
@@ -19,7 +18,11 @@ IA = _az.GrpcCode.INVALID_ARGUMENT
 ROOT = uuid.uuid5(uuid.NAMESPACE_OID, "table:Main").bytes
 ALICE, BOB, CAROL = (bytes([n]) * 16 for n in (1, 2, 3))
 B1, B2 = b"\xb1" * 16, b"\xb2" * 16
-CCTX = _az.CommandContext(next_sequence=7, had_prior_events=True)
+CCTX = _az.CommandContext(
+    next_sequence=7,
+    had_prior_events=True,
+    cover=_t.Cover(domain="table", root=_t.UUID(value=ROOT)),
+)
 Phase = _table.TableState.Phase
 Outcome = _table.SeatOutcome.Outcome
 
@@ -142,8 +145,7 @@ def table():
 
 def run(table, method, cmd, state, cctx=CCTX):
     """Run a command; return its events and fold them into ``state``."""
-    with handling(_t.Cover(domain="table", root=_t.UUID(value=ROOT))):
-        book = getattr(table, method)(cmd, state, cctx)
+    book = getattr(table, method)(cmd, state, cctx)
     events = []
     if book is not None:
         for page in book.pages:
@@ -156,8 +158,7 @@ def run(table, method, cmd, state, cctx=CCTX):
 
 def refused(table, method, cmd, state):
     with pytest.raises(_az.CodedError) as info:
-        with handling(_t.Cover(domain="table", root=_t.UUID(value=ROOT))):
-            getattr(table, method)(cmd, state, CCTX)
+        getattr(table, method)(cmd, state, CCTX)
     return info.value
 
 

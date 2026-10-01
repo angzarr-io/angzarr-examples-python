@@ -23,7 +23,6 @@ from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as
 from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2 as _pm
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import deferred_command, event_book, unpack
-from angzarr_blackjack._runtime.context import current_root
 from angzarr_blackjack.errors import rejection_code
 
 BuyInState = _b.BuyInState
@@ -65,7 +64,7 @@ class BuyInProcessManager:
         started = _b.BuyInStarted(
             buy_in_id=event.buy_in_id,
             player_root=event.player_root,
-            table_root=current_root(),
+            table_root=_az.current_cover().root.value,
             seat=event.seat,
             amount=event.amount,
         )

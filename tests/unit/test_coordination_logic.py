@@ -13,13 +13,14 @@ from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1.ledger_projector_angzarr import (
     new_ledger_projector_dispatch,
 )
+from angzarr_blackjack._gen.io.angzarr.v1 import process_manager_pb2 as _pm
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._gen.io.angzarr.v1 import upcaster_pb2 as _up
 from angzarr_blackjack._runtime.books import type_name, unpack
-from angzarr_blackjack._runtime.context import current_root, handling
 from angzarr_blackjack.errors import rejection_code, status_message
 from angzarr_blackjack.player.agg.upcaster import PlayerUpcaster, upcast_book
 from angzarr_blackjack.player.saga_table.handler import PlayerTableSaga
+from angzarr_blackjack.pmg_buy_in import main as buy_in_main
 from angzarr_blackjack.pmg_buy_in.handler import BuyInProcessManager
 from angzarr_blackjack.prj_ledger.handler import LedgerProjectorHost
 from angzarr_blackjack.table.saga_player.handler import (
@@ -79,32 +80,41 @@ def process_event(response, message_class):
     return unpack(page.event, message_class)
 
 
-def test_seat_held_starts_the_buy_in_with_a_decided_hold():
-    pm = BuyInProcessManager()
-    with handling(cover("table", TABLE, "C1")):
-        response = pm.seat_held(
-            _table.SeatHeld(buy_in_id=B1, player_root=ALICE, seat=2, amount=500),
-            _b.BuyInState(),
-            None,
+def seat_held_through_router(prior=()) -> _pm.ProcessManagerHandleResponse:
+    """A SeatHeld from table TABLE dispatched to the buy-in process, with
+    ``prior`` as its own history."""
+    with _az.Router() as router:
+        host = buy_in_main.build_host(router)
+        trigger = _t.EventBook(cover=cover("table", TABLE, "C1"))
+        trigger.pages.add(
+            event=_az.pack(
+                _table.SeatHeld(buy_in_id=B1, player_root=ALICE, seat=2, amount=500)
+            )
         )
+        state = _t.EventBook(cover=cover("buy-in", B1, "C1"))
+        for event in prior:
+            state.pages.add(event=_az.pack(event))
+        return host.handle(
+            _pm.ProcessManagerHandleRequest(trigger=trigger, process_state=state)
+        )
+
+
+def test_seat_held_starts_the_buy_in_with_a_decided_hold():
+    response = seat_held_through_router()
     assert process_event(response, _b.BuyInStarted) == _b.BuyInStarted(
         buy_in_id=B1, player_root=ALICE, table_root=TABLE, seat=2, amount=500
     )
     book, hold = only_command(response, _p.HoldFunds)
-    assert_deferred(book, "player", ALICE)
+    assert book.cover.root.value == ALICE
+    assert book.pages[0].header.WhichOneof("sequence_type") == "angzarr_deferred"
     assert book.pages[0].header.sync_mode == DECISION
     assert hold == _p.HoldFunds(hold_id=B1, table_root=TABLE, amount=500)
 
 
 def test_seat_held_ignored_once_a_buy_in_started():
-    pm = BuyInProcessManager()
-    with handling(cover("table", TABLE)):
-        response = pm.seat_held(
-            _table.SeatHeld(buy_in_id=B1, player_root=ALICE),
-            state_at(Phase.PHASE_AWAITING_HOLD),
-            None,
-        )
-    assert response == type(response)()
+    started = _b.BuyInStarted(buy_in_id=B1, player_root=ALICE, table_root=TABLE)
+    response = seat_held_through_router([started])
+    assert not response.commands and not response.process_events
 
 
 @pytest.mark.parametrize(
@@ -394,15 +404,6 @@ def test_type_names_accept_any_prefix():
     assert type_name("io.angzarr.v1.Notification") == "io.angzarr.v1.Notification"
     assert type_name("/io.angzarr.v1.Notification") == "io.angzarr.v1.Notification"
     assert type_name("type.googleapis.com/a/io.x.Y") == "io.x.Y"
-
-
-def test_current_root_needs_a_cover():
-    with pytest.raises(RuntimeError, match="^no cover is being handled$"):
-        current_root()
-    with handling(cover("table", TABLE)):
-        assert current_root() == TABLE
-    with pytest.raises(RuntimeError):
-        current_root()
 
 
 # --- ledger ------------------------------------------------------------------------------------

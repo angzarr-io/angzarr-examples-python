@@ -332,21 +332,17 @@ def compute_record_result(cmd: _p.RecordRoundResult, state, effect: Effect) -> l
     ]
 
 
-def compute_retract_results(
-    recorded: list[_p.RoundResultRecorded], state: _p.PlayerState
-) -> list:
-    """Withdraw exactly the round results ``recorded`` wrote, each only while
-    it still stands."""
-    out = []
-    for event in recorded:
-        result = state.round_results.get(result_key(event.table_root, event.round))
-        if result is not None and not result.retracted:
-            out.append(
-                _p.RoundResultRetracted(
-                    table_root=result.table_root, round=result.round, net=result.net
-                )
-            )
-    return out
+def compute_retract_results(sequences, state: _p.PlayerState) -> list:
+    """Withdraw exactly the round results recorded at the event ``sequences``,
+    each only while it still stands."""
+    named = set(sequences)
+    return [
+        _p.RoundResultRetracted(
+            table_root=result.table_root, round=result.round, net=result.net
+        )
+        for _, result in sorted(state.round_results.items())
+        if result.sequence in named and not result.retracted
+    ]
 
 
 # --- appliers -------------------------------------------------------------------
@@ -442,14 +438,16 @@ def apply_loyalty_points_awarded(
 
 
 def apply_round_result_recorded(
-    state: _p.PlayerState, event: _p.RoundResultRecorded
+    state: _p.PlayerState, event: _p.RoundResultRecorded, sequence: int
 ) -> None:
+    """Record the result, with the page sequence of the event that recorded it."""
     state.round_results[result_key(event.table_root, event.round)].CopyFrom(
         _p.RoundResult(
             table_root=event.table_root,
             round=event.round,
             wager=event.wager,
             net=event.net,
+            sequence=sequence,
         )
     )
 

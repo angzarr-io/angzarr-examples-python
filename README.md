@@ -30,10 +30,9 @@ values.
 Each component implements the handler interface the angzarr CLI generates from
 the protos (`src/angzarr_blackjack/_gen`, not committed) and is registered on
 the angzarr-router Python binding (`angzarr_router_ffi`). `_runtime/` hosts
-each component behind its framework gRPC service and adds what the binding
-does not dispatch: facts (`HandleFact`), `Replay`, undo of a
-`Compensate`, process-manager compensation commands and the cover of the
-book being handled.
+each component behind its framework gRPC service; commands, rejections,
+undo, facts and `Replay` all dispatch through the binding, and handlers read
+the cover they are handling from `angzarr_router_ffi.current_cover()`.
 
 ## Setup
 

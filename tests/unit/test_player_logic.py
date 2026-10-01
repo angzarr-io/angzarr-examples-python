@@ -396,25 +396,22 @@ def test_points_need_membership_and_are_awarded_once_per_round():
 
 def test_round_result_recorded_once_and_retracted_exactly():
     state = wallet()
-    recorded = []
-    for round_number, net in ((1, 20), (2, -30)):
+    for sequence, (round_number, net) in ((4, (1, 20)), (7, (2, -30))):
         cmd = _p.RecordRoundResult(
             table_root=TABLE, round=round_number, wager=30, net=net
         )
         assert L.validate_record_result(cmd, state) is Effect.APPLY
         (event,) = L.compute_record_result(cmd, state, Effect.APPLY)
-        L.apply_round_result_recorded(state, event)
-        recorded.append(event)
+        L.apply_round_result_recorded(state, event, sequence)
         assert L.validate_record_result(cmd, state) is Effect.ALREADY_APPLIED
         assert L.compute_record_result(cmd, state, Effect.ALREADY_APPLIED) == []
-    (retracted,) = L.compute_retract_results(recorded[:1], state)
+    (retracted,) = L.compute_retract_results([4], state)
     assert retracted == _p.RoundResultRetracted(table_root=TABLE, round=1, net=20)
     L.apply_round_result_retracted(state, retracted)
     assert not state.round_results[L.result_key(TABLE, 2)].retracted
-    assert L.compute_retract_results(recorded[:1], state) == []
-    unknown = _p.RoundResultRecorded(table_root=TABLE, round=9, net=1)
-    assert L.compute_retract_results([unknown], state) == []
-    (second,) = L.compute_retract_results(recorded, state)
+    assert L.compute_retract_results([4], state) == []
+    assert L.compute_retract_results([5, 6], state) == []
+    (second,) = L.compute_retract_results([4, 7], state)
     assert second.round == 2
 
 
@@ -456,8 +453,10 @@ def test_each_unmatched_settlement_is_counted():
 def test_recorded_round_result_keeps_wager_and_net():
     state = wallet()
     L.apply_round_result_recorded(
-        state, _p.RoundResultRecorded(table_root=TABLE, round=2, wager=30, net=-30)
+        state,
+        _p.RoundResultRecorded(table_root=TABLE, round=2, wager=30, net=-30),
+        11,
     )
     assert state.round_results[L.result_key(TABLE, 2)] == _p.RoundResult(
-        table_root=TABLE, round=2, wager=30, net=-30
+        table_root=TABLE, round=2, wager=30, net=-30, sequence=11
     )

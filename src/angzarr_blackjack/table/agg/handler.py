@@ -19,7 +19,6 @@ import angzarr_router_ffi as _az
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import event_book
-from angzarr_blackjack._runtime.context import current_root
 from angzarr_blackjack.cards import (
     hand_value,
     is_blackjack,
@@ -386,7 +385,7 @@ class TableAggregate:
         seat = book.state.seated[cmd.seat]
         book.emit(
             _table.PlayerCashedOut(
-                cashout_id=cashout_id(current_root(), cctx.next_sequence),
+                cashout_id=cashout_id(cctx.cover.root.value, cctx.next_sequence),
                 player_root=seat.player_root,
                 seat=cmd.seat,
                 amount=seat.stack,

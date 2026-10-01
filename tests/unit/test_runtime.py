@@ -15,7 +15,6 @@ from angzarr_blackjack._gen.io.angzarr.v1 import saga_pb2 as _saga
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime import servicers
 from angzarr_blackjack._runtime.books import unpack
-from angzarr_blackjack._runtime.hosts import next_sequence
 from angzarr_blackjack.player.agg import main as player_main
 from angzarr_blackjack.player.agg.logic import NO_MATCHING_HOLD
 from angzarr_blackjack.pmg_buy_in import main as buy_in_main
@@ -42,13 +41,6 @@ def registered(*more):
         _p.FundsDeposited(amount=1000),
         *more,
     )
-
-
-def test_next_sequence_follows_pages_then_snapshot():
-    assert next_sequence(registered()) == 2
-    assert next_sequence(_t.EventBook(next_sequence=9)) == 9
-    assert next_sequence(_t.EventBook(snapshot=_t.Snapshot(sequence=4))) == 5
-    assert next_sequence(_t.EventBook()) == 0
 
 
 def test_commands_go_through_the_router(router):
@@ -299,22 +291,15 @@ def test_pass_through_upcaster_returns_events_unchanged():
     assert list(servicers.PassThroughUpcaster().upcast(request).events) == [page]
 
 
-def test_next_sequence_follows_the_last_page():
-    book = registered(_p.FundsWithdrawn(amount=1))
-    assert next_sequence(book) == 3
-
-
 def test_a_snapshot_without_state_leaves_the_state_alone(router):
     from angzarr_blackjack._runtime.hosts import fold
 
     host = player_main.build_host(router)
-    seeded = _p.PlayerState(registered=True, bankroll=7)
     state = fold(
         host.dispatch.rebuilder,
         _t.EventBook(snapshot=_t.Snapshot(sequence=3)),
-        state=seeded,
     )
-    assert state.bankroll == 7 and state.registered
+    assert state == _p.PlayerState()
 
 
 def test_ledger_query_service_reads_the_ledger(router):

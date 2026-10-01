@@ -29,7 +29,6 @@ from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import ledger_pb2 a
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
-from angzarr_blackjack._runtime.context import current_root, handling
 
 PROJECTOR = "LedgerProjector"
 RECENT_RESULTS = 10
@@ -150,6 +149,11 @@ class Ledger:
         return twin
 
 
+def _root() -> bytes:
+    """The root of the book being folded."""
+    return _az.current_cover().root.value
+
+
 # region projector
 class LedgerProjector:
     """Implements ``LedgerProjectorHandler``: folds wallet and table events
@@ -161,60 +165,60 @@ class LedgerProjector:
     # --- wallets ---
 
     def player_registered(self, projection, event: _p.PlayerRegistered) -> None:
-        self.ledger.player(current_root()).display_name = event.display_name
+        self.ledger.player(_root()).display_name = event.display_name
 
     def player_imported(self, projection, event: _p.PlayerImported) -> None:
-        self.ledger.player(current_root()).display_name = event.display_name
+        self.ledger.player(_root()).display_name = event.display_name
 
     def profile_updated(self, projection, event: _p.ProfileUpdated) -> None:
-        self.ledger.player(current_root()).display_name = event.display_name
+        self.ledger.player(_root()).display_name = event.display_name
 
     def funds_deposited(self, projection, event: _p.FundsDeposited) -> None:
-        self.ledger.player(current_root()).bankroll += event.amount
+        self.ledger.player(_root()).bankroll += event.amount
         projection.totals.deposits += event.amount
 
     def funds_withdrawn(self, projection, event: _p.FundsWithdrawn) -> None:
-        self.ledger.player(current_root()).bankroll -= event.amount
+        self.ledger.player(_root()).bankroll -= event.amount
         projection.totals.withdrawals += event.amount
 
     def funds_held(self, projection, event: _p.FundsHeld) -> None:
-        self.ledger.open_hold(current_root(), event.hold_id, event.amount)
+        self.ledger.open_hold(_root(), event.hold_id, event.amount)
 
     def funds_captured(self, projection, event: _p.FundsCaptured) -> None:
-        root = current_root()
+        root = _root()
         self.ledger.close_hold(root, event.hold_id)
         self.ledger.player(root).bankroll -= event.amount
         self.ledger.transfer_side(BUY_IN, event.hold_id, WALLET_SIDE, event.amount)
 
     def hold_released(self, projection, event: _p.HoldReleased) -> None:
-        self.ledger.close_hold(current_root(), event.hold_id)
+        self.ledger.close_hold(_root(), event.hold_id)
 
     def top_up_requested(self, projection, event: _p.TopUpRequested) -> None:
-        self.ledger.open_hold(current_root(), event.hold_id, event.amount)
+        self.ledger.open_hold(_root(), event.hold_id, event.amount)
 
     def top_up_refused(self, projection, event: _p.TopUpRefused) -> None:
-        self.ledger.close_hold(current_root(), event.hold_id)
+        self.ledger.close_hold(_root(), event.hold_id)
 
     def top_up_settled(self, projection, event: _p.TopUpSettled) -> None:
-        root = current_root()
+        root = _root()
         self.ledger.close_hold(root, event.hold_id)
         self.ledger.player(root).bankroll -= event.amount
         self.ledger.transfer_side(TOP_UP, event.hold_id, WALLET_SIDE, event.amount)
 
     def cash_out_credited(self, projection, event: _p.CashOutCredited) -> None:
-        self.ledger.player(current_root()).bankroll += event.amount
+        self.ledger.player(_root()).bankroll += event.amount
         self.ledger.transfer_side(CASH_OUT, event.cashout_id, WALLET_SIDE, event.amount)
 
     def loyalty_enrolled(self, projection, event: _p.LoyaltyEnrolled) -> None:
-        self.ledger.player(current_root())
+        self.ledger.player(_root())
 
     def loyalty_points_awarded(
         self, projection, event: _p.LoyaltyPointsAwarded
     ) -> None:
-        self.ledger.player(current_root()).loyalty_points += event.points
+        self.ledger.player(_root()).loyalty_points += event.points
 
     def round_result_recorded(self, projection, event: _p.RoundResultRecorded) -> None:
-        results = self.ledger.player(current_root()).recent_results
+        results = self.ledger.player(_root()).recent_results
         results.append(
             _l.LedgerRoundResult(
                 table_root=event.table_root, round=event.round, net=event.net
@@ -225,45 +229,45 @@ class LedgerProjector:
     def round_result_retracted(
         self, projection, event: _p.RoundResultRetracted
     ) -> None:
-        for result in self.ledger.player(current_root()).recent_results:
+        for result in self.ledger.player(_root()).recent_results:
             if result.table_root == event.table_root and result.round == event.round:
                 result.retracted = True
 
     # --- tables ---
 
     def table_created(self, projection, event: _table.TableCreated) -> None:
-        self.ledger.table(current_root()).name = event.name
+        self.ledger.table(_root()).name = event.name
 
     def player_seated(self, projection, event: _table.PlayerSeated) -> None:
-        row = self.ledger.table(current_root())
+        row = self.ledger.table(_root())
         row.stacks += event.stack
         row.chips_in += event.stack
         self.ledger.transfer_side(BUY_IN, event.buy_in_id, TABLE_SIDE, event.stack)
 
     def chips_added(self, projection, event: _table.ChipsAdded) -> None:
-        row = self.ledger.table(current_root())
+        row = self.ledger.table(_root())
         row.stacks += event.amount
         row.chips_in += event.amount
         self.ledger.transfer_side(TOP_UP, event.hold_id, TABLE_SIDE, event.amount)
 
     def player_cashed_out(self, projection, event: _table.PlayerCashedOut) -> None:
-        row = self.ledger.table(current_root())
+        row = self.ledger.table(_root())
         row.stacks -= event.amount
         row.chips_out += event.amount
         self.ledger.transfer_side(CASH_OUT, event.cashout_id, TABLE_SIDE, event.amount)
 
     def bet_placed(self, projection, event: _table.BetPlaced) -> None:
-        row = self.ledger.table(current_root())
+        row = self.ledger.table(_root())
         row.stacks -= event.amount
         row.wagers += event.amount
 
     def hand_doubled(self, projection, event: _table.HandDoubled) -> None:
-        row = self.ledger.table(current_root())
+        row = self.ledger.table(_root())
         row.stacks -= event.added
         row.wagers += event.added
 
     def round_settled(self, projection, event: _table.RoundSettled) -> None:
-        row = self.ledger.table(current_root())
+        row = self.ledger.table(_root())
         row.wagers -= sum(o.wager for o in event.outcomes)
         row.stacks += sum(o.returned for o in event.outcomes)
         row.house_result += event.house_delta
@@ -304,7 +308,7 @@ class LedgerProjectorHost:
         router.register_projector(dispatch)
 
     def project(self, book: _t.EventBook) -> _t.Projection:
-        with self._lock, handling(book.cover):
+        with self._lock:
             fresh = self.ledger.unapplied(book)
             projection = self.router.dispatch_projector(fresh)
             self.ledger.mark_applied(fresh)
@@ -312,7 +316,7 @@ class LedgerProjectorHost:
 
     def speculate(self, book: _t.EventBook) -> _t.Projection:
         """The projection ``book`` would produce, leaving the ledger untouched."""
-        with self._lock, handling(book.cover):
+        with self._lock:
             saved = self.ledger.copy()
             try:
                 return self.router.dispatch_projector(self.ledger.unapplied(book))

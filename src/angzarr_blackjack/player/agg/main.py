@@ -41,6 +41,7 @@ def build_host(router: _az.Router) -> AggregateHost:
         undo={
             _p.RecordRoundResult.DESCRIPTOR.full_name: handler.on_record_round_result_undo
         },
+        sequenced=frozenset({_p.RoundResultRecorded.DESCRIPTOR.full_name}),
     )
 
 
