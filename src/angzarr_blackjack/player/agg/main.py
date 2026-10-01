@@ -25,7 +25,7 @@ DEFAULT_PORT = "50401"
 
 
 def build_host(router: _az.Router) -> AggregateHost:
-    """The PlayerAggregate registered on ``router``, with its facts and undo."""
+    """The PlayerAggregate registered on ``router``, with its fact handlers."""
     handler = PlayerAggregate()
     return AggregateHost(
         router,
@@ -37,9 +37,6 @@ def build_host(router: _az.Router) -> AggregateHost:
             _p.CashOutCredited.DESCRIPTOR.full_name: typed_fact(
                 _p.CashOutCredited, handler.handle_cash_out_credited
             ),
-        },
-        undo={
-            _p.RecordRoundResult.DESCRIPTOR.full_name: handler.on_record_round_result_undo
         },
         sequenced=frozenset({_p.RoundResultRecorded.DESCRIPTOR.full_name}),
     )

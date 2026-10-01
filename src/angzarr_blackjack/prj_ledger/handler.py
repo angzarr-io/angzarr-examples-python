@@ -14,8 +14,8 @@ Invariant L4, checked only when nothing is in flight:
 
 Every applied event is remembered by (domain, root, sequence), so replaying or
 redelivering an event leaves the read model unchanged. The projection handed
-to each fold is the ledger's own ``LedgerProjection``; the handlers take the
-book's root from the current cover.
+to each fold is the ledger's own ``LedgerProjection``; each fold reads its
+book's root from its page context.
 """
 
 from __future__ import annotations
@@ -149,11 +149,6 @@ class Ledger:
         return twin
 
 
-def _root() -> bytes:
-    """The root of the book being folded."""
-    return _az.current_cover().root.value
-
-
 # region projector
 class LedgerProjector:
     """Implements ``LedgerProjectorHandler``: folds wallet and table events
@@ -164,61 +159,87 @@ class LedgerProjector:
 
     # --- wallets ---
 
-    def player_registered(self, projection, event: _p.PlayerRegistered) -> None:
-        self.ledger.player(_root()).display_name = event.display_name
+    def player_registered(
+        self, projection, event: _p.PlayerRegistered, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.player(ctx.cover.root.value).display_name = event.display_name
 
-    def player_imported(self, projection, event: _p.PlayerImported) -> None:
-        self.ledger.player(_root()).display_name = event.display_name
+    def player_imported(
+        self, projection, event: _p.PlayerImported, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.player(ctx.cover.root.value).display_name = event.display_name
 
-    def profile_updated(self, projection, event: _p.ProfileUpdated) -> None:
-        self.ledger.player(_root()).display_name = event.display_name
+    def profile_updated(
+        self, projection, event: _p.ProfileUpdated, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.player(ctx.cover.root.value).display_name = event.display_name
 
-    def funds_deposited(self, projection, event: _p.FundsDeposited) -> None:
-        self.ledger.player(_root()).bankroll += event.amount
+    def funds_deposited(
+        self, projection, event: _p.FundsDeposited, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.player(ctx.cover.root.value).bankroll += event.amount
         projection.totals.deposits += event.amount
 
-    def funds_withdrawn(self, projection, event: _p.FundsWithdrawn) -> None:
-        self.ledger.player(_root()).bankroll -= event.amount
+    def funds_withdrawn(
+        self, projection, event: _p.FundsWithdrawn, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.player(ctx.cover.root.value).bankroll -= event.amount
         projection.totals.withdrawals += event.amount
 
-    def funds_held(self, projection, event: _p.FundsHeld) -> None:
-        self.ledger.open_hold(_root(), event.hold_id, event.amount)
+    def funds_held(self, projection, event: _p.FundsHeld, ctx: _az.PageContext) -> None:
+        self.ledger.open_hold(ctx.cover.root.value, event.hold_id, event.amount)
 
-    def funds_captured(self, projection, event: _p.FundsCaptured) -> None:
-        root = _root()
+    def funds_captured(
+        self, projection, event: _p.FundsCaptured, ctx: _az.PageContext
+    ) -> None:
+        root = ctx.cover.root.value
         self.ledger.close_hold(root, event.hold_id)
         self.ledger.player(root).bankroll -= event.amount
         self.ledger.transfer_side(BUY_IN, event.hold_id, WALLET_SIDE, event.amount)
 
-    def hold_released(self, projection, event: _p.HoldReleased) -> None:
-        self.ledger.close_hold(_root(), event.hold_id)
+    def hold_released(
+        self, projection, event: _p.HoldReleased, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.close_hold(ctx.cover.root.value, event.hold_id)
 
-    def top_up_requested(self, projection, event: _p.TopUpRequested) -> None:
-        self.ledger.open_hold(_root(), event.hold_id, event.amount)
+    def top_up_requested(
+        self, projection, event: _p.TopUpRequested, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.open_hold(ctx.cover.root.value, event.hold_id, event.amount)
 
-    def top_up_refused(self, projection, event: _p.TopUpRefused) -> None:
-        self.ledger.close_hold(_root(), event.hold_id)
+    def top_up_refused(
+        self, projection, event: _p.TopUpRefused, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.close_hold(ctx.cover.root.value, event.hold_id)
 
-    def top_up_settled(self, projection, event: _p.TopUpSettled) -> None:
-        root = _root()
+    def top_up_settled(
+        self, projection, event: _p.TopUpSettled, ctx: _az.PageContext
+    ) -> None:
+        root = ctx.cover.root.value
         self.ledger.close_hold(root, event.hold_id)
         self.ledger.player(root).bankroll -= event.amount
         self.ledger.transfer_side(TOP_UP, event.hold_id, WALLET_SIDE, event.amount)
 
-    def cash_out_credited(self, projection, event: _p.CashOutCredited) -> None:
-        self.ledger.player(_root()).bankroll += event.amount
+    def cash_out_credited(
+        self, projection, event: _p.CashOutCredited, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.player(ctx.cover.root.value).bankroll += event.amount
         self.ledger.transfer_side(CASH_OUT, event.cashout_id, WALLET_SIDE, event.amount)
 
-    def loyalty_enrolled(self, projection, event: _p.LoyaltyEnrolled) -> None:
-        self.ledger.player(_root())
+    def loyalty_enrolled(
+        self, projection, event: _p.LoyaltyEnrolled, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.player(ctx.cover.root.value)
 
     def loyalty_points_awarded(
-        self, projection, event: _p.LoyaltyPointsAwarded
+        self, projection, event: _p.LoyaltyPointsAwarded, ctx: _az.PageContext
     ) -> None:
-        self.ledger.player(_root()).loyalty_points += event.points
+        self.ledger.player(ctx.cover.root.value).loyalty_points += event.points
 
-    def round_result_recorded(self, projection, event: _p.RoundResultRecorded) -> None:
-        results = self.ledger.player(_root()).recent_results
+    def round_result_recorded(
+        self, projection, event: _p.RoundResultRecorded, ctx: _az.PageContext
+    ) -> None:
+        results = self.ledger.player(ctx.cover.root.value).recent_results
         results.append(
             _l.LedgerRoundResult(
                 table_root=event.table_root, round=event.round, net=event.net
@@ -227,47 +248,61 @@ class LedgerProjector:
         del results[: max(0, len(results) - RECENT_RESULTS)]
 
     def round_result_retracted(
-        self, projection, event: _p.RoundResultRetracted
+        self, projection, event: _p.RoundResultRetracted, ctx: _az.PageContext
     ) -> None:
-        for result in self.ledger.player(_root()).recent_results:
+        for result in self.ledger.player(ctx.cover.root.value).recent_results:
             if result.table_root == event.table_root and result.round == event.round:
                 result.retracted = True
 
     # --- tables ---
 
-    def table_created(self, projection, event: _table.TableCreated) -> None:
-        self.ledger.table(_root()).name = event.name
+    def table_created(
+        self, projection, event: _table.TableCreated, ctx: _az.PageContext
+    ) -> None:
+        self.ledger.table(ctx.cover.root.value).name = event.name
 
-    def player_seated(self, projection, event: _table.PlayerSeated) -> None:
-        row = self.ledger.table(_root())
+    def player_seated(
+        self, projection, event: _table.PlayerSeated, ctx: _az.PageContext
+    ) -> None:
+        row = self.ledger.table(ctx.cover.root.value)
         row.stacks += event.stack
         row.chips_in += event.stack
         self.ledger.transfer_side(BUY_IN, event.buy_in_id, TABLE_SIDE, event.stack)
 
-    def chips_added(self, projection, event: _table.ChipsAdded) -> None:
-        row = self.ledger.table(_root())
+    def chips_added(
+        self, projection, event: _table.ChipsAdded, ctx: _az.PageContext
+    ) -> None:
+        row = self.ledger.table(ctx.cover.root.value)
         row.stacks += event.amount
         row.chips_in += event.amount
         self.ledger.transfer_side(TOP_UP, event.hold_id, TABLE_SIDE, event.amount)
 
-    def player_cashed_out(self, projection, event: _table.PlayerCashedOut) -> None:
-        row = self.ledger.table(_root())
+    def player_cashed_out(
+        self, projection, event: _table.PlayerCashedOut, ctx: _az.PageContext
+    ) -> None:
+        row = self.ledger.table(ctx.cover.root.value)
         row.stacks -= event.amount
         row.chips_out += event.amount
         self.ledger.transfer_side(CASH_OUT, event.cashout_id, TABLE_SIDE, event.amount)
 
-    def bet_placed(self, projection, event: _table.BetPlaced) -> None:
-        row = self.ledger.table(_root())
+    def bet_placed(
+        self, projection, event: _table.BetPlaced, ctx: _az.PageContext
+    ) -> None:
+        row = self.ledger.table(ctx.cover.root.value)
         row.stacks -= event.amount
         row.wagers += event.amount
 
-    def hand_doubled(self, projection, event: _table.HandDoubled) -> None:
-        row = self.ledger.table(_root())
+    def hand_doubled(
+        self, projection, event: _table.HandDoubled, ctx: _az.PageContext
+    ) -> None:
+        row = self.ledger.table(ctx.cover.root.value)
         row.stacks -= event.added
         row.wagers += event.added
 
-    def round_settled(self, projection, event: _table.RoundSettled) -> None:
-        row = self.ledger.table(_root())
+    def round_settled(
+        self, projection, event: _table.RoundSettled, ctx: _az.PageContext
+    ) -> None:
+        row = self.ledger.table(ctx.cover.root.value)
         row.wagers -= sum(o.wager for o in event.outcomes)
         row.stacks += sum(o.returned for o in event.outcomes)
         row.house_result += event.house_delta

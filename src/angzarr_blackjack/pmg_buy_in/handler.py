@@ -56,7 +56,11 @@ class BuyInProcessManager:
 
     # region pm_handler
     def seat_held(
-        self, event: _table.SeatHeld, state: BuyInState, dests: _az.Destinations
+        self,
+        event: _table.SeatHeld,
+        state: BuyInState,
+        dests: _az.Destinations,
+        trigger_cover: _t.Cover | None,
     ) -> _pm.ProcessManagerHandleResponse:
         """A held seat starts a buy-in and asks the wallet to hold the money."""
         if state.phase != Phase.PHASE_UNSPECIFIED:
@@ -64,7 +68,7 @@ class BuyInProcessManager:
         started = _b.BuyInStarted(
             buy_in_id=event.buy_in_id,
             player_root=event.player_root,
-            table_root=_az.current_cover().root.value,
+            table_root=trigger_cover.root.value,
             seat=event.seat,
             amount=event.amount,
         )
@@ -76,7 +80,11 @@ class BuyInProcessManager:
         )
 
     def funds_held(
-        self, event: _p.FundsHeld, state: BuyInState, dests: _az.Destinations
+        self,
+        event: _p.FundsHeld,
+        state: BuyInState,
+        dests: _az.Destinations,
+        trigger_cover: _t.Cover | None,
     ) -> _pm.ProcessManagerHandleResponse:
         """Held money leads to confirming the seat."""
         if not _belongs(state, event.hold_id, Phase.PHASE_AWAITING_HOLD):
@@ -87,7 +95,11 @@ class BuyInProcessManager:
         )
 
     def player_seated(
-        self, event: _table.PlayerSeated, state: BuyInState, dests: _az.Destinations
+        self,
+        event: _table.PlayerSeated,
+        state: BuyInState,
+        dests: _az.Destinations,
+        trigger_cover: _t.Cover | None,
     ) -> _pm.ProcessManagerHandleResponse:
         """A confirmed seat leads to spending the money."""
         if not _belongs(state, event.buy_in_id, Phase.PHASE_AWAITING_SEAT):
@@ -98,7 +110,11 @@ class BuyInProcessManager:
         )
 
     def funds_captured(
-        self, event: _p.FundsCaptured, state: BuyInState, dests: _az.Destinations
+        self,
+        event: _p.FundsCaptured,
+        state: BuyInState,
+        dests: _az.Destinations,
+        trigger_cover: _t.Cover | None,
     ) -> _pm.ProcessManagerHandleResponse:
         """Spent money completes the buy-in."""
         if not _belongs(state, event.hold_id, Phase.PHASE_AWAITING_CAPTURE):

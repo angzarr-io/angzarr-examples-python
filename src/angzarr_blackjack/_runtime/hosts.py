@@ -2,9 +2,8 @@
 points its framework service calls.
 
 Commands, notifications (rejections and undo), facts and Replay all go
-through the binding: the generated dispatch plus the fact and undo handlers
-registered on it here. Handlers read the cover they are handling from
-``angzarr_router_ffi.current_cover()``.
+through the binding: the generated dispatch, plus the fact handlers
+registered on it here.
 """
 
 from __future__ import annotations
@@ -22,9 +21,6 @@ from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import type_name, unpack
 
 FactThunk = Callable[[object, object], object]
-UndoThunk = Callable[
-    [_t.Notification, _t.Compensate, object, _az.CommandContext], object
-]
 
 # STAND-IN (remove when the router hands aggregate appliers a PageContext):
 # the page sequences of the events an applier that needs its own page
@@ -85,7 +81,7 @@ def typed_fact(message_class, handler: Callable[[object, object], object]) -> Fa
 
 
 class AggregateHost:
-    """An aggregate registered on the router with its fact and undo handlers.
+    """An aggregate registered on the router with its fact handlers.
     ``sequenced`` names the events whose appliers read their page sequence."""
 
     def __init__(
@@ -94,13 +90,10 @@ class AggregateHost:
         dispatch: _az.AggregateDispatch,
         *,
         facts: dict[str, FactThunk] | None = None,
-        undo: dict[str, UndoThunk] | None = None,
         sequenced: frozenset[str] = frozenset(),
     ) -> None:
         for fq, thunk in (facts or {}).items():
             dispatch.on_fact(fq, thunk)
-        for fq, thunk in (undo or {}).items():
-            dispatch.on_undo(fq, thunk)
         router.register_aggregate(dispatch)
         self.router = router
         self.dispatch = dispatch

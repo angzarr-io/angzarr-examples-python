@@ -143,7 +143,9 @@ def test_seat_held_ignored_once_a_buy_in_started():
 def test_each_step_sends_the_next_decided_command(
     method, event, phase, next_event, command, domain, root
 ):
-    response = getattr(BuyInProcessManager(), method)(event, state_at(phase), None)
+    response = getattr(BuyInProcessManager(), method)(
+        event, state_at(phase), None, cover("table", TABLE)
+    )
     assert process_event(response, type(next_event)) == next_event
     book, sent = only_command(response, type(command))
     assert sent == command
@@ -153,7 +155,10 @@ def test_each_step_sends_the_next_decided_command(
 
 def test_captured_funds_complete_without_commands():
     response = BuyInProcessManager().funds_captured(
-        _p.FundsCaptured(hold_id=B1), state_at(Phase.PHASE_AWAITING_CAPTURE), None
+        _p.FundsCaptured(hold_id=B1),
+        state_at(Phase.PHASE_AWAITING_CAPTURE),
+        None,
+        cover("player", ALICE),
     )
     assert process_event(response, _b.BuyInCompleted) == _b.BuyInCompleted(buy_in_id=B1)
     assert not response.commands
@@ -175,7 +180,9 @@ def test_captured_funds_complete_without_commands():
     ],
 )
 def test_foreign_or_repeated_news_is_a_no_op(method, event, phase):
-    response = getattr(BuyInProcessManager(), method)(event, state_at(phase), None)
+    response = getattr(BuyInProcessManager(), method)(
+        event, state_at(phase), None, cover("table", TABLE)
+    )
     assert not response.commands and not response.process_events
 
 
