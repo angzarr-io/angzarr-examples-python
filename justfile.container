@@ -146,6 +146,5 @@ mutation-test:
     set -euo pipefail
     rm -rf mutants
     export ANGZARR_ROUTER_LIB="{{ROUTER_LIB}}"
-    uv run mutmut run --max-children "${MUTMUT_CHILDREN:-4}" || true
-    uv run mutmut export-cicd-stats
-    python3 tools/mutation_gate.py mutants/mutmut-cicd-stats.json 90
+    uv run mutmut run --max-children "${MUTMUT_CHILDREN:-4}"
+    uv run python tools/mutation_gate.py mutants 90

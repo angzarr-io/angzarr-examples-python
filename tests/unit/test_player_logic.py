@@ -439,3 +439,22 @@ def test_ledger_balances_detects_each_breach():
     empty_hold.CopyFrom(state)
     empty_hold.holds[H1.hex()].amount = 0
     assert not L.ledger_balances(empty_hold)
+
+
+def test_each_unmatched_settlement_is_counted():
+    state = wallet(1000)
+    for _ in range(2):
+        L.apply_top_up_settled(
+            state, _p.TopUpSettled(hold_id=H2, amount=10, anomaly=L.NO_MATCHING_HOLD)
+        )
+    assert state.anomalies == 2
+
+
+def test_recorded_round_result_keeps_wager_and_net():
+    state = wallet()
+    L.apply_round_result_recorded(
+        state, _p.RoundResultRecorded(table_root=TABLE, round=2, wager=30, net=-30)
+    )
+    assert state.round_results[L.result_key(TABLE, 2)] == _p.RoundResult(
+        table_root=TABLE, round=2, wager=30, net=-30
+    )

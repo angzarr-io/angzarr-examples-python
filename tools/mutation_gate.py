@@ -1,26 +1,32 @@
 """Fail unless mutmut killed at least the given share of its mutants.
 
-Usage: python tools/mutation_gate.py mutants/mutmut-cicd-stats.json 90
+Reads the per-file results mutmut writes next to each mutated source
+(``mutants/**/*.py.meta``), classified with mutmut's own exit-code table.
+
+Usage: python tools/mutation_gate.py mutants 90
 """
 
 from __future__ import annotations
 
 import json
 import sys
+from collections import Counter
+from pathlib import Path
+
+from mutmut.__main__ import status_by_exit_code
 
 
-def main(stats_path: str, threshold: float) -> int:
-    with open(stats_path) as handle:
-        stats = json.load(handle)
-    total = stats["total"]
-    killed = stats["killed"] + stats.get("timeout", 0)
+def main(mutants_dir: str, threshold: float) -> int:
+    outcomes: Counter = Counter()
+    for meta in Path(mutants_dir).rglob("*.py.meta"):
+        for code in json.loads(meta.read_text())["exit_code_by_key"].values():
+            outcomes[status_by_exit_code.get(code, f"exit {code}")] += 1
+    total = sum(outcomes.values())
     if total == 0:
         print("no mutants were generated")
         return 1
-    rate = 100.0 * killed / total
-    print(
-        f"killed {killed}/{total} mutants ({rate:.1f}%); survived {stats['survived']}, no tests {stats.get('no_tests', 0)}"
-    )
+    rate = 100.0 * outcomes["killed"] / total
+    print(f"killed {outcomes['killed']}/{total} ({rate:.1f}%): {dict(outcomes)}")
     if rate < threshold:
         print(f"FAIL: below the {threshold:.0f}% kill rate")
         return 1

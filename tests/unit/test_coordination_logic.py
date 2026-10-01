@@ -524,3 +524,26 @@ def test_speculation_leaves_the_ledger_untouched(ledger):
 
 def test_unknown_player_is_not_found(ledger):
     assert not ledger.ledger.player_view(BOB).found
+
+
+def test_ledger_identity_and_doubled_wagers(ledger):
+    deliver(
+        ledger,
+        "player",
+        ALICE,
+        _p.PlayerImported(display_name="Carol"),
+        _p.ProfileUpdated(display_name="C"),
+    )
+    assert ledger.ledger.player_view(ALICE).player.display_name == "C"
+    deliver(ledger, "player", BOB, _p.PlayerImported(display_name="Bea"))
+    assert ledger.ledger.player_view(BOB).player.display_name == "Bea"
+    deliver(
+        ledger,
+        "table",
+        TABLE,
+        _table.PlayerSeated(buy_in_id=B1, stack=500),
+        _table.BetPlaced(amount=20),
+        _table.HandDoubled(added=20),
+    )
+    row = ledger.ledger.projection.tables[TABLE.hex()]
+    assert (row.stacks, row.wagers, row.chips_in) == (460, 40, 500)

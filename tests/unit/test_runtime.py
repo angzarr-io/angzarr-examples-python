@@ -297,3 +297,41 @@ def test_pass_through_upcaster_returns_events_unchanged():
     page = _t.EventPage(event=_az.pack(_table.TableCreated(name="Main")))
     request = _up.UpcastRequest(domain="table", events=[page])
     assert list(servicers.PassThroughUpcaster().upcast(request).events) == [page]
+
+
+def test_next_sequence_follows_the_last_page():
+    book = registered(_p.FundsWithdrawn(amount=1))
+    assert next_sequence(book) == 3
+
+
+def test_a_snapshot_without_state_leaves_the_state_alone(router):
+    from angzarr_blackjack._runtime.hosts import fold
+
+    host = player_main.build_host(router)
+    seeded = _p.PlayerState(registered=True, bankroll=7)
+    state = fold(
+        host.dispatch.rebuilder,
+        _t.EventBook(snapshot=_t.Snapshot(sequence=3)),
+        state=seeded,
+    )
+    assert state.bankroll == 7 and state.registered
+
+
+def test_ledger_query_service_reads_the_ledger(router):
+    from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import ledger_pb2 as _l
+    from angzarr_blackjack.prj_ledger import main as ledger_main
+    from angzarr_blackjack.prj_ledger.query import LedgerQueryServicer
+
+    host = ledger_main.build_host(router)
+    book = _t.EventBook(cover=_t.Cover(domain="player", root=_t.UUID(value=ALICE)))
+    book.pages.add(event=_az.pack(_p.FundsDeposited(amount=40)))
+    host.project(book)
+    query = LedgerQueryServicer(host.ledger)
+    view = query.GetPlayerBalance(_l.GetPlayerBalanceRequest(player_root=ALICE), None)
+    assert (view.found, view.player.bankroll, view.available) == (True, 40, 40)
+    ledger = query.GetLedger(_l.GetLedgerRequest(), None)
+    assert (ledger.totals.deposits, ledger.totals.bankrolls, ledger.balanced) == (
+        40,
+        40,
+        True,
+    )
