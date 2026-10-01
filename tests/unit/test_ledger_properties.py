@@ -123,10 +123,11 @@ def test_wallet_ledger_balances_after_every_event(steps):
                 hold = L.open_hold(state, step[1], L.TOP_UP)
                 if hold is None:
                     continue
-                fact = player.on_top_up_settled_fact(
+                record = player.on_top_up_settled_fact(
                     _p.TopUpSettled(hold_id=step[1], amount=hold.amount), state
                 )
-                assert fact.anomaly == ""
+                fact = record.fact
+                assert fact.anomaly == "" and record.flags == ()
                 book = _t.EventBook()
                 book.pages.add().event.CopyFrom(_az.pack(fact))
             else:

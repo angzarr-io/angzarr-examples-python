@@ -482,3 +482,21 @@ def test_withdrawals_accumulate():
     for amount in (100, 50):
         L.apply_withdrawn(state, _p.FundsWithdrawn(amount=amount))
     assert (state.bankroll, state.total_withdrawn) == (850, 150)
+
+
+def test_fact_handlers_record_settlements_and_credits():
+    from angzarr_blackjack.player.agg.handler import PlayerAggregate
+
+    wallet_ = PlayerAggregate()
+    state = held(wallet(1000), amount=200, purpose=L.TOP_UP)
+    matched = wallet_.on_top_up_settled_fact(
+        _p.TopUpSettled(hold_id=H1, amount=200), state
+    )
+    assert (matched.fact.anomaly, matched.flags) == ("", ())
+    unmatched = wallet_.on_top_up_settled_fact(
+        _p.TopUpSettled(hold_id=H2, amount=200), state
+    )
+    assert (unmatched.fact.anomaly, unmatched.flags) == (L.NO_MATCHING_HOLD, ())
+    assert (
+        wallet_.on_cash_out_credited_fact(_p.CashOutCredited(amount=5), state) is None
+    )

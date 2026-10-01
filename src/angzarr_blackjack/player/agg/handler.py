@@ -147,13 +147,18 @@ class PlayerAggregate:
 
     # --- facts from the table (handle_fact: annotate, never refuse) ---
 
-    def on_top_up_settled_fact(self, fact: _p.TopUpSettled, state: _p.PlayerState):
-        return L.check_top_up_settled(fact, state)
+    def on_top_up_settled_fact(
+        self, fact: _p.TopUpSettled, state: _p.PlayerState
+    ) -> _az.FactRecord:
+        """Record the settlement; one that matches no open top-up hold is
+        recorded with its anomaly set."""
+        return _az.FactRecord(L.check_top_up_settled(fact, state))
 
     def on_cash_out_credited_fact(
         self, fact: _p.CashOutCredited, state: _p.PlayerState
-    ):
-        return fact
+    ) -> _az.FactRecord | None:
+        """A cash-out credit is recorded as received."""
+        return None
 
     # --- appliers ---
 
