@@ -15,7 +15,7 @@ from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 a
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
 from angzarr_blackjack._gen.io.angzarr.v1 import command_handler_pb2 as _ch
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
-from angzarr_blackjack._runtime.books import event_book, unpack
+from angzarr_blackjack._runtime.books import event_book, is_type, unpack
 from angzarr_blackjack.errors import rejection_code
 from angzarr_blackjack.player.agg import logic as L
 
@@ -138,12 +138,18 @@ class PlayerAggregate:
         self,
         n: _t.Notification,
         compensate: _t.Compensate,
+        undone: list[_t.EventPage],
         state: _p.PlayerState,
         cctx: _az.CommandContext,
     ) -> _ch.BusinessResponse | None:
-        """Retract the round result the undone RecordRoundResult recorded: the
-        newest standing result (Compensate names only the event sequences)."""
-        return _response(L.compute_retract_result(state))
+        """Retract the round results the undone RecordRoundResult recorded:
+        ``undone`` holds the events at the sequences the Compensate names."""
+        recorded = [
+            unpack(page.event, _p.RoundResultRecorded)
+            for page in undone
+            if is_type(page.event, _p.RoundResultRecorded)
+        ]
+        return _response(L.compute_retract_results(recorded, state))
 
     # --- facts from the table (handle_fact: annotate, never refuse) ---
 

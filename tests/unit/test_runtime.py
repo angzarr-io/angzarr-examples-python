@@ -65,11 +65,11 @@ def test_commands_go_through_the_router(router):
 
 
 def compensation_envelope(
-    command_type: str, prior: _t.EventBook
+    command_type: str, prior: _t.EventBook, sequences=(2,)
 ) -> _t.ContextualCommand:
     notification = _t.Notification(cover=prior.cover)
     notification.payload.CopyFrom(
-        _az.pack(_t.Compensate(sequences=[2], command_type=command_type))
+        _az.pack(_t.Compensate(sequences=list(sequences), command_type=command_type))
     )
     envelope = _t.ContextualCommand(events=prior)
     envelope.command.cover.CopyFrom(prior.cover)
@@ -335,3 +335,17 @@ def test_ledger_query_service_reads_the_ledger(router):
         40,
         True,
     )
+
+
+def test_undo_retracts_only_the_named_recording(router):
+    host = player_main.build_host(router)
+    prior = registered(
+        _p.RoundResultRecorded(table_root=TABLE, round=1, wager=20, net=20),
+        _p.RoundResultRecorded(table_root=TABLE, round=2, wager=20, net=-20),
+    )
+    command_type = "io.angzarr.examples.blackjack.v1.RecordRoundResult"
+    response = host.handle(compensation_envelope(command_type, prior, (2,)))
+    (page,) = response.events.pages
+    assert unpack(page.event, _p.RoundResultRetracted).round == 1
+    response = host.handle(compensation_envelope(command_type, prior, (1,)))
+    assert response == _ch.BusinessResponse()

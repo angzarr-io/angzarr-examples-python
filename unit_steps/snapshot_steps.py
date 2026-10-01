@@ -13,7 +13,6 @@ import angzarr_router_ffi as _az
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import table_pb2 as _table
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
-from angzarr_blackjack.cards import next_seed
 from unit_steps._harness import (
     PLAYER,
     TABLE,
@@ -138,22 +137,32 @@ def step_sits(context, name, seat, table):
     seat_player(context.world, name, seat, 500, table)
 
 
-@then("the snapshot holds shoe {number:d} before any of its cards were dealt")
-def step_snapshot_holds_shoe(context, number):
+@then(
+    "the snapshot holds shoe {number:d}, shuffled from seed {seed:d}, with the "
+    "round's {dealt:d} opening cards dealt and {left:d} cards left"
+)
+def step_snapshot_holds_shoe(context, number, seed, dealt, left):
     w = context.world
     state = context.snapshot_state
     (shoe,) = w.last.decoded(_table.ShoeShuffled)
-    assert (
-        (state.shoe_number, state.shoe_seed)
-        == (number, next_seed(42))
-        == (shoe.shoe_number, shoe.seed)
-    )
-    (dealt,) = w.last.decoded(_table.RoundDealt)
-    in_play = [c for h in dealt.hands for c in h.cards] + list(state.dealer_cards)
-    assert sorted(map(str, in_play)) == sorted(
-        map(str, list(shoe.cards)[: len(in_play)])
-    )
-    assert list(state.shoe) == list(shoe.cards)[len(in_play) :]
+    assert (state.shoe_number, state.shoe_seed) == (number, seed)
+    assert (shoe.shoe_number, shoe.seed) == (number, seed)
+    (round_dealt,) = w.last.decoded(_table.RoundDealt)
+    opening = [c for h in round_dealt.hands for c in h.cards] + [
+        round_dealt.dealer_up,
+        round_dealt.dealer_hole,
+    ]
+    assert len(opening) == dealt
+    assert list(state.shoe) == list(shoe.cards)[dealt:]
+    assert len(state.shoe) == left
+
+
+@then("the snapshot shows round {round:d} waiting on seat {seat:d}")
+def step_snapshot_round(context, round, seat):
+    state = context.snapshot_state
+    assert state.round == round
+    assert state.phase == _table.TableState.Phase.PHASE_PLAYER_TURNS
+    assert state.turn == seat
 
 
 @given('table "{table}" saves a routine snapshot every {count:d} events')

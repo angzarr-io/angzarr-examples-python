@@ -9,6 +9,7 @@ from behave import given, step, then, when
 
 from angzarr_blackjack._gen.io.angzarr.examples.blackjack.v1 import player_pb2 as _p
 from angzarr_blackjack._gen.io.angzarr.v1 import types_pb2 as _t
+from angzarr_blackjack._runtime.books import unpack
 from angzarr_blackjack.player.agg import logic
 from unit_steps._harness import PLAYER, cover, player_root, request_id, table_root
 from unit_steps._helpers import (
@@ -346,6 +347,15 @@ def step_recorded_results(context, name, count):
     assert len(wallet(context.world, name).round_results) == count
 
 
+@then('the result of round {round:d} at table "{table}" still stands for "{name}"')
+def step_still_stands(context, round, table, name):
+    result = wallet(context.world, name).round_results[
+        logic.result_key(table_root(table), round)
+    ]
+    assert not result.retracted
+
+
+@then('"{name}" has {count:d} standing round result')
 @then('"{name}" has {count:d} standing round results')
 def step_standing_results(context, name, count):
     standing = [
@@ -354,17 +364,23 @@ def step_standing_results(context, name, count):
     assert len(standing) == count, f"{len(standing)} standing results"
 
 
-@when('the recording of round {round:d} at table "{table}" for "{name}" is compensated')
-def step_compensate_record(context, round, table, name):
+@when(
+    'the recording of round {round:d} at table "{table}" for "{name}" is undone, '
+    "identified by the events that recorded it"
+)
+def step_undo_record(context, round, table, name):
     w = context.world
     root = player_root(name)
     recorded = [
         p.header.sequence
         for p in w.stream(PLAYER, root)
         if p.event.type_url.endswith(_p.RoundResultRecorded.DESCRIPTOR.full_name)
+        and unpack(p.event, _p.RoundResultRecorded).round == round
+        and unpack(p.event, _p.RoundResultRecorded).table_root == table_root(table)
     ]
+    assert recorded, f"round {round} was never recorded"
     compensate = _t.Compensate(
-        sequences=recorded[-1:],
+        sequences=recorded,
         reason="a follow-up of the round failed",
         command_type=_p.RecordRoundResult.DESCRIPTOR.full_name,
     )

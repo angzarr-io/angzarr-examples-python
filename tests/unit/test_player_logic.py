@@ -394,8 +394,9 @@ def test_points_need_membership_and_are_awarded_once_per_round():
     assert L.compute_award(cmd, state, Effect.ALREADY_APPLIED) == []
 
 
-def test_round_result_recorded_once_and_retracted_newest_first():
+def test_round_result_recorded_once_and_retracted_exactly():
     state = wallet()
+    recorded = []
     for round_number, net in ((1, 20), (2, -30)):
         cmd = _p.RecordRoundResult(
             table_root=TABLE, round=round_number, wager=30, net=net
@@ -403,16 +404,18 @@ def test_round_result_recorded_once_and_retracted_newest_first():
         assert L.validate_record_result(cmd, state) is Effect.APPLY
         (event,) = L.compute_record_result(cmd, state, Effect.APPLY)
         L.apply_round_result_recorded(state, event)
+        recorded.append(event)
         assert L.validate_record_result(cmd, state) is Effect.ALREADY_APPLIED
         assert L.compute_record_result(cmd, state, Effect.ALREADY_APPLIED) == []
-    (retracted,) = L.compute_retract_result(state)
-    assert retracted == _p.RoundResultRetracted(table_root=TABLE, round=2, net=-30)
+    (retracted,) = L.compute_retract_results(recorded[:1], state)
+    assert retracted == _p.RoundResultRetracted(table_root=TABLE, round=1, net=20)
     L.apply_round_result_retracted(state, retracted)
-    (next_one,) = L.compute_retract_result(state)
-    assert next_one.round == 1
-    L.apply_round_result_retracted(state, next_one)
-    assert L.compute_retract_result(state) == []
-    assert L.latest_standing_result(state) is None
+    assert not state.round_results[L.result_key(TABLE, 2)].retracted
+    assert L.compute_retract_results(recorded[:1], state) == []
+    unknown = _p.RoundResultRecorded(table_root=TABLE, round=9, net=1)
+    assert L.compute_retract_results([unknown], state) == []
+    (second,) = L.compute_retract_results(recorded, state)
+    assert second.round == 2
 
 
 def test_result_keys_separate_tables_and_rounds():

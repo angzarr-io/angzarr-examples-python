@@ -332,24 +332,21 @@ def compute_record_result(cmd: _p.RecordRoundResult, state, effect: Effect) -> l
     ]
 
 
-def latest_standing_result(state: _p.PlayerState) -> _p.RoundResult | None:
-    """The standing (not retracted) round result of the highest round."""
-    standing = [r for r in state.round_results.values() if not r.retracted]
-    if not standing:
-        return None
-    return max(standing, key=lambda r: (r.round, r.table_root))
-
-
-def compute_retract_result(state: _p.PlayerState) -> list:
-    """Withdraw the newest standing round result, if any."""
-    result = latest_standing_result(state)
-    if result is None:
-        return []
-    return [
-        _p.RoundResultRetracted(
-            table_root=result.table_root, round=result.round, net=result.net
-        )
-    ]
+def compute_retract_results(
+    recorded: list[_p.RoundResultRecorded], state: _p.PlayerState
+) -> list:
+    """Withdraw exactly the round results ``recorded`` wrote, each only while
+    it still stands."""
+    out = []
+    for event in recorded:
+        result = state.round_results.get(result_key(event.table_root, event.round))
+        if result is not None and not result.retracted:
+            out.append(
+                _p.RoundResultRetracted(
+                    table_root=result.table_root, round=result.round, net=result.net
+                )
+            )
+    return out
 
 
 # --- appliers -------------------------------------------------------------------

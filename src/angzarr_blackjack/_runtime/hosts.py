@@ -11,7 +11,8 @@ Everything the router dispatches goes through it unchanged. The host adds:
   fold;
 * undo (``Compensate`` notifications, ``ComponentOptions.undoes``): the
   binding has no undo dispatch, so the host routes a Compensate to the
-  aggregate's undo handler for its ``command_type``;
+  aggregate's undo handler for its ``command_type``, with the stored events
+  at the sequences the Compensate names;
 * process-manager compensation: the binding keeps only process events and an
   escalation from a PM compensator, but a buy-in compensation must also send
   commands, so the host runs PM compensators itself and returns their whole
@@ -31,7 +32,7 @@ from angzarr_blackjack._runtime.books import is_type, type_name, unpack
 from angzarr_blackjack._runtime.context import handling
 
 UndoThunk = Callable[
-    [_t.Notification, _t.Compensate, object, _az.CommandContext], object
+    [_t.Notification, _t.Compensate, list, object, _az.CommandContext], object
 ]
 FactThunk = Callable[[object, object], object]
 
@@ -133,7 +134,9 @@ class AggregateHost:
         cctx = _az.CommandContext(
             next_sequence=next_sequence(prior), had_prior_events=len(prior.pages) > 0
         )
-        response = thunk(notification, compensate, state, cctx)
+        named = set(compensate.sequences)
+        undone = [page for page in prior.pages if page.header.sequence in named]
+        response = thunk(notification, compensate, undone, state, cctx)
         return response if response is not None else _ch.BusinessResponse()
 
     def handle_fact(self, request: _ch.FactRequest) -> _t.EventBook:
