@@ -187,13 +187,20 @@ deploy-infra: _credentials
       --set-string auth.password="$MQ_PW" \
       --wait --timeout 3m
 
-# Build the component images and deploy the example with skaffold.
+# Build the component images, load them into kind and deploy the example.
 deploy-apps: _credentials
     #!/usr/bin/env bash
     set -euo pipefail
     export ANGZARR_DB_PASSWORD=$(kubectl get secret -n {{NAMESPACE}} angzarr-credentials -o jsonpath='{.data.db-password}' | base64 -d)
     export ANGZARR_MQ_PASSWORD=$(kubectl get secret -n {{NAMESPACE}} angzarr-credentials -o jsonpath='{.data.mq-password}' | base64 -d)
-    cd {{ROOT}} && skaffold run --kube-context "kind-{{KIND_CLUSTER}}" --status-check=true
+    cd {{ROOT}}
+    # Build, load the images into the kind node (they are never pushed), then
+    # deploy exactly those builds.
+    skaffold build --kube-context "kind-{{KIND_CLUSTER}}" --file-output=build.json
+    for image in $(python3 -c 'import json; print(" ".join(b["tag"] for b in json.load(open("build.json"))["builds"]))'); do
+        kind load docker-image "$image" --name {{KIND_CLUSTER}}
+    done
+    skaffold deploy --kube-context "kind-{{KIND_CLUSTER}}" --build-artifacts=build.json --status-check=true
 
 # --- submodules -----------------------------------------------------------------------------
 # Submodules are kept chmod a-w so accidental edits fail loudly.

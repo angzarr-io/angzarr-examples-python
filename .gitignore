@@ -48,3 +48,4 @@ vendor/
 *.ctxloom.bak
 .agents/
 .codex/config.toml
+build.json
