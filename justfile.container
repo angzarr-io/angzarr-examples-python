@@ -1,98 +1,128 @@
-# Angzarr Python Examples - container version
-# This file is mounted as 'justfile' inside the container
-# Also used directly in CI container jobs
+# Angzarr blackjack example (Python) — container recipes.
+#
+# Mounted as `justfile` inside the dev container (see the host justfile's
+# `_container`) and used directly by CI container jobs. Every recipe runs from
+# the repository root.
 
-set shell := ["bash", "-c"]
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# The six deployable components (Containerfile target == image suffix).
+COMPONENTS := "agg-player agg-table pmg-buy-in saga-player-table saga-table-player projector-player-table-ledger"
+
+# The angzarr CLI (codegen plugin) is built from a source checkout.
+CLI_SRC := env_var_or_default("ANGZARR_CLI_SRC", "../../angzarr-cli/main")
+# The angzarr-client revision whose codegen templates render the wiring; the
+# pyproject pins the same revision.
+CLIENT_REF := "218413414e69d646839ccaf0b254251dd2813ff1"
+
+# Features: the in-process tiers and the cluster tier, read straight from the
+# angzarr-project submodule.
+UNIT_FEATURES := "angzarr-project/features/example/blackjack angzarr-project/features/example/blackjack-framework"
+ACCEPTANCE_FEATURES := "angzarr-project/features/example/blackjack-acceptance"
 
 default:
     @just --list
 
-# Generate poker domain protos from buf registry
+# The component list, for CI matrices.
+components:
+    @echo {{COMPONENTS}}
+
+# Build the angzarr CLI (the buf `angzarr codegen python` plugin) into .tools/bin.
+cli-build:
+    mkdir -p .tools/bin
+    cd {{CLI_SRC}} && go build -o {{justfile_directory()}}/.tools/bin/angzarr .
+
+# Everything a fresh checkout needs before tests or image builds: the CLI,
+# generated code and the environment (installing angzarr-client builds its
+# router library with cargo).
+ci-setup: cli-build install
+
+# Generate the blackjack message types, gRPC stubs and angzarr dispatch wiring
+# into src/angzarr_blackjack/_gen, then reroot the plugins' path imports:
+# framework protos under angzarr_client.proto, the example protos under the
+# package (never shadowing stdlib `io`).
 proto-gen:
-    buf generate
-    find poker/proto -name "*.py" -exec sed -i 's/from poker import/from poker.proto.poker import/g' {} \;
+    rm -rf src/angzarr_blackjack/_gen
+    PATH="{{justfile_directory()}}/.tools/bin:$PATH" buf generate \
+        --path angzarr-project/proto/io/angzarr/examples
+    touch src/angzarr_blackjack/_gen/__init__.py
+    uv run python tools/fixup_gen_imports.py \
+        src/angzarr_blackjack/_gen \
+        io.angzarr.v1=angzarr_client.proto.io.angzarr.v1 \
+        io.angzarr.status=angzarr_client.proto.io.angzarr.status \
+        sererr=angzarr_client.proto.sererr \
+        io.angzarr.examples.v1=angzarr_blackjack._gen.io.angzarr.examples.v1
 
-# Generate AI Player protos (runs buf inside ai_player/). Generated files are
-# gitignored; regenerate here whenever the ai_sidecar.proto contract changes.
-ai-proto:
-    cd ai_player && buf generate
-
-# Install dependencies AND regenerate protos (generated code is not committed).
-install *FLAGS: proto-gen ai-proto
+# Generate code and sync the environment.
+install *FLAGS: proto-gen
     uv sync {{FLAGS}}
 
-# Run plain pytest unit/integration tests (uses testpaths from pyproject.toml)
-test-pytest:
-    uv run pytest -v
+# Native unit tests: pure handler logic, rules, shoe golden vectors, ledger
+# property tests.
+test-unit:
+    uv run pytest tests/unit
 
-# Unit-example cucumber: poker handler logic, direct invocation, no infra.
-# Feature files live in angzarr-project/features/example/unit/ (submodule).
-# behave's --stage mechanism finds unit_environment.py + unit_steps/ at this
-# repo root via walk-up from the feature files — no symlinks needed.
+# The behave unit tier: every blackjack and blackjack-framework scenario, run
+# in-process through the router binding. Undefined or pending steps fail.
 test-example-unit:
-    uv run behave --stage unit angzarr-project/features/example/unit/ --tags="~@wip"
+    uv run behave --stage unit --format progress \
+        --no-skipped --tags="not @wip" {{UNIT_FEATURES}}
 
-# Acceptance-example cucumber: poker E2E via CommandClient (gRPC).
-# PLAYER_URL picks the coordinator; defaults to localhost:1310.
-# --stage acceptance resolves acceptance_environment.py + acceptance_steps/.
+# The cluster acceptance tier against a deployed example. Scenarios that wait
+# on a framework fix (@needs-core-X-NNN) are excluded from the required run.
 test-example-acceptance:
-    PLAYER_URL="${PLAYER_URL:-}" uv run behave --stage acceptance angzarr-project/features/example/acceptance/ --tags="~@wip"
+    uv run behave --stage acceptance --format progress \
+        --tags="not @wip and not @needs-core-*" \
+        {{ACCEPTANCE_FEATURES}}
 
-# Run all tests
-test: test-pytest test-example-unit test-example-acceptance
+# Parse every acceptance scenario and resolve every step without a cluster.
+acceptance-dry-run:
+    uv run behave --stage acceptance --dry-run --format progress \
+        {{ACCEPTANCE_FEATURES}}
 
-# Format code (use --check for CI)
+# Unit + behave tiers.
+test: test-unit test-example-unit
+
+# CI entry point for the test job.
+ci-test: lint (fmt "--check") test acceptance-dry-run
+
 fmt *FLAGS:
-    uv run black {{FLAGS}} .
+    uv run black {{FLAGS}} src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
 
-# Lint code
+fmt-fix:
+    uv run ruff check --fix src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
+    uv run black src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
+
 lint:
-    uv run ruff check . --exclude angzarr-client-python
+    uv run ruff check src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
 
-# Type check
-typecheck:
-    uv run mypy . --ignore-missing-imports
+# Run one component locally (e.g. `just run agg-player`).
+run component:
+    PYTHONPATH=src uv run python -m \
+        "angzarr_blackjack.$(just -f {{justfile()}} _module {{component}})"
 
-# Run player aggregate
-run-player:
-    cd player/agg && uv run python main.py
+[private]
+_module component:
+    #!/usr/bin/env bash
+    case "{{component}}" in
+        agg-player) echo player.agg.main ;;
+        agg-table) echo table.agg.main ;;
+        pmg-buy-in) echo pmg_buy_in.main ;;
+        saga-player-table) echo player.saga_table.main ;;
+        saga-table-player) echo table.saga_player.main ;;
+        projector-player-table-ledger) echo prj_ledger.main ;;
+        *) echo "unknown component {{component}}" >&2; exit 1 ;;
+    esac
 
-# Run table aggregate
-run-table:
-    cd table/agg && uv run python main.py
+# Drive a short basic-strategy session against a deployed cluster.
+demo-session *ARGS:
+    PYTHONPATH=.:src uv run python tools/play_session.py {{ARGS}}
 
-# Run hand aggregate
-run-hand:
-    cd hand/agg && uv run python main.py
-
-# Run game with AI Player service
-run-game-ai *ARGS:
-    uv run python run_game.py --ai-player localhost:50500 --no-standalone {{ARGS}}
-
-# Run mutation testing with mutmut (80% kill threshold)
+# Mutation testing (mutmut over the business logic, killed by pytest + the
+# behave bridge). Fails below a 90% kill rate.
 mutation-test:
     #!/usr/bin/env bash
     set -euo pipefail
     rm -rf mutants
-    uv run mutmut run
-    uv run mutmut results
-    uv run mutmut export-cicd-stats
-    # Check survival rate is below 20% (i.e., 80%+ killed)
-    TOTAL=$(python -c "import json; d=json.load(open('mutants/mutmut-cicd-stats.json')); print(d['total'])")
-    SURVIVED=$(python -c "import json; d=json.load(open('mutants/mutmut-cicd-stats.json')); print(d['survived'])")
-    if [ "$TOTAL" -eq 0 ]; then
-        echo "ERROR: No mutants were generated"
-        exit 1
-    fi
-    SURVIVAL_RATE=$((SURVIVED * 100 / TOTAL))
-    echo "Survival rate: ${SURVIVAL_RATE}% (${SURVIVED}/${TOTAL})"
-    if [ "$SURVIVAL_RATE" -gt 20 ]; then
-        echo "FAIL: Survival rate ${SURVIVAL_RATE}% exceeds 20% threshold (need 80%+ killed)"
-        exit 1
-    fi
-    echo "PASS: Mutation testing threshold met"
-
-# Auto-format code
-fmt-fix:
-    uv run ruff check --fix . --exclude angzarr-client-python
-    uv run black .
+    uv run mutmut run --max-children "${MUTMUT_CHILDREN:-4}"
+    uv run python tools/mutation_gate.py mutants 90

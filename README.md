@@ -1,69 +1,86 @@
-> **⚠️ Notice:** This repository was recently extracted from the [angzarr monorepo](https://github.com/angzarr-io/angzarr) and has not yet been validated as a standalone project. Expect rough edges. See the [Angzarr documentation](https://angzarr.io/) for more information.
+# Angzarr blackjack example (Python)
 
-# Angzarr Python Examples
+A small blackjack table built on the [angzarr](https://angzarr.io/) CQRS/ES
+framework. Python is the structural template the Go, Java, C#, C++ and Rust
+examples mirror. The specification — protos, house rules and scenarios —
+lives in the `angzarr-project` submodule:
 
-Example implementations demonstrating angzarr-client usage in Python.
+- protos: `angzarr-project/proto/io/angzarr/examples/v1/`
+- house rules AHR-1..13 and ledger invariants L1..L4:
+  `angzarr-project/features/example/blackjack/RULES.md`
+- scenarios: `features/example/blackjack/` (rules),
+  `blackjack-framework/` (framework concepts, in process) and
+  `blackjack-acceptance/` (deployed cluster)
 
-## Overview
+## Components
 
-This repository contains poker domain examples implementing:
-- Player aggregate (bankroll management)
-- Table aggregate (game state)
-- Hand aggregate (gameplay logic)
-- Cross-domain sagas and process managers
-- Projectors for read models
+| Deployable | Package | What it is |
+|---|---|---|
+| `agg-player` | `player/agg` | The wallet (functional: pure `guard`/`validate`/`compute` in `logic.py`), plus the `PlayerUpcaster` on the same server |
+| `agg-table` | `table/agg` | Seats, shoe, rounds, dealer and settlement (object-oriented; house rules in `rules.py`) |
+| `pmg-buy-in` | `pmg_buy_in` | The buy-in process manager: holds the seat, then the money, then confirms and spends, undoing either half |
+| `saga-player-table` | `player/saga_table` | A top-up request becomes AddChips at the table; a refusal is compensated by the wallet |
+| `saga-table-player` | `table/saga_player` | Settlement facts (chips added, cash-outs), round history and loyalty, each a saga of its own |
+| `projector-player-table-ledger` | `prj_ledger` | The money ledger over both domains and `LedgerQueryService` |
 
-## Installation
+All live under `src/angzarr_blackjack/`. `cards.py` holds the deterministic
+shoe (SplitMix64 + Fisher–Yates, exactly as `cards.proto` pins it) and hand
+values.
+
+Each component implements the handler interface the angzarr CLI generates from
+the protos with angzarr-client-python's codegen templates
+(`src/angzarr_blackjack/_gen`, not committed) and is registered on the router
+binding `angzarr_client.router`; framework protos come from
+`angzarr_client.proto`. Commands, rejections, undo, facts and `Replay` all
+dispatch through the binding, and handlers read the cover they are handling
+from their context (`cctx.cover` or a `PageContext`).
+`_runtime/inprocess.py` registers every component on one router for the
+in-process tests and the acceptance tier's state reader.
+
+## Setup
+
+The CLI is built from a source checkout. angzarr-client is pinned to a git
+revision (`pyproject.toml`); installing it builds its router library, so
+`cargo` must be on PATH:
 
 ```bash
-pip install angzarr-client
+export ANGZARR_CLI_SRC=../../angzarr-cli/main
+just -f justfile.container ci-setup     # cli-build, proto-gen, uv sync
 ```
 
-## Build
+Each deployable's `main.register(host)` adds its components (and, for the
+ledger, its LedgerQueryService) to an angzarr-client `ComponentHost`, which
+serves them over gRPC; `main()` runs that host on `$PORT`.
 
-Generate proto files from buf registry:
+## Tests
 
 ```bash
-buf generate
+just test                  # native unit tests + every in-process scenario
+just test-unit             # pytest: exact rejection codes, golden shoes, L1/L2 properties
+just test-example-unit     # behave: blackjack + blackjack-framework scenarios
+just acceptance-dry-run    # every cluster scenario parses and resolves its steps
+just mutation-test         # mutmut, 90% kill gate
 ```
 
-## Run Tests
+The in-process tier (`unit_steps/`) runs every component on one router; its
+`World` plays the coordinators in memory. Undefined or pending steps fail the
+run. Entity roots are `uuid5(NAMESPACE_OID, "<kind>:<label>")`.
+
+## Cluster
 
 ```bash
-behave
+just up                         # kind cluster, secrets, postgres/rabbitmq, skaffold run
+just test-example-acceptance    # required cluster scenarios
+just demo-session 5             # a basic-strategy player plays five rounds
+just down
 ```
 
-## Deploy
-
-Build and deploy to Kubernetes:
-
-```bash
-skaffold run
-```
+The acceptance tier reads `PLAYER_URL` (default `localhost:31320`),
+`TABLE_URL` (`localhost:31321`) and `LEDGER_URL` (`localhost:31325`), and
+watches the event bus (`AMQP_URL`, or `secret/angzarr-mq` through a
+port-forward). Scenarios tagged `@needs-core-X-NNN` wait on a framework fix
+and are excluded from the required run.
 
 ## License
 
 BSD-3-Clause
-
-
-## Development
-
-### Setup
-
-Install git hooks (requires [lefthook](https://github.com/evilmartians/lefthook)):
-
-```bash
-lefthook install
-```
-
-This configures a pre-commit hook that auto-formats code before each commit.
-
-### Recipes
-
-```bash
-just -l              # List all available recipes
-just build           # Build the library
-just test            # Run tests
-just fmt             # Check formatting
-just fmt-fix         # Auto-format code
-```

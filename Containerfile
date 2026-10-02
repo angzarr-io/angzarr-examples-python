@@ -1,6 +1,24 @@
 # syntax=docker/dockerfile:1.4
-# Python poker examples - self-contained repo build
-# Build: docker build -t poker-python-player --target agg-player .
+# Blackjack example (Python): one image per deployable component.
+#
+# The components live in the ``angzarr_blackjack`` package under ``src/``:
+#   agg-player                     -> angzarr_blackjack.player.agg.main (+ upcaster)
+#   agg-table                      -> angzarr_blackjack.table.agg.main
+#   pmg-buy-in                     -> angzarr_blackjack.pmg_buy_in.main
+#   saga-player-table              -> angzarr_blackjack.player.saga_table.main
+#   saga-table-player              -> angzarr_blackjack.table.saga_player.main
+#   projector-player-table-ledger  -> angzarr_blackjack.prj_ledger.main
+#
+# The build context must hold the generated ``src/angzarr_blackjack/_gen``
+# (`just proto-gen`). The deps stage installs angzarr-client from its pinned
+# git revision, which builds its router library with cargo.
+#
+# Each target launches its module with ``uv run`` (uv resolves/paths the locked
+# deps); the package stays on PYTHONPATH so launch uses ``--no-sync``. Components
+# dispatch through the router binding ``angzarr_client.router``; its library
+# ships inside the angzarr-client package.
+#
+# Build: docker build -t examples-python-agg-player --target agg-player .
 
 ARG PYTHON_VERSION=3.11
 ARG UV_VERSION=0.10.3
@@ -13,10 +31,18 @@ FROM docker.io/library/python:${PYTHON_VERSION}-slim AS base
 ARG UV_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     ca-certificates \
     curl \
     git \
     && rm -rf /var/lib/apt/lists/*
+
+# cargo builds angzarr-client's router library when uv installs it.
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo \
+    PATH=/opt/rust/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
@@ -25,33 +51,24 @@ ENV PATH=/root/.local/bin:$PATH
 WORKDIR /app
 
 # ============================================================================
-# Dependencies - install angzarr-client and generate protos
+# Dependencies - resolve the locked env (incl. angzarr-client, built from its
+# git revision). Project itself is not
+# installed; the package is consumed from ``src`` via PYTHONPATH so the build
+# caches deps independently of source churn.
 # ============================================================================
 FROM base AS deps
 
-# Copy project files and angzarr-client-python submodule (local path source)
 COPY pyproject.toml uv.lock ./
-COPY angzarr-client-python ./angzarr-client-python
 
-# Install dependencies (including angzarr-client from local path source)
 RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     uv sync --no-dev --no-install-project
 
 # ============================================================================
-# Source - copy application code
+# Source - copy the application package
 # ============================================================================
 FROM deps AS source
 
-COPY player ./player
-COPY table ./table
-COPY hand ./hand
-COPY hand-flow ./hand-flow
-COPY prj-output ./prj-output
-COPY prj_training ./prj_training
-COPY poker ./poker
-COPY sagas ./sagas
-COPY tournament ./tournament
-COPY reservation ./reservation
+COPY src ./src
 
 # ============================================================================
 # Runtime base
@@ -68,152 +85,55 @@ USER angzarr
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app/src
 
 # ============================================================================
-# Aggregates
+# App base - the resolved venv + angzarr-client + the blackjack package. Every
+# component target shares this; each only sets its PORT + entrypoint module.
 # ============================================================================
-FROM runtime-base AS agg-player
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/player /app/player
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
+FROM runtime-base AS app
+COPY --from=deps   --chown=angzarr:angzarr /app/.venv  /app/.venv
+COPY --from=source --chown=angzarr:angzarr /app/src    /app/src
+# uv launches each component (`uv run` resolves/paths the deps from the locked
+# env). It needs the uv binary + the project manifest/lock alongside the
+# pre-resolved .venv; the package itself stays on PYTHONPATH (=/app/src), so the
+# launch uses `--no-sync` to run the existing env without re-resolving.
+COPY --from=base /root/.local/bin/uv /usr/local/bin/uv
+COPY --from=deps --chown=angzarr:angzarr /app/pyproject.toml /app/uv.lock ./
 ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50301
-EXPOSE 50301
-CMD ["python", "-m", "player.agg.main"]
-
-FROM runtime-base AS agg-table
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/table /app/table
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
-ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50302
-EXPOSE 50302
-CMD ["python", "-m", "table.agg.main"]
-
-FROM runtime-base AS agg-hand
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/hand /app/hand
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
-ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50303
-EXPOSE 50303
-CMD ["python", "-m", "hand.agg.main"]
-
-FROM runtime-base AS agg-tournament
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/tournament /app/tournament
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
-ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50304
-EXPOSE 50304
-CMD ["python", "-m", "tournament.agg.main"]
-
-# Reservation aggregate: owns lifecycle records (pending buy-in / rebuy /
-# registration) and emits the *Requested / *Confirmed / *Released events
-# that drive the reservation PM. Does sync DECISION reads against Player
-# (``available_balance``) via the coordinator's query endpoint.
-FROM runtime-base AS agg-reservation
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/reservation /app/reservation
-COPY --from=source --chown=angzarr:angzarr /app/player /app/player
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
-ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50305
-EXPOSE 50305
-CMD ["python", "-m", "reservation.agg.main"]
+    UV_PROJECT_ENVIRONMENT=/app/.venv
 
 # ============================================================================
-# Process Managers
+# Component services — one target per deployable; each runs next to its own
+# coordinator (replicas=1).
 # ============================================================================
-# The reservation PM consolidates the former buy_in/rebuy/registration PMs.
-# It subscribes to reservation/table/tournament topics and fans out commands
-# to player/reservation/table/tournament. Cross-aggregate reads (table
-# capacity, tournament fee/phase) go through QueryClient — PMs call target
-# domains synchronously rather than embedding destination state in the
-# request, per angzarr's PM-decisioning convention.
-FROM runtime-base AS pmg-reservation
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/reservation /app/reservation
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
-ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50395
-EXPOSE 50395
-# main.py uses sibling-style ``from handlers import …``; run it as a plain
-# script with CWD on the package dir so the import resolves.
-WORKDIR /app/reservation/pmg
-CMD ["python", "main.py"]
 
-# ============================================================================
-# Sagas
-# ============================================================================
-# table → hand: HandStarted (table) → DealCards (hand). Required for any
-# scenario that drives a real hand end-to-end across coordinators.
-FROM runtime-base AS saga-table-hand
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/table /app/table
-COPY --from=source --chown=angzarr:angzarr /app/hand /app/hand
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
-ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50411
+FROM app AS agg-player
+ENV PORT=50401
+EXPOSE 50401
+CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.player.agg.main"]
+
+FROM app AS agg-table
+ENV PORT=50402
+EXPOSE 50402
+CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.table.agg.main"]
+
+FROM app AS saga-player-table
+ENV PORT=50411
 EXPOSE 50411
-CMD ["python", "/app/table/saga-hand/main.py"]
+CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.player.saga_table.main"]
 
-# table → player: HandEnded (table) → ReleaseFunds (player). Closes the
-# loop on bankroll bookkeeping after a hand finishes.
-FROM runtime-base AS saga-table-player
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/table /app/table
-COPY --from=source --chown=angzarr:angzarr /app/player /app/player
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
-ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50413
-EXPOSE 50413
-CMD ["python", "/app/table/saga-player/main.py"]
-
-# hand → table: HandComplete (hand) → EndHand (table). Required for the
-# table-side hand-lifecycle to close after a real betting hand finishes.
-FROM runtime-base AS saga-hand-table
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/hand /app/hand
-COPY --from=source --chown=angzarr:angzarr /app/table /app/table
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
-ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50412
+FROM app AS saga-table-player
+ENV PORT=50412
 EXPOSE 50412
-CMD ["python", "/app/hand/saga-table/main.py"]
+CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.table.saga_player.main"]
 
-# hand → player: PotAwarded (hand) → DepositFunds (player). Credits pot
-# winners' bankrolls.
-FROM runtime-base AS saga-hand-player
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/hand /app/hand
-COPY --from=source --chown=angzarr:angzarr /app/player /app/player
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
-ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50414
-EXPOSE 50414
-CMD ["python", "/app/hand/saga-player/main.py"]
+FROM app AS pmg-buy-in
+ENV PORT=50421
+EXPOSE 50421
+CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.pmg_buy_in.main"]
 
-# ============================================================================
-# Projectors
-# ============================================================================
-FROM runtime-base AS prj-training
-COPY --from=deps --chown=angzarr:angzarr /app/.venv /app/.venv
-COPY --from=deps --chown=angzarr:angzarr /app/angzarr-client-python /app/angzarr-client-python
-COPY --from=source --chown=angzarr:angzarr /app/prj_training /app/prj_training
-COPY --from=source --chown=angzarr:angzarr /app/poker /app/poker
-ENV PATH=/app/.venv/bin:$PATH \
-    PORT=50491
-EXPOSE 50491
-CMD ["python", "-m", "prj_training.main"]
+FROM app AS projector-player-table-ledger
+ENV PORT=50431
+EXPOSE 50431
+CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.prj_ledger.main"]

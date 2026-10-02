@@ -1,82 +1,39 @@
 name: Mutation
 
-# Mutation testing lives out of the PR blocker path. Runs on a schedule
-# against `main` so PR CI stays fast; mutation is a quality gate on
-# the integrated branch, not a per-commit check.
+# Mutation testing runs on a schedule against main (a quality gate on the
+# integrated branch), not per pull request.
 
 on:
   schedule:
-    # 06:00 UTC every Monday.
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
 env:
-  UV_VERSION: "0.10.3"
+  ANGZARR_CLI_REF: 734b1bbdd4e913f19f8cb87f3f1dd95c06053d99
+  ANGZARR_CLI_SRC: .deps/angzarr-cli
 
 jobs:
   mutation:
-    name: Mutation test
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    container:
-      image: ghcr.io/angzarr-io/angzarr-python:latest
-      # See ci.yml — image USER is `angzarr` (uid 1000) for local-dev;
-      # force root inside GHA `container:` flow.
-      options: --user 0
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-          submodules: false  # fetched manually below without --depth=1
-
-      - name: Configure git safe directory
-        # Wildcard covers nested submodule paths; the workspace-only form
-        # leaves submodule git ops vulnerable to dubious-ownership.
-        # Matches ci.yml in this repo.
-        run: git config --global --add safe.directory '*'
-
-      - name: Fetch submodules (unshallow; avoids HTTP 500 direct-fetch path)
-        run: git submodule update --init
-
-      - name: Init nested angzarr-project (non-recursive, avoids circular submodule ref)
-        run: |
-          cd angzarr-client-python
-          git submodule update --init angzarr-project
-
-      - name: Use container justfile
-        run: cp justfile.container justfile
-
-      - name: Install buf
-        uses: bufbuild/buf-action@v1
+          submodules: true
+      - uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-cli
+          ref: ${{ env.ANGZARR_CLI_REF }}
+          path: .deps/angzarr-cli
+      - uses: extractions/setup-just@v2
+      - uses: bufbuild/buf-action@v1
         with:
           setup_only: true
-
-      - name: Generate protos for angzarr-client-python
-        run: |
-          cd angzarr-client-python
-          buf generate
-          python scripts/generate_protos.py
-
-      - name: Update uv
-        run: |
-          curl -LsSf https://astral.sh/uv/${{ env.UV_VERSION }}/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install dependencies
-        run: just install
-
-      - name: Mutation test
-        run: just mutation-test
-
-      - name: Upload mutants output
-        if: always()
-        uses: actions/upload-artifact@v4
+      - uses: actions/setup-go@v5
         with:
-          name: mutants
-          path: mutants/
-          retention-days: 30
+          go-version: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v6
+      - run: just -f justfile.container ci-setup
+      - run: just -f justfile.container mutation-test

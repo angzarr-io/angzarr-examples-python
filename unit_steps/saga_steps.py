@@ -1,881 +1,507 @@
-"""Behave step definitions for saga tests.
+"""Steps for features/example/blackjack-framework/saga.feature (translators)."""
 
-Tests the unified Router / @saga decorator pattern using the real
-production sagas from the ``sagas`` package. Sagas are dispatched
-through a freshly-built Router with a ``SagaHandleRequest``.
-"""
+from __future__ import annotations
 
-from datetime import datetime, timezone
+import angzarr_client.router as _az
+from behave import given, then, when
 
-from behave import given, then, use_step_matcher, when
-from google.protobuf.any_pb2 import Any as ProtoAny
-from google.protobuf.timestamp_pb2 import Timestamp
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
+from angzarr_blackjack._runtime.books import type_name, unpack
+from angzarr_blackjack.player.agg import logic
+from angzarr_blackjack.table.agg.handler import cashout_id
+from unit_steps._harness import (
+    PLAYER,
+    SAGAS,
+    TABLE,
+    cover,
+    player_root,
+    request_id,
+    table_root,
+)
+from unit_steps._helpers import (
+    create_table,
+    ok,
+    place_bet,
+    play_standing,
+    refuse_top_up,
+    register,
+    seat_number_of,
+    seat_player,
+    table_state,
+    wallet,
+)
 
-from angzarr_client import Router, handles, saga
-from angzarr_client.helpers import TYPE_URL_PREFIX, type_matches
-from angzarr_client.proto.angzarr import SagaHandleRequest
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
-
-# Real sagas under test.
-from sagas.hand_results_saga import HandPayoutSaga, HandResultsSaga
-from sagas.table_sync_saga import TableSyncCompleteSaga, TableSyncStartSaga
-
-# Use regex matchers for flexibility
-use_step_matcher("re")
+Outcome = _table.SeatOutcome.Outcome
+_OUTCOMES = {
+    "lose": Outcome.OUTCOME_LOSE,
+    "push": Outcome.OUTCOME_PUSH,
+    "win": Outcome.OUTCOME_WIN,
+    "blackjack": Outcome.OUTCOME_BLACKJACK,
+}
 
 
-def make_timestamp():
-    """Create current timestamp."""
-    return Timestamp(seconds=int(datetime.now(timezone.utc).timestamp()))
+def single_page_book(domain: str, root: bytes, page, corr: str) -> _t.EventBook:
+    book = _t.EventBook(cover=cover(domain, root, corr))
+    book.pages.append(page)
+    return book
 
 
-def make_event_page(event_msg, seq: int = 0) -> types.EventPage:
-    """Create EventPage with packed event using the Router's expected prefix."""
-    event_any = ProtoAny()
-    event_any.Pack(event_msg, type_url_prefix=TYPE_URL_PREFIX)
-    return types.EventPage(
-        header=types.PageHeader(sequence=seq),
-        event=event_any,
-        created_at=make_timestamp(),
+def last_page(w, domain: str, root: bytes, message_class):
+    name = message_class.DESCRIPTOR.full_name
+    pages = [p for p in w.stream(domain, root) if type_name(p.event.type_url) == name]
+    assert pages, f"no {message_class.DESCRIPTOR.name} in {domain}"
+    return pages[-1]
+
+
+def ensure_table(w, table: str) -> None:
+    if table_state(w, table).phase == _table.TableState.Phase.PHASE_UNSPECIFIED:
+        ok(create_table(w, table))
+
+
+# --- wallets and seats ---------------------------------------------------------------
+
+
+@given('"{name}" is registered with {amount:d} deposited')
+def step_registered_with(context, name, amount):
+    register(context.world, name, amount)
+
+
+@given('"{name}" deposited {amount:d}')
+def step_deposited(context, name, amount):
+    if not wallet(context.world, name).registered:
+        register(context.world, name)
+    ok(context.world.command(PLAYER, player_root(name), _p.DepositFunds(amount=amount)))
+
+
+@given('"{name}" deposited {amount:d} afterwards')
+def step_deposited_afterwards(context, name, amount):
+    ok(context.world.command(PLAYER, player_root(name), _p.DepositFunds(amount=amount)))
+
+
+@given('"{name}" is registered and not a loyalty member')
+def step_not_member(context, name):
+    register(context.world, name)
+    assert not wallet(context.world, name).loyalty_enrolled
+
+
+@given('"{name}" is seated at table "{table}" with a stack of {stack:d}')
+def step_seated_at(context, name, table, stack):
+    ensure_table(context.world, table)
+    seat_player(context.world, name, 0, stack, table)
+
+
+@given('"{name}" has a bet in play at table "{table}"')
+def step_bet_in_play(context, name, table):
+    w = context.world
+    ensure_table(w, table)
+    if seat_number_of(table_state(w, table), name) is None:
+        seat_player(w, name, 0, 500, table)
+    ok(place_bet(w, seat_number_of(table_state(w, table), name), 20, table))
+
+
+@then('"{name}" has a stack of {stack:d} at table "{table}"')
+def step_stack_at(context, name, stack, table):
+    state = table_state(context.world, table)
+    seat = seat_number_of(state, name)
+    assert seat is not None, f"{name} is not seated"
+    assert state.seated[seat].stack == stack, f"stack is {state.seated[seat].stack}"
+
+
+# --- the top-up translator -----------------------------------------------------------
+
+
+def run_top_up_translator(w, event_class, name: str = "Alice"):
+    page = last_page(w, PLAYER, player_root(name), event_class)
+    w.sent_mark = len(w.sent)
+    w.saga_response = w.run_sagas(
+        single_page_book(PLAYER, player_root(name), page, w.correlation)
     )
 
 
-# =============================================================================
-# FailingSaga for EU-0306 (router-continues-after-saga-failure).
-# =============================================================================
+@when("the top-up translator handles the {what}")
+def step_top_up_translator(context, what):
+    event = {
+        "request": _p.TopUpRequested,
+        "same request again": _p.TopUpRequested,
+        "deposit": _p.FundsDeposited,
+    }[what]
+    run_top_up_translator(context.world, event)
 
 
-@saga(name="saga-failing", source="table", target="hand")
-class FailingSaga:
-    """A saga that always fails for testing."""
-
-    @handles(table.HandStarted)
-    def handle_hand_started(self, event: table.HandStarted, destinations):
-        raise RuntimeError("FailingSaga always fails")
+@given("the top-up translator has handled the request")
+def step_top_up_translator_handled(context):
+    run_top_up_translator(context.world, _p.TopUpRequested)
 
 
-# =============================================================================
-# Saga-group helpers
-# =============================================================================
-
-
-def _table_sync_group() -> list:
-    """Return both halves of the table<->hand sync saga pair.
-
-    The feature file speaks of a single ``TableSyncSaga``; the production
-    implementation is split into two (start + complete), so we register
-    both. Router dispatches based on source-domain + event type.
-    """
-    return [TableSyncStartSaga(), TableSyncCompleteSaga()]
-
-
-def _hand_results_group() -> list:
-    """Return both halves of the hand/table -> player bridge.
-
-    ``HandResultsSaga`` handles table.HandEnded; ``HandPayoutSaga`` handles
-    hand.PotAwarded. The feature file speaks of a single conceptual
-    ``HandResultsSaga`` covering both.
-    """
-    return [HandResultsSaga(), HandPayoutSaga()]
-
-
-def _build_router(*handlers) -> Router:
-    """Build a Router with the given saga handlers."""
-    r = Router("sagas")
-    for h in handlers:
-        r = r.with_handler(type(h), lambda inst=h: inst)
-    return r.build()
-
-
-def _dispatch(handlers, event_book: types.EventBook, dest_seqs=None):
-    """Dispatch ``event_book`` through ``handlers``, tolerating saga errors.
-
-    Each handler is dispatched on its own so that one saga failing does not
-    prevent the rest from producing commands (matches the expectations of
-    EU-0306).
-    """
-    commands: list[types.CommandBook] = []
-    req = SagaHandleRequest(source=event_book)
-    for k, v in (dest_seqs or {}).items():
-        req.destination_sequences[k] = v
-    for inst in handlers:
-        meta = type(inst).__angzarr_meta__
-        if meta.get("source") != event_book.cover.domain:
-            continue
-        try:
-            router = _build_router(inst)
-            response = router.dispatch(req)
-            commands.extend(response.commands)
-        except Exception:
-            continue
-    return commands
-
-
-# =============================================================================
-# Given steps - saga setup
-# =============================================================================
-
-
-@given("a TableSyncSaga")
-def step_given_table_sync_saga(context):
-    """Register both halves of the table-sync saga pair for the scenario."""
-    context.handlers = _table_sync_group()
-    context.event = None
-    context.event_book = None
-    context.commands = []
-    context.source_root = b"table-1"
-
-
-@given("a HandResultsSaga")
-def step_given_hand_results_saga(context):
-    """Register both halves of the hand-results saga family."""
-    context.handlers = _hand_results_group()
-    context.event = None
-    context.event_book = None
-    context.commands = []
-    context.source_root = b"hand-1"
-
-
-@given("a SagaRouter with TableSyncSaga and HandResultsSaga")
-def step_given_saga_router_with_sagas(context):
-    """Build a saga router with both saga families registered."""
-    context.handlers = _table_sync_group() + _hand_results_group()
-    context.commands = []
-
-
-@given("a SagaRouter with TableSyncSaga")
-def step_given_saga_router_with_table_sync(context):
-    """Build a saga router with only the table-sync saga pair."""
-    context.handlers = _table_sync_group()
-    context.commands = []
-
-
-@given("a SagaRouter with a failing saga and TableSyncSaga")
-def step_given_saga_router_with_failing(context):
-    """Build a saga router with a failing saga + the table-sync pair."""
-    context.handlers = [FailingSaga()] + _table_sync_group()
-    context.commands = []
-    context.exception_raised = False
-
-
-# =============================================================================
-# Given steps - events
-# =============================================================================
-
-
-@given("a HandStarted event from table domain with:")
-def step_given_hand_started_event(context):
-    """Create a HandStarted event from datatable."""
-    row = {
-        context.table.headings[i]: context.table[0][i]
-        for i in range(len(context.table.headings))
-    }
-    variant_name = row.get("game_variant", "TEXAS_HOLDEM")
-    variant = getattr(poker_types, variant_name, poker_types.TEXAS_HOLDEM)
-
-    context.event = table.HandStarted(
-        hand_root=row.get("hand_root", "hand-1").encode(),
-        hand_number=int(row.get("hand_number", 1)),
-        dealer_position=int(row.get("dealer_position", 0)),
-        game_variant=variant,
-        small_blind=int(row.get("small_blind", 5)),
-        big_blind=int(row.get("big_blind", 10)),
-        started_at=make_timestamp(),
-    )
-    context.source_root = b"table-1"
-
-
-@given("a HandStarted event")
-def step_given_hand_started_event_simple(context):
-    """Create a simple HandStarted event with two default players."""
-    context.event = table.HandStarted(
-        hand_root=b"hand-1",
-        hand_number=1,
-        dealer_position=0,
-        game_variant=poker_types.TEXAS_HOLDEM,
-        small_blind=5,
-        big_blind=10,
-        started_at=make_timestamp(),
-    )
-    context.event.active_players.append(
-        table.SeatSnapshot(player_root=b"player-1", position=0, stack=500)
-    )
-    context.event.active_players.append(
-        table.SeatSnapshot(player_root=b"player-2", position=1, stack=500)
-    )
-    context.source_root = b"table-1"
-
-
-@given("active players:")
-def step_given_active_players(context):
-    """Add active players from datatable to the current event."""
-    target = getattr(context, "event", None)
-    if not target:
-        raise ValueError("No event in context")
-
-    for row in context.table:
-        row_dict = {
-            context.table.headings[j]: row[j]
-            for j in range(len(context.table.headings))
-        }
-        player_root = row_dict.get("player_root", "player-1").encode()
-        target.active_players.append(
-            table.SeatSnapshot(
-                player_root=player_root,
-                position=int(row_dict.get("position", 0)),
-                stack=int(row_dict.get("stack", 500)),
-            )
-        )
-
-
-@given("a HandComplete event from hand domain with:")
-def step_given_hand_complete_event(context):
-    """Create a HandComplete event from datatable."""
-    row = {
-        context.table.headings[i]: context.table[0][i]
-        for i in range(len(context.table.headings))
-    }
-    context.event = hand.HandComplete(
-        table_root=row.get("table_root", "table-1").encode(),
-    )
-    context.source_root = b"hand-1"
-
-
-@given("winners:")
-def step_given_winners(context):
-    """Add winners from datatable to the current event."""
-    for row in context.table:
-        row_dict = {
-            context.table.headings[j]: row[j]
-            for j in range(len(context.table.headings))
-        }
-        player_root = row_dict.get("player_root", "player-1").encode()
-        context.event.winners.append(
-            hand.PotWinner(
-                player_root=player_root,
-                amount=int(row_dict.get("amount", 0)),
-                pot_type="main",
-            )
-        )
-
-
-@given("winners with winning_hand:")
-def step_given_winners_with_winning_hand(context):
-    """Like ``winners:`` but also populates winning_hand on each PotWinner."""
-    for row in context.table:
-        row_dict = {
-            context.table.headings[j]: row[j]
-            for j in range(len(context.table.headings))
-        }
-        player_root = row_dict.get("player_root", "player-1").encode()
-        context.event.winners.append(
-            hand.PotWinner(
-                player_root=player_root,
-                amount=int(row_dict.get("amount", 0)),
-                pot_type="main",
-                winning_hand=poker_types.HandRanking(
-                    rank_type=poker_types.HIGH_CARD,
-                    score=1,
-                ),
-            )
-        )
-
-
-@given("a HandEnded event from table domain with:")
-def step_given_hand_ended_event(context):
-    """Create a HandEnded event from datatable."""
-    row = {
-        context.table.headings[i]: context.table[0][i]
-        for i in range(len(context.table.headings))
-    }
-    context.event = table.HandEnded(
-        hand_root=row.get("hand_root", "hand-1").encode(),
-        ended_at=make_timestamp(),
-    )
-    context.source_root = b"table-1"
-
-
-@given("stack_changes:")
-def step_given_stack_changes(context):
-    """Add stack changes from datatable."""
-    for row in context.table:
-        row_dict = {
-            context.table.headings[j]: row[j]
-            for j in range(len(context.table.headings))
-        }
-        player_root = row_dict.get("player_root", "player-1").encode()
-        change = int(row_dict.get("change", 0))
-        context.event.stack_changes[player_root.hex()] = change
-
-
-@given("a PotAwarded event from hand domain with:")
-def step_given_pot_awarded_event(context):
-    """Create a PotAwarded event from datatable."""
-    row = {
-        context.table.headings[i]: context.table[0][i]
-        for i in range(len(context.table.headings))
-    }
-    context.event = hand.PotAwarded()
-    context.pot_total = int(row.get("pot_total", 0))
-    context.source_root = b"hand-1"
-
-
-@given("an event book with:")
-def step_given_event_book_with(context):
-    """Create event book with multiple events.
-
-    We store individual events and their source domain so the When step can
-    dispatch each as its own SagaHandleRequest (dispatch_saga only processes
-    the last event per request).
-    """
-    context.event_list = []
-    context.event_book_domain = "table"
-    for row in context.table:
-        row_dict = {
-            context.table.headings[j]: row[j]
-            for j in range(len(context.table.headings))
-        }
-        event_type = row_dict.get("event_type", "HandStarted")
-        if event_type == "HandStarted":
-            event = table.HandStarted(
-                hand_root=b"hand-1",
-                hand_number=1,
-                dealer_position=0,
-                game_variant=poker_types.TEXAS_HOLDEM,
-                small_blind=5,
-                big_blind=10,
-                started_at=make_timestamp(),
-            )
-            event.active_players.append(
-                table.SeatSnapshot(player_root=b"player-1", position=0, stack=500)
-            )
-            event.active_players.append(
-                table.SeatSnapshot(player_root=b"player-2", position=1, stack=500)
-            )
-            context.event_list.append(event)
-
-
-# =============================================================================
-# When steps
-# =============================================================================
-
-
-def _wrap_event_book(event_msg, source_domain: str, root: bytes) -> types.EventBook:
-    """Wrap a single event message in a one-page EventBook."""
-    return types.EventBook(
-        cover=types.Cover(root=types.UUID(value=root), domain=source_domain),
-        pages=[make_event_page(event_msg, 0)],
+@then(
+    'table "{table}" is asked to add {amount:d} chips for "{name}" from top-up "{label}"'
+)
+def step_asked_to_add_chips(context, table, amount, name, label):
+    sent = context.world.sent_of(_table.AddChips)
+    assert len(sent) == 1, f"{len(sent)} AddChips sent"
+    assert (sent[0].domain, sent[0].root) == (TABLE, table_root(table))
+    add = unpack(sent[0].command, _table.AddChips)
+    assert (add.player_root, add.hold_id, add.amount) == (
+        player_root(name),
+        request_id(label),
+        amount,
     )
 
 
-def _source_domain_for(event) -> str:
-    """Determine the source domain for an event proto.
-
-    Uses the package prefix of the event's fully-qualified descriptor name
-    when possible; otherwise falls back to known mappings.
-    """
-    if isinstance(event, (table.HandStarted, table.HandEnded)):
-        return "table"
-    if isinstance(event, (hand.HandComplete, hand.PotAwarded)):
-        return "hand"
-    # Default guess.
-    return "table"
+@then("the request is applied to whatever the table looks like when it arrives")
+def step_deferred(context):
+    emitted = context.world.sent_of(_table.AddChips)[0].emitted
+    header = emitted.pages[0].header
+    assert header.WhichOneof("sequence_type") == "angzarr_deferred"
 
 
-@when("the saga handles the event")
-def step_when_saga_handles_event(context):
-    """Dispatch the event through the configured handler group."""
-    source_domain = _source_domain_for(context.event)
-    root = getattr(context, "source_root", None) or (
-        b"table-1" if source_domain == "table" else b"hand-1"
-    )
-    event_book = _wrap_event_book(context.event, source_domain, root)
-    dest_seqs = {"hand": 0, "player": 0, "table": 0}
-    context.commands = _dispatch(context.handlers, event_book, dest_seqs)
+@then("no request is sent to any table")
+def step_nothing_sent(context):
+    assert not context.world.saga_response.commands
+    assert not context.world.sent
 
 
-@when("the router routes the event")
-def step_when_router_routes_event(context):
-    """Have router route a single event through all registered sagas."""
-    source_domain = _source_domain_for(context.event)
-    root = getattr(context, "source_root", None) or b"table-1"
-    event_book = _wrap_event_book(context.event, source_domain, root)
-    dest_seqs = {"hand": 0, "player": 0, "table": 0}
-    try:
-        context.commands = _dispatch(context.handlers, event_book, dest_seqs)
-    except Exception:
-        context.exception_raised = True
-
-
-@when("the router routes the events")
-def step_when_router_routes_events(context):
-    """Route each event in event_list individually (one request per event)."""
-    dest_seqs = {"hand": 0, "player": 0, "table": 0}
-    all_cmds: list[types.CommandBook] = []
-    for ev in context.event_list:
-        src = _source_domain_for(ev)
-        book = _wrap_event_book(ev, src, b"table-1")
-        all_cmds.extend(_dispatch(context.handlers, book, dest_seqs))
-    context.commands = all_cmds
-
-
-# =============================================================================
-# Then steps
-# =============================================================================
-
-
-@then("the saga emits a DealCards command to hand domain")
-def step_then_saga_emits_deal_cards(context):
-    """Verify saga emits at least one DealCards command to hand domain."""
-    assert (
-        len(context.commands) >= 1
-    ), f"Expected at least 1 command, got {len(context.commands)}"
-    cmd_book = context.commands[0]
-    assert (
-        cmd_book.cover.domain == "hand"
-    ), f"Expected hand domain, got {cmd_book.cover.domain}"
-    assert type_matches(
-        cmd_book.pages[0].command, hand.DealCards
-    ), f"Expected DealCards, got {cmd_book.pages[0].command.type_url}"
-
-
-@then("the saga emits an EndHand command to table domain")
-def step_then_saga_emits_end_hand(context):
-    """Verify saga emits an EndHand command to table domain."""
-    assert (
-        len(context.commands) >= 1
-    ), f"Expected >=1 commands, got {len(context.commands)}"
-    cmd_book = context.commands[0]
-    assert (
-        cmd_book.cover.domain == "table"
-    ), f"Expected table domain, got {cmd_book.cover.domain}"
-    assert type_matches(
-        cmd_book.pages[0].command, table.EndHand
-    ), f"Expected EndHand, got {cmd_book.pages[0].command.type_url}"
-
-
-@then("the saga emits (?P<count>\\d+) ReleaseFunds commands to player domain")
-def step_then_saga_emits_release_funds(context, count):
-    """Verify saga emits the expected number of ReleaseFunds commands."""
-    expected = int(count)
-    release_cmds = [
-        c
-        for c in context.commands
-        if type_matches(c.pages[0].command, player.ReleaseFunds)
+@then('table "{table}" recorded chips from top-up "{label}" once')
+def step_chips_once(context, table, label):
+    added = [
+        e
+        for e in context.world.events(TABLE, table_root(table), _table.ChipsAdded)
+        if e.hold_id == request_id(label)
     ]
-    assert (
-        len(release_cmds) == expected
-    ), f"Expected {expected} ReleaseFunds commands, got {len(release_cmds)}"
-    for cmd_book in release_cmds:
-        assert cmd_book.cover.domain == "player"
+    assert len(added) == 1, f"{len(added)} ChipsAdded"
 
 
-@then("the saga emits (?P<count>\\d+) DepositFunds commands to player domain")
-def step_then_saga_emits_deposit_funds(context, count):
-    """Verify saga emits the expected number of DepositFunds commands."""
-    expected = int(count)
-    deposit_cmds = [
-        c
-        for c in context.commands
-        if type_matches(c.pages[0].command, player.DepositFunds)
-    ]
-    assert (
-        len(deposit_cmds) == expected
-    ), f"Expected {expected} DepositFunds commands, got {len(deposit_cmds)}"
-    for cmd_book in deposit_cmds:
-        assert cmd_book.cover.domain == "player"
+@when('table "{table}" handles the request to add chips from top-up "{label}"')
+def step_table_handles_add_chips(context, table, label):
+    run_top_up_translator(context.world, _p.TopUpRequested)
 
 
-@then("the saga emits (?P<count>\\d+) DealCards commands")
-def step_then_saga_emits_deal_cards_count(context, count):
-    """Verify saga emits the expected number of DealCards commands."""
-    expected = int(count)
-    deal_cards_count = sum(
-        1
-        for cmd in context.commands
-        if type_matches(cmd.pages[0].command, hand.DealCards)
-    )
-    assert (
-        deal_cards_count == expected
-    ), f"Expected {expected} DealCards commands, got {deal_cards_count}"
-
-
-@then("the command has game_variant (?P<variant>\\w+)")
-def step_then_command_has_game_variant(context, variant):
-    """Verify the DealCards command carries the expected game variant."""
-    cmd_any = context.commands[0].pages[0].command
-    cmd = hand.DealCards()
-    cmd_any.Unpack(cmd)
-    expected = getattr(poker_types, variant)
-    assert cmd.game_variant == expected, f"Expected {variant}, got {cmd.game_variant}"
-
-
-@then("the command has (?P<count>\\d+) players")
-def step_then_command_has_players(context, count):
-    """Verify the DealCards command carries the expected number of players."""
-    cmd_any = context.commands[0].pages[0].command
-    cmd = hand.DealCards()
-    cmd_any.Unpack(cmd)
-    expected = int(count)
-    assert (
-        len(cmd.players) == expected
-    ), f"Expected {expected} players, got {len(cmd.players)}"
-
-
-@then("the command has hand_number (?P<num>\\d+)")
-def step_then_command_has_hand_number(context, num):
-    """Verify the DealCards command carries the expected hand number."""
-    cmd_any = context.commands[0].pages[0].command
-    cmd = hand.DealCards()
-    cmd_any.Unpack(cmd)
-    expected = int(num)
-    assert (
-        cmd.hand_number == expected
-    ), f"Expected hand_number {expected}, got {cmd.hand_number}"
-
-
-@then("the command has (?P<count>\\d+) result")
-def step_then_command_has_results(context, count):
-    """Verify the EndHand command carries the expected number of results."""
-    cmd_any = context.commands[0].pages[0].command
-    cmd = table.EndHand()
-    cmd_any.Unpack(cmd)
-    expected = int(count)
-    assert (
-        len(cmd.results) == expected
-    ), f"Expected {expected} results, got {len(cmd.results)}"
-
-
-@then('the result has winner "(?P<winner>[^"]+)" with amount (?P<amount>\\d+)')
-def step_then_result_has_winner(context, winner, amount):
-    """Verify the first EndHand result has the expected winner + amount."""
-    cmd_any = context.commands[0].pages[0].command
-    cmd = table.EndHand()
-    cmd_any.Unpack(cmd)
-    result = cmd.results[0]
-    expected_amount = int(amount)
-    assert (
-        result.winner_root == winner.encode()
-    ), f"Expected {winner}, got {result.winner_root}"
-    assert (
-        result.amount == expected_amount
-    ), f"Expected {expected_amount}, got {result.amount}"
-
-
-@then('the first command has amount (?P<amount>\\d+) for "(?P<player_id>[^"]+)"')
-def step_then_first_command_has_amount(context, amount, player_id):
-    """Verify the first DepositFunds command carries the expected amount/player."""
-    deposit_cmds = [
-        c
-        for c in context.commands
-        if type_matches(c.pages[0].command, player.DepositFunds)
-    ]
-    cmd_any = deposit_cmds[0].pages[0].command
-    cmd = player.DepositFunds()
-    cmd_any.Unpack(cmd)
-    expected_amount = int(amount)
-    assert (
-        cmd.amount.amount == expected_amount
-    ), f"Expected {expected_amount}, got {cmd.amount.amount}"
-    assert (
-        deposit_cmds[0].cover.root.value == player_id.encode()
-    ), f"Expected root {player_id}, got {deposit_cmds[0].cover.root.value!r}"
-
-
-@then('the second command has amount (?P<amount>\\d+) for "(?P<player_id>[^"]+)"')
-def step_then_second_command_has_amount(context, amount, player_id):
-    """Verify the second DepositFunds command carries the expected amount/player."""
-    deposit_cmds = [
-        c
-        for c in context.commands
-        if type_matches(c.pages[0].command, player.DepositFunds)
-    ]
-    cmd_any = deposit_cmds[1].pages[0].command
-    cmd = player.DepositFunds()
-    cmd_any.Unpack(cmd)
-    expected_amount = int(amount)
-    assert (
-        cmd.amount.amount == expected_amount
-    ), f"Expected {expected_amount}, got {cmd.amount.amount}"
-    assert (
-        deposit_cmds[1].cover.root.value == player_id.encode()
-    ), f"Expected root {player_id}, got {deposit_cmds[1].cover.root.value!r}"
-
-
-@then("only TableSyncSaga handles the event")
-def step_then_only_table_sync_handles(context):
-    """Verify only TableSyncSaga emitted commands (a single DealCards)."""
-    assert (
-        len(context.commands) == 1
-    ), f"Expected exactly 1 command, got {len(context.commands)}"
-    assert type_matches(
-        context.commands[0].pages[0].command, hand.DealCards
-    ), f"Expected DealCards, got {context.commands[0].pages[0].command.type_url}"
-
-
-@then("TableSyncSaga still emits its command")
-def step_then_table_sync_emits(context):
-    """Verify TableSyncSaga still emitted DealCards despite the failing saga."""
-    deal_cards_count = sum(
-        1
-        for cmd in context.commands
-        if type_matches(cmd.pages[0].command, hand.DealCards)
-    )
-    assert deal_cards_count >= 1, "Expected TableSyncSaga to emit DealCards"
-
-
-@then("no exception is raised")
-def step_then_no_exception(context):
-    """Verify no exception escaped the dispatch."""
-    assert not context.exception_raised, "Exception was raised unexpectedly"
-
-
-# =============================================================================
-# New step defs (EU-0309..) - ported directly from tests/unit/test_saga.py.
-# These exercise the Router via SagaHandleRequest with explicit destination
-# sequences and event-type assertions in the "angzarr_client.proto.examples.EventName" style.
-# =============================================================================
-
-
-def _make_router_with(*handlers) -> Router:
-    """Build a Router for dispatching a SagaHandleRequest."""
-    return _build_router(*handlers)
-
-
-def _dispatch_request(
-    router: Router, event_book: types.EventBook, dest_seqs: dict | None = None
-):
-    """Build + dispatch a SagaHandleRequest and return the SagaResponse."""
-    req = SagaHandleRequest(source=event_book)
-    for k, v in (dest_seqs or {}).items():
-        req.destination_sequences[k] = v
-    return router.dispatch(req)
-
-
-@given("a TableSyncStartSaga registered in a Router")
-def step_given_table_sync_start_saga(context):
-    """Register the production TableSyncStartSaga in a fresh Router."""
-    context.router = _make_router_with(TableSyncStartSaga())
-    context.event = None
-    context.source_root = b"table-1"
-
-
-@given("a TableSyncCompleteSaga registered in a Router")
-def step_given_table_sync_complete_saga(context):
-    """Register the production TableSyncCompleteSaga in a fresh Router."""
-    context.router = _make_router_with(TableSyncCompleteSaga())
-    context.event = None
-    context.source_root = b"hand-1"
-
-
-@given("a HandResultsSaga registered in a Router")
-def step_given_hand_results_saga_router(context):
-    """Register the production HandResultsSaga (table.HandEnded source)."""
-    context.router = _make_router_with(HandResultsSaga())
-    context.event = None
-    context.source_root = b"table-1"
-
-
-@given("a HandPayoutSaga registered in a Router")
-def step_given_hand_payout_saga_router(context):
-    """Register the production HandPayoutSaga (hand.PotAwarded source)."""
-    context.router = _make_router_with(HandPayoutSaga())
-    context.event = None
-    context.source_root = b"hand-1"
-
-
-@given("a Router with TableSyncStartSaga, HandResultsSaga, and HandPayoutSaga")
-def step_given_multi_saga_router(context):
-    """Register all three sagas in a single Router for the fan-out scenario."""
-    context.router = _make_router_with(
-        TableSyncStartSaga(), HandResultsSaga(), HandPayoutSaga()
-    )
-    context.event = None
-    context.source_root = b"table-1"
+@then('the wallet of "{name}" is told the request was refused')
+def step_wallet_told(context, name):
+    sent = context.world.sent_of(_table.AddChips)[-1]
+    assert sent.outcome.error is not None and sent.outcome.notified
+    assert context.world.events(PLAYER, player_root(name), _p.TopUpRefused)
 
 
 @when(
-    r"I dispatch the event via SagaHandleRequest with destination_sequences "
-    r'"(?P<dest_seqs>[^"]*)"'
+    'the wallet of "{name}" is told table "{table}" refused the request to add chips '
+    'from top-up "{label}" with code "{code}"'
 )
-def step_when_dispatch_saga_request(context, dest_seqs):
-    """Build a SagaHandleRequest and dispatch via the configured Router.
-
-    ``dest_seqs`` is a comma-separated list of ``domain=sequence`` entries
-    (e.g. ``"hand=0"`` or ``"hand=0,table=0,player=0"``). Empty string means
-    no destination sequences.
-    """
-    source_domain = _source_domain_for(context.event)
-    root = getattr(context, "source_root", None) or b"source-1"
-    event_book = _wrap_event_book(context.event, source_domain, root)
-
-    parsed: dict[str, int] = {}
-    if dest_seqs.strip():
-        for chunk in dest_seqs.split(","):
-            k, _, v = chunk.strip().partition("=")
-            if k:
-                parsed[k] = int(v or 0)
-
-    response = _dispatch_request(context.router, event_book, parsed)
-    context.response = response
-    context.commands = list(response.commands)
+def step_told_add_chips_refused(context, name, table, label, code):
+    w = context.world
+    hold = wallet(w, name).holds[request_id(label).hex()]
+    w.last = refuse_top_up(w, name, label, table, hold.amount, code)
 
 
-@then(
-    "the result is a (?:angzarr_client\\.proto\\.)?examples\\.(?P<event_name>\\w+) "
-    "command to (?P<domain>\\w+) domain"
+@when('the wallet of "{name}" is told table "{table}" refused a seat confirmation')
+def step_told_confirm_refused(context, name, table):
+    w = context.world
+    rejected = _t.CommandBook(cover=cover(TABLE, table_root(table), w.correlation))
+    page = rejected.pages.add()
+    page.header.angzarr_deferred.source.CopyFrom(cover(PLAYER, player_root(name)))
+    page.command.CopyFrom(_az.pack(_table.ConfirmSeat(buy_in_id=request_id("B1"))))
+    notification = w.rejection(
+        rejected, "PLAYER_ALREADY_SEATED", "the player is already seated"
+    )
+    w.last = w.notify(notification, page.header.angzarr_deferred, w.correlation)
+
+
+@then('nothing is undone in the wallet of "{name}"')
+def step_nothing_undone_wallet(context, name):
+    last = context.world.last
+    assert last.error is None and not last.events, last.types()
+    assert not context.world.events(PLAYER, player_root(name), _p.TopUpRefused)
+
+
+# --- the settlement translator: facts ------------------------------------------------
+
+
+@given('table "{table}" added {amount:d} chips for "{name}" from top-up "{label}"')
+def step_table_added(context, table, amount, name, label):
+    _seed_chips_added(context, table, amount, name, label)
+
+
+@given(
+    'table "{table}" added {amount:d} chips for "{name}" from top-up "{label}" that the wallet never requested'
 )
-def step_then_result_is_command(context, event_name, domain):
-    """Verify the first emitted command matches examples.<EventName> on the given domain."""
-    assert len(context.commands) >= 1, "Expected at least one command"
-    cmd_book = context.commands[0]
-    assert (
-        cmd_book.cover.domain == domain
-    ), f"Expected domain {domain}, got {cmd_book.cover.domain}"
-    suffix = f"angzarr_client.proto.examples.{event_name}"
-    assert cmd_book.pages[0].command.type_url.endswith(suffix), (
-        f"Expected command type ending with {suffix}, got "
-        f"{cmd_book.pages[0].command.type_url}"
+def step_table_added_unrequested(context, table, amount, name, label):
+    _seed_chips_added(context, table, amount, name, label)
+
+
+def _seed_chips_added(context, table, amount, name, label):
+    w = context.world
+    (page,) = w.seed(
+        TABLE,
+        table_root(table),
+        _table.ChipsAdded(
+            hold_id=request_id(label),
+            player_root=player_root(name),
+            amount=amount,
+            stack_after=amount,
+        ),
+    )
+    context.table_page = page
+
+
+@given('"{name}" cashed out {amount:d} from table "{table}"')
+def step_cashed_out(context, name, amount, table):
+    w = context.world
+    sequence = len(w.stream(TABLE, table_root(table)))
+    (page,) = w.seed(
+        TABLE,
+        table_root(table),
+        _table.PlayerCashedOut(
+            cashout_id=cashout_id(table_root(table), sequence),
+            player_root=player_root(name),
+            amount=amount,
+        ),
+    )
+    context.table_page = page
+
+
+def run_settlement_translator(context, table: str = "Main") -> None:
+    w = context.world
+    w.saga_response = w.run_sagas(
+        single_page_book(TABLE, table_root(table), context.table_page, w.correlation)
     )
 
 
-@then("the command DealCards has hand_number (?P<num>\\d+) and (?P<count>\\d+) players")
-def step_then_deal_cards_fields(context, num, count):
-    """Verify the emitted DealCards command has the expected shape."""
-    cmd_any = context.commands[0].pages[0].command
-    cmd = hand.DealCards()
-    cmd_any.Unpack(cmd)
-    assert cmd.hand_number == int(
-        num
-    ), f"Expected hand_number {num}, got {cmd.hand_number}"
-    assert len(cmd.players) == int(
-        count
-    ), f"Expected {count} players, got {len(cmd.players)}"
+def _fact_external_id(context) -> str:
+    """The idempotency key the translator put on the fact it emitted."""
+    (fact_book,) = context.world.saga_response.events
+    return fact_book.pages[0].header.external_deferred.external_id
 
 
-@then("the command DealCards has game_variant TEXAS_HOLDEM")
-def step_then_deal_cards_variant(context):
-    """Verify the emitted DealCards command uses TEXAS_HOLDEM."""
-    cmd_any = context.commands[0].pages[0].command
-    cmd = hand.DealCards()
-    cmd_any.Unpack(cmd)
-    assert (
-        cmd.game_variant == poker_types.TEXAS_HOLDEM
-    ), f"Expected TEXAS_HOLDEM, got {cmd.game_variant}"
+@when("the settlement translator handles the {what}")
+def step_settlement_handles(context, what):
+    run_settlement_translator(context)
+
+
+@given("the settlement translator has handled the {what}")
+def step_settlement_handled(context, what):
+    run_settlement_translator(context)
 
 
 @then(
-    'the EndHand command has (?P<count>\\d+) result with winner "(?P<winner>[^"]+)" amount (?P<amount>\\d+)'
+    'the wallet of "{name}" records, as a fact it cannot refuse, that top-up "{label}" of {amount:d} settled'
 )
-def step_then_end_hand_result(context, count, winner, amount):
-    """Verify the emitted EndHand command has the expected winner/amount."""
-    cmd_any = context.commands[0].pages[0].command
-    cmd = table.EndHand()
-    cmd_any.Unpack(cmd)
-    assert len(cmd.results) == int(
-        count
-    ), f"Expected {count} results, got {len(cmd.results)}"
-    result = cmd.results[0]
-    assert (
-        result.winner_root == winner.encode()
-    ), f"Expected winner {winner}, got {result.winner_root!r}"
-    assert result.amount == int(
-        amount
-    ), f"Expected amount {amount}, got {result.amount}"
+def step_fact_settled(context, name, label, amount):
+    last = context.world.last
+    settled = last.decoded(_p.TopUpSettled)
+    assert len(settled) == 1, last.types()
+    assert (settled[0].hold_id, settled[0].amount, settled[0].anomaly) == (
+        request_id(label),
+        amount,
+        "",
+    )
+    assert _fact_external_id(context) == request_id(label).hex()
 
 
-@then("the EndHand command has (?P<count>\\d+) results")
-def step_then_end_hand_result_count(context, count):
-    """Verify the EndHand command results list has the expected length."""
-    cmd_any = context.commands[0].pages[0].command
-    cmd = table.EndHand()
-    cmd_any.Unpack(cmd)
-    assert len(cmd.results) == int(
-        count
-    ), f"Expected {count} results, got {len(cmd.results)}"
+@then(
+    'the wallet of "{name}" records, as a fact it cannot refuse, a credit of {amount:d} from table "{table}"'
+)
+def step_fact_credit(context, name, amount, table):
+    last = context.world.last
+    credited = last.decoded(_p.CashOutCredited)
+    assert len(credited) == 1, last.types()
+    assert (credited[0].table_root, credited[0].amount) == (table_root(table), amount)
+    assert _fact_external_id(context) == credited[0].cashout_id.hex()
 
 
-@then("the EndHand command result (?P<index>\\d+) has winning_hand populated")
-def step_then_end_hand_winning_hand(context, index):
-    """Verify the Nth EndHand result carries a populated winning_hand."""
-    cmd_any = context.commands[0].pages[0].command
-    cmd = table.EndHand()
-    cmd_any.Unpack(cmd)
-    i = int(index)
-    assert i < len(cmd.results), f"Only {len(cmd.results)} results"
-    result = cmd.results[i]
-    assert result.HasField(
-        "winning_hand"
-    ), f"Expected winning_hand populated on result {i}"
+@then("the second delivery is recognised as already recorded")
+def step_already_recorded(context):
+    assert context.world.last.already_processed
 
 
-@then("(?P<count>\\d+) commands are emitted to player domain")
-def step_then_commands_to_player(context, count):
-    """Verify the expected number of commands were emitted to player domain."""
-    expected = int(count)
-    player_cmds = [c for c in context.commands if c.cover.domain == "player"]
-    assert (
-        len(player_cmds) == expected
-    ), f"Expected {expected} commands to player, got {len(player_cmds)}"
+@then(
+    'the wallet of "{name}" records the settlement and flags it because it matches no open hold'
+)
+def step_fact_flagged(context, name):
+    settled = context.world.last.decoded(_p.TopUpSettled)
+    assert len(settled) == 1 and settled[0].anomaly == logic.NO_MATCHING_HOLD
+    assert wallet(context.world, name).anomalies == 1
 
 
-@then("each command is a (?:angzarr_client\\.proto\\.)?examples\\.ReleaseFunds")
-def step_then_each_release_funds(context):
-    """Verify every emitted command is a ReleaseFunds."""
-    for c in context.commands:
-        assert type_matches(
-            c.pages[0].command, player.ReleaseFunds
-        ), f"Expected ReleaseFunds, got {c.pages[0].command.type_url}"
+# --- one settled round, several follow-ups -------------------------------------------
 
 
-@then("each command is a (?:angzarr_client\\.proto\\.)?examples\\.DepositFunds")
-def step_then_each_deposit_funds(context):
-    """Verify every emitted command is a DepositFunds."""
-    for c in context.commands:
-        assert type_matches(
-            c.pages[0].command, player.DepositFunds
-        ), f"Expected DepositFunds, got {c.pages[0].command.type_url}"
-
-
-@then('DepositFunds (?P<index>\\d+) has amount (?P<amount>\\d+) for "(?P<pid>[^"]+)"')
-def step_then_deposit_funds_index(context, index, amount, pid):
-    """Verify the Nth (0-indexed) DepositFunds command has the expected fields."""
-    deposit_cmds = [
-        c
-        for c in context.commands
-        if type_matches(c.pages[0].command, player.DepositFunds)
+@given('round {round:d} at table "{table}" settled with:')
+def step_round_settled_with(context, round, table):
+    outcomes = [
+        _table.SeatOutcome(
+            seat=int(r["seat"]),
+            player_root=player_root(r["player"]),
+            wager=int(r["wager"]),
+            outcome=_OUTCOMES[r["outcome"]],
+            returned=int(r["returned"]),
+            net=int(r["returned"]) - int(r["wager"]),
+        )
+        for r in context.table
     ]
-    i = int(index)
-    assert i < len(deposit_cmds), f"Only {len(deposit_cmds)} deposit cmds"
-    cmd_book = deposit_cmds[i]
-    cmd = player.DepositFunds()
-    cmd_book.pages[0].command.Unpack(cmd)
-    assert cmd.amount.amount == int(
-        amount
-    ), f"Expected amount {amount}, got {cmd.amount.amount}"
+    delta = sum(o.wager for o in outcomes) - sum(o.returned for o in outcomes)
+    (page,) = context.world.seed(
+        TABLE,
+        table_root(table),
+        _table.RoundSettled(
+            round=round, outcomes=outcomes, house_delta=delta, house_result_after=delta
+        ),
+    )
+    context.table_page = page
+
+
+@when("the {translator} translator handles the settlement")
+def step_round_translator(context, translator):
+    w = context.world
+    w.saga_response = w.run_sagas(
+        single_page_book(TABLE, table_root("Main"), context.table_page, w.correlation),
+        route=False,
+    )
+
+
+def _commands(context, message_class) -> list[tuple[bytes, object]]:
+    return [
+        (book.cover.root.value, unpack(book.pages[0].command, message_class))
+        for book in context.world.saga_response.commands
+        if type_name(book.pages[0].command.type_url)
+        == message_class.DESCRIPTOR.full_name
+    ]
+
+
+@then('the wallets are asked to record round {round:d} at table "{table}" as:')
+def step_asked_record(context, round, table):
+    actual = [
+        (root, c.table_root, c.round, c.wager, c.net)
+        for root, c in _commands(context, _p.RecordRoundResult)
+    ]
+    expected = [
+        (
+            player_root(r["player"]),
+            table_root(table),
+            round,
+            int(r["wager"]),
+            int(r["net"]),
+        )
+        for r in context.table
+    ]
+    assert actual == expected, actual
+
+
+@then(
+    'the wallets are asked to award loyalty points for round {round:d} at table "{table}" as:'
+)
+def step_asked_award(context, round, table):
+    actual = [
+        (root, c.table_root, c.round, c.points)
+        for root, c in _commands(context, _p.AwardLoyaltyPoints)
+    ]
+    expected = [
+        (player_root(r["player"]), table_root(table), round, int(r["points"]))
+        for r in context.table
+    ]
+    assert actual == expected, actual
+
+
+@given('round {round:d} at table "{table}" settled')
+def step_round_settled(context, round, table):
+    w = context.world
+    ok(create_table(w, table, seed=2))
+    seat_player(w, "Alice", 0, 500, table)
+    seat_player(w, "Bob", 1, 500, table)
+    ok(place_bet(w, 0, 20, table))
+    ok(place_bet(w, 1, 30, table))
+    play_standing(w, table)
+    context.table_page = last_page_of(w, table, _table.RoundSettled)
+    assert unpack(context.table_page.event, _table.RoundSettled).round == round
+
+
+def last_page_of(w, table, message_class):
+    return last_page(w, TABLE, table_root(table), message_class)
+
+
+@when("the settlement is delivered")
+def step_settlement_delivered(context):
+    w = context.world
+    root = table_root("Main")
+    full = _t.EventBook(cover=cover(TABLE, root, w.correlation))
+    full.pages.extend(w.stream(TABLE, root))
+    w.project(full)
+    w.saga_response = w.run_sagas(
+        single_page_book(TABLE, root, context.table_page, w.correlation), route=False
+    )
+
+
+def _settled(context) -> _table.RoundSettled:
+    return unpack(context.table_page.event, _table.RoundSettled)
+
+
+@then('it is folded into table "{table}"')
+def step_folded(context, table):
+    state = table_state(context.world, table)
+    settled = _settled(context)
+    assert state.house_result == settled.house_result_after
+    for outcome in settled.outcomes:
+        assert state.seated[outcome.seat].stack == outcome.stack_after
+        assert state.seated[outcome.seat].wager == 0
+
+
+@then("it is handled by the round-history translator and the loyalty translator")
+def step_both_translators(context):
+    settled = _settled(context)
+    players = [o.player_root for o in settled.outcomes]
+    assert [root for root, _ in _commands(context, _p.RecordRoundResult)] == players
+    assert [root for root, _ in _commands(context, _p.AwardLoyaltyPoints)] == players
+
+
+@then("it is applied to the ledger")
+def step_applied_to_ledger(context):
+    row = context.world.ledger.projection.tables[table_root("Main").hex()]
+    assert row.house_result == _settled(context).house_result_after
+    assert row.wagers == 0
+
+
+@given(
+    'the loyalty translator asked to award "{name}" {points:d} points for round {round:d} at table "{table}"'
+)
+def step_loyalty_asked(context, name, points, round, table):
+    w = context.world
+    outcome = _table.SeatOutcome(
+        seat=0,
+        player_root=player_root(name),
+        wager=points,
+        outcome=Outcome.OUTCOME_LOSE,
+    )
+    (page,) = w.seed(
+        TABLE,
+        table_root(table),
+        _table.RoundSettled(round=round, outcomes=[outcome], house_delta=points),
+    )
+    source = single_page_book(TABLE, table_root(table), page, w.correlation)
+    response = w.run_sagas(source, route=False)
+    awards = [
+        (i, book)
+        for i, book in enumerate(response.commands)
+        if type_name(book.pages[0].command.type_url)
+        == _p.AwardLoyaltyPoints.DESCRIPTOR.full_name
+    ]
+    assert len(awards) == 1
+    context.pending = (awards[0][1], source, awards[0][0])
+    w.sent.clear()
+
+
+@when('the wallet of "{name}" handles the request')
+def step_wallet_handles(context, name):
+    w = context.world
+    command, source, index = context.pending
+    context.table_events_before = len(w.stream(TABLE, source.cover.root.value))
+    w.sent_mark = len(w.sent)
+    w.last = w.deliver(command, source, index, "saga", SAGAS, w.correlation).outcome
+
+
+@then('nothing is undone at table "{table}"')
+def step_nothing_undone_table(context, table):
     assert (
-        cmd_book.cover.root.value == pid.encode()
-    ), f"Expected root {pid}, got {cmd_book.cover.root.value!r}"
-
-
-@then("only TableSyncStartSaga emits a DealCards command")
-def step_then_only_table_start_emits(context):
-    """Verify exactly one DealCards command was emitted (fan-out test)."""
-    assert (
-        len(context.commands) == 1
-    ), f"Expected exactly 1 command, got {len(context.commands)}"
-    assert type_matches(
-        context.commands[0].pages[0].command, hand.DealCards
-    ), f"Expected DealCards, got {context.commands[0].pages[0].command.type_url}"
-
-
-@then("no commands are emitted")
-def step_then_no_commands(context):
-    """Verify zero commands were emitted."""
-    assert (
-        len(context.commands) == 0
-    ), f"Expected 0 commands, got {len(context.commands)}"
+        len(context.world.stream(TABLE, table_root(table)))
+        == context.table_events_before
+    )

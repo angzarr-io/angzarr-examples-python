@@ -1,77 +1,46 @@
-"""Behave environment for acceptance tests.
+"""Behave environment for the cluster acceptance stage.
 
-Creates a CommandClient for the suite: gRPC channels to the coordinator(s)
-selected by PLAYER_URL / TABLE_URL / HAND_URL (defaults to localhost:1310).
+Sits at the repository root so ``behave --stage acceptance`` finds it and
+``acceptance_steps/`` from the feature files in the angzarr-project submodule.
+One gRPC client and one event-stream subscriber serve the whole run; each
+scenario gets a fresh :class:`acceptance_steps._world.World` (unique roots
+and conversations).
 """
 
 import sys
 from pathlib import Path
 
-# This file sits at the repo root (examples-python/main/) so behave finds it
-# via --stage walk-up from submodule feature files. Add aggregate paths for
-# handler imports.
-root = Path(__file__).parent
-sys.path.insert(0, str(root))
-for agg in ["player/agg", "table/agg", "hand/agg", "sagas"]:
-    path = root / agg
-    if path.exists():
-        sys.path.insert(0, str(path))
+_ROOT = Path(__file__).parent
+for _path in (_ROOT, _ROOT / "src"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-from tests.command_client import create_client  # noqa: E402
+from acceptance_steps._client import ClusterClient  # noqa: E402
+from acceptance_steps._stream import EventStreamSubscriber, amqp_url  # noqa: E402
+from acceptance_steps._world import World  # noqa: E402
 
 
 def before_all(context):
-    """Create the command client for the entire test run."""
-    context.client = create_client()
-    # Track named entities across scenarios (reset per scenario)
-    context.players = {}
-    context.tables = {}
-    context.hands = {}
-
-
-def before_scenario(context, scenario):
-    """Reset per-scenario state.
-
-    Recreate the CommandClient too: the cluster-tier ``coordinator
-    restarted`` scenario kills a pod mid-suite, leaving the next
-    scenario's grpc channel pointed at a draining endpoint and
-    surfacing as ``Connection reset by peer``. Cheap to rebuild.
-    """
-    if hasattr(context, "client"):
-        context.client.close()
-    context.client = create_client()
-    context.players = {}
-    context.tables = {}
-    context.hands = {}
-    context.tournaments = {}
-    context.last_response = None
-    context.last_error = None
-    context.last_sync_mode = None
-    context.last_cascade_error_mode = None
-    context.current_hand_root = None
-    context.current_table_name = None
-    context.deck_seed = None
-    context.deck_config = None
-    context.hand_count = 0
-    context.command_start_time = None
-    context.command_end_time = None
-    context.command_succeeded = None
-    context.bus_events = []
-    context.monitoring_bus = False
-    context.saga_failure_configured = False
-    context.saga_failure_on_pot = False
-    context.projector_healthy = False
-    context.dlq_configured = False
-    context.dlq_messages = []
-    context.pm_registered = False
-    context.no_sagas = False
-    context.multiple_saga_failures = False
-    context.test_players = []
-    context.deposit_times = []
-    context.event_without_correlation = False
+    context.client = ClusterClient()
+    context.stream = None
+    context.port_forward = None
+    if context.config.dry_run:
+        return
+    try:
+        url, context.port_forward = amqp_url()
+        context.stream = EventStreamSubscriber(url)
+        context.stream.start()
+    except RuntimeError as exc:
+        print(f"[acceptance] event stream unavailable: {exc}", file=sys.stderr)
 
 
 def after_all(context):
-    """Clean up the command client."""
-    if hasattr(context, "client"):
-        context.client.close()
+    if context.stream is not None:
+        context.stream.stop()
+    if context.port_forward is not None:
+        context.port_forward.terminate()
+    context.client.close()
+
+
+def before_scenario(context, scenario):
+    context.world = World(context.client, context.stream)

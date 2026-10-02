@@ -1,0 +1,8 @@
+# The images copy only src/, pyproject.toml and uv.lock.
+.venv
+.git
+.uv-cache
+.tools
+.deps
+mutants
+angzarr-project

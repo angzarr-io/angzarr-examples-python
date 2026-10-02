@@ -1,4 +1,4 @@
-# Python poker example - local development values
+# Blackjack example (Python) - deployment values for the angzarr chart
 
 replicaCount: 1
 
@@ -19,22 +19,29 @@ imagePullSecrets: []
 #
 # To update: docker inspect --format='{{index .RepoDigests 0}}' <image> or
 #            gh api /orgs/angzarr-io/packages/container/<name>/versions
+# NOTE: the aggregate/saga/projector/processManager coordinators are pinned to
+# locally-built `:latest` images (loaded into kind via `just
+# load-coordinators-local`), NOT the published digests. The published digests
+# lagged core HEAD's `io.angzarr` proto-package + bare absolute type-URL
+# refactor, so their CommandHandlerCoordinatorService returned UNIMPLEMENTED to
+# clients built from the current `_gen` stubs. Rebuild from core/main with
+# `just images` / the Containerfile `angzarr-*-dev` targets when core moves.
 images:
   aggregate:
     repository: ghcr.io/angzarr-io/angzarr-aggregate
-    tag: "b98e8de@sha256:4799c8b2a85c148fac2368be4328f5cab599e68b14865ba03fe51698ba59b9fe"
+    tag: "latest"
     pullPolicy: IfNotPresent
   saga:
     repository: ghcr.io/angzarr-io/angzarr-saga
-    tag: "b98e8de@sha256:1b64face0a2f8fc346d506d3ab0d62dcc85bba54e3848aaab3897b808968a119"
+    tag: "latest"
     pullPolicy: IfNotPresent
   projector:
     repository: ghcr.io/angzarr-io/angzarr-projector
-    tag: "b98e8de@sha256:b9f3a52a37e0e9b3c47b8331d1d8c5f9c68331e655f13579b4bcf591b6f8aea1"
+    tag: "latest"
     pullPolicy: IfNotPresent
   processManager:
     repository: ghcr.io/angzarr-io/angzarr-process-manager
-    tag: "b98e8de@sha256:49af52fe739d6b3552e32a8f182584e8bc9e7d57674089d2b57e9b102217f954"
+    tag: "latest"
     pullPolicy: IfNotPresent
   stream:
     repository: ghcr.io/angzarr-io/angzarr-stream-dev
@@ -44,6 +51,14 @@ images:
     repository: ghcr.io/angzarr-io/angzarr-log-dev
     tag: "ba4fcd4a767165f56aadd2bfbf2b294a59394800@sha256:bf96d6a207d9328c3792c6d15d8a06eee2b3711b81beb74809bde41e20cfdf64"
     pullPolicy: IfNotPresent
+
+# The component containers launch via `uv run` (uv resolves/paths the
+# locked deps), which needs a writable temp dir. The chart hardens containers
+# with a read-only root filesystem by default; relax it for this dev/kind
+# example so uv can write its scratch under /tmp. (Deep-merged with the chart's
+# securityContext defaults — only this key is overridden.)
+securityContext:
+  readOnlyRootFilesystem: false
 
 storage:
   type: postgres
@@ -73,141 +88,96 @@ messaging:
     # fails the connecting pod loudly rather than silently.
     url: "UNUSED_REPLACED_AT_DEPLOY"
 
-# Poker domain aggregates
+# The blackjack components. Each business container serves one component's
+# framework service on its port; the chart pairs it with the matching
+# coordinator sidecar.
 applications:
   business:
-    - name: poker-player
+    # agg-player also serves the PlayerUpcaster (UpcasterService) on its port.
+    - name: agg-player
       domain: player
-      port: 50301
+      port: 50401
       image:
         repository: ghcr.io/angzarr-io/examples-python-agg-player
         tag: latest
         pullPolicy: IfNotPresent
       debug:
         enabled: true
-        nodePort: 31320  # localhost:1320 via Kind port mapping
-
-    - name: poker-table
+        nodePort: 31320
+    - name: agg-table
       domain: table
-      port: 50302
+      port: 50402
       image:
         repository: ghcr.io/angzarr-io/examples-python-agg-table
         tag: latest
         pullPolicy: IfNotPresent
       debug:
         enabled: true
-        nodePort: 31321  # localhost:1321 via Kind port mapping
+        nodePort: 31321
 
-    - name: poker-hand
-      domain: hand
-      port: 50303
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-agg-hand
-        tag: latest
-        pullPolicy: IfNotPresent
-      debug:
-        enabled: true
-        nodePort: 31322  # localhost:1322 via Kind port mapping
-
-    - name: poker-tournament
-      domain: tournament
-      port: 50304
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-agg-tournament
-        tag: latest
-        pullPolicy: IfNotPresent
-      debug:
-        enabled: true
-        nodePort: 31323
-
-    - name: poker-reservation
-      domain: reservation
-      port: 50305
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-agg-reservation
-        tag: latest
-        pullPolicy: IfNotPresent
-      debug:
-        enabled: true
-        nodePort: 31324
-
-  # Sagas — stateless event→command translators, deployed as their own pods
-  # alongside an angzarr-saga sidecar that consumes from AMQP topics.
+  # One service per saga deployable; keep replicas at 1 (replicas of one
+  # service share a queue). saga-table-player hosts the settlement, history
+  # and loyalty sagas, all consuming the table domain.
   sagas:
-    - name: saga-table-hand
-      domain: saga-table-hand
+    - name: saga-player-table
+      sourceDomain: player
+      domain: table
       port: 50411
-      topics:
-        - "table"  # subscribes to HandStarted from the table aggregate
+      topics: ["player"]
       image:
-        repository: ghcr.io/angzarr-io/examples-python-saga-table-hand
+        repository: ghcr.io/angzarr-io/examples-python-saga-player-table
         tag: latest
         pullPolicy: IfNotPresent
     - name: saga-table-player
-      domain: saga-table-player
-      port: 50413
-      topics:
-        - "table"  # subscribes to HandEnded from the table aggregate
+      sourceDomain: table
+      domain: player
+      port: 50412
+      topics: ["table"]
       image:
         repository: ghcr.io/angzarr-io/examples-python-saga-table-player
         tag: latest
         pullPolicy: IfNotPresent
-    - name: saga-hand-table
-      domain: saga-hand-table
-      port: 50412
-      topics:
-        - "hand"  # subscribes to HandComplete -> emits EndHand on table
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-saga-hand-table
-        tag: latest
-        pullPolicy: IfNotPresent
-    - name: saga-hand-player
-      domain: saga-hand-player
-      port: 50414
-      topics:
-        - "hand"  # subscribes to PotAwarded -> emits DepositFunds (winner credit)
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-saga-hand-player
-        tag: latest
-        pullPolicy: IfNotPresent
 
-  # Consolidated reservation process manager — replaces the former buy-in /
-  # rebuy / registration PMs. Subscribes to reservation (for lifecycle
-  # events), table (for seating + chip-add confirmations), and tournament
-  # (for enrollment + rebuy results); fans commands back to player
-  # (ReserveFunds / DeductReservedFunds / ReleaseFunds), reservation
-  # (Confirm* / Release*), table (SeatPlayer / AddRebuyChips), and
-  # tournament (EnrollPlayer / ProcessRebuy). Uses QueryClient for sync
-  # cross-aggregate reads (table capacity, tournament fee / phase) rather
-  # than embedding destination state in the request.
+  # The buy-in process: triggers from table (SeatHeld, PlayerSeated) and
+  # player (FundsHeld, FundsCaptured); owns the buy-in stream.
   processManagers:
-    - name: pmg-reservation
-      domain: pmg-reservation
-      port: 50395
-      topics:
-        - "reservation"
-        - "table"
-        - "tournament"
+    - name: pmg-buy-in
+      domain: buy-in
+      port: 50421
+      topics: ["table", "player"]
       image:
-        repository: ghcr.io/angzarr-io/examples-python-pmg-reservation
+        repository: ghcr.io/angzarr-io/examples-python-pmg-buy-in
         tag: latest
         pullPolicy: IfNotPresent
 
-  # Projectors — prj-training image isn't built by `just build-images` and
-  # isn't published; left empty for now since acceptance tests don't need it.
-  projectors: []
+  # The ledger projector consumes player and table and serves
+  # LedgerQueryService on its port, exposed on NodePort 31325.
+  projectors:
+    - name: projector-player-table-ledger
+      domain: ledger
+      port: 50431
+      topics: ["player", "table"]
+      image:
+        repository: ghcr.io/angzarr-io/examples-python-projector-player-table-ledger
+        tag: latest
+        pullPolicy: IfNotPresent
+      debug:
+        enabled: true
+        nodePort: 31325
+
+# The coordinators call UpcasterService on each aggregate's own address:
+# agg-player rewrites legacy FundsDepositedV1; agg-table has no legacy shapes
+# and returns events unchanged.
+upcaster:
+  enabled: true
 
 # Infrastructure settings
 infrastructure:
+  # The status console and the REST gateway are not part of the example.
+  status:
+    enabled: false
   gateway:
-    enabled: true
-    grpcTarget: "table-aggregate:1310"  # Points to table aggregate service
-    descriptorConfigMap: "gateway-descriptor"
-    # Pinned by digest; see comment on top-level `images:` for rationale.
-    image:
-      repository: ghcr.io/angzarr-io/angzarr-grpc-gateway
-      tag: "b98e8de@sha256:87bda37983c8ebafe59d1b7e5b436962e67fae93b28cbcba4950c641620c8b30"
-      pullPolicy: IfNotPresent
+    enabled: false
 
 # Resource limits for development
 resources:

@@ -1,60 +1,33 @@
-"""Common step definitions shared across test features."""
+"""Steps shared by every in-process feature: refusals and no-op requests.
 
-from datetime import datetime, timezone
+A refusal's business reason maps to the rejection code the component must
+report; the exact codes and messages are pinned in the native unit tests.
+"""
 
-from behave import then, use_step_matcher
-from google.protobuf.any_pb2 import Any as ProtoAny
-from google.protobuf.timestamp_pb2 import Timestamp
+from __future__ import annotations
 
-from angzarr_client.helpers import type_name_from_url
-from angzarr_client.proto.angzarr import types_pb2 as types
+import parse
+from behave import register_type, then
 
-# Use regex matchers for flexibility
-use_step_matcher("re")
-
-
-def make_timestamp():
-    """Create current timestamp."""
-    return Timestamp(seconds=int(datetime.now(timezone.utc).timestamp()))
+from unit_steps._refusals import assert_refused, reason_code, refused_outcome
 
 
-def make_event_page(event_msg, num: int = 0, time_str: str = None) -> types.EventPage:
-    """Create EventPage with packed event."""
-    event_any = ProtoAny()
-    event_any.Pack(event_msg, type_url_prefix="type.googleapis.com/")
-
-    created_at = None
-    if time_str:
-        h, m, s = map(int, time_str.split(":"))
-        dt = datetime(2024, 1, 1, h, m, s, tzinfo=timezone.utc)
-        created_at = Timestamp(seconds=int(dt.timestamp()))
-    else:
-        created_at = make_timestamp()
-
-    return types.EventPage(
-        num=num,
-        event=event_any,
-        created_at=created_at,
-    )
+@parse.with_pattern(r'[^"]*')
+def _text(value: str) -> str:
+    """Quoted text that may be empty: ``"{name:Text}"``."""
+    return value
 
 
-# --- Then steps for result event assertions ---
-# These handle the `examples.EventType` format used in feature files
+register_type(Text=_text)
 
 
-@then(r"the result is an? angzarr_client\.proto\.examples\.(?P<event_type>\w+) event")
-def step_then_result_is_examples_event(context, event_type):
-    """Verify the result event type.
+@then("{subject} is refused because {reason}")
+def step_refused(context, subject, reason):
+    assert_refused(refused_outcome(context.world), reason_code(reason, subject))
 
-    Matches feature-file assertions like:
-    - Then the result is a angzarr_client.proto.examples.CardsDealt event
-    - Then the result is an angzarr_client.proto.examples.ActionTaken event
-    """
-    assert (
-        context.result is not None
-    ), f"Expected {event_type} event but got error: {getattr(context, 'error_message', context.error)}"
-    assert context.result.pages, "No event pages in result"
-    event_any = context.result.pages[0].event
-    actual_type = type_name_from_url(event_any.type_url)
-    expected = f"angzarr_client.proto.examples.{event_type}"
-    assert actual_type == expected, f"Expected {expected} but got {actual_type}"
+
+@then("the request succeeds without any change to the {what}")
+def step_no_change(context, what):
+    last = context.world.last
+    assert last.error is None, f"expected success, got {last.error}"
+    assert not last.events, f"expected no change, got {last.types()}"

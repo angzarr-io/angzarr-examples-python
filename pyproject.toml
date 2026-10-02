@@ -1,108 +1,91 @@
 [project]
-name = "angzarr-poker"
+name = "angzarr-blackjack"
 version = "0.1.0"
-description = "Poker engine built on angzarr CQRS/ES framework"
+description = "Blackjack table example built on the angzarr CQRS/ES framework"
 requires-python = ">=3.11"
-# Dependencies
 dependencies = [
-    "angzarr-client>=0.5.0",
-    "protobuf>=5.0.0",
-    "grpcio>=1.60.0",
-    "grpcio-tools>=1.60.0",
-    "grpcio-health-checking>=1.60.0",
+    # The router binding (angzarr_client.router), the framework protos
+    # (angzarr_client.proto), the component host and the codegen templates.
+    # Not released yet: pinned to a commit; installing it builds its protos
+    # and router library (needs cargo).
+    "angzarr-client",
+    # The 7.x runtime the protocolbuffers/python v35.1 gencode targets.
+    "protobuf>=7.35.1,<8",
+    # grpc/python v1.76.0 gencode checks the runtime is at least that version.
+    "grpcio>=1.76.0",
+    "grpcio-health-checking>=1.76.0",
     "structlog>=24.0.0",
-    "behave>=1.3.3",
-    "sqlalchemy>=2.0.0",
-    "psycopg2-binary>=2.9.0",
 ]
 
 [dependency-groups]
 dev = [
+    "behave>=1.3.3",
+    "hypothesis>=6.100.0",
     "pytest>=8.0.0",
-    "debugpy>=1.8.0",
+    "pytest-timeout>=2.3.0",
     "black>=24.0.0",
     "ruff>=0.4.0",
-    "mypy>=1.10.0",
-    "pytest-cov>=7.0.0",
-    "pytest-timeout>=2.3.0",
-    "mutmut>=3.2.0",
+    "mutmut>=3.2.0,<3.3",
+    # AMQP consumer behind the acceptance harness's EventStreamSubscriber.
+    "pika>=1.3.0",
 ]
 
 [tool.uv.sources]
-angzarr-client = { path = "angzarr-client-python", editable = true }
+angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "218413414e69d646839ccaf0b254251dd2813ff1" }
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["angzarr", "agg-player", "agg-table", "agg-hand"]
+packages = ["src/angzarr_blackjack"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "src"]
 testpaths = ["tests"]
-# Integration tests need a running container and are opt-in via `just test-integration-ai`
-# (which sets -p no:cacheprovider and points pytest at tests/integration/ explicitly).
-addopts = "-v --ignore=tests/integration"
-markers = [
-    "integration: requires a running sidecar container (see tests/integration/)",
-]
+addopts = "-q"
 
 [tool.black]
 target-version = ["py311"]
-# Submodules have their own formatting rules + CI.
 extend-exclude = '''
 (
-    angzarr-client-python
-    | angzarr-project
+    angzarr-project
     | mutants
+    | \.deps
+    | _gen
 )
 '''
 
 [tool.mutmut]
-paths_to_mutate = [
-    "player/agg/handlers.py",
-    "table/agg/handlers/table.py",
-    "hand/agg/handlers/hand.py",
-    "hand/agg/handlers/game_rules.py",
-    "tournament/agg/handlers.py",
+# Everything under src/ is copied into mutants/; the business logic and the
+# hosts are mutated. Generated code, transport (servicers, server) and process
+# entrypoints are copied unmutated. The pytest suite — native unit tests plus
+# the in-process behave bridge (tests/example/test_features.py) — runs against
+# each mutant.
+paths_to_mutate = ["src/"]
+do_not_mutate = [
+    "src/angzarr_blackjack/_gen/*",
+    "*/main.py",
+    "*/__init__.py",
 ]
-# Copy sibling source files that tests/unit/test_*.py import alongside
-# the mutated handlers — without these, mutmut's ``mutants/`` workdir
-# can't resolve ``from player.agg.state import ...`` etc. at collection.
+# The bridge runs behave over the submodule's features with the unit steps,
+# through the staged router binding.
 also_copy = [
-    "player/",
-    "table/",
-    "hand/",
-    "tournament/",
-    "tests/",
-    "sagas/",
-    "hand-flow/",
-    "hand-flow-oo/",
-    "prj-output/",
-    "prj_training/",
-    "buy_in/",
-    "rebuy/",
-    "registration/",
-    "reservation/",
-    "angzarr-project/",
-    # behave --stage unit/acceptance walks up from submodule features to
-    # find these; mutmut's mutants/ workdir must contain them or step
-    # discovery fails with "No steps directory".
     "unit_steps/",
     "unit_environment.py",
-    "acceptance_steps/",
-    "acceptance_environment.py",
-]
-pytest_add_cli_args_test_selection = [
-    "--ignore=tests/integration",
+    "angzarr-project/features/",
+    "uv.lock",
 ]
 
 [tool.ruff]
-extend-exclude = ["**/*_pb2.py", "**/*_pb2_grpc.py", "**/angzarr-core", "**/angzarr-core/**"]
+extend-exclude = [
+    "**/_gen/**",
+    "angzarr-project",
+    ".deps",
+    "mutants",
+]
 
 [tool.ruff.lint.per-file-ignores]
-# These files require sys.path manipulation before imports
-"run_game.py" = ["E402"]
-"run_whatifs.py" = ["E402"]
-"tests/conftest.py" = ["E402"]
+# Behave environments put src/ on sys.path before importing the steps.
+"unit_environment.py" = ["E402"]
+"acceptance_environment.py" = ["E402"]

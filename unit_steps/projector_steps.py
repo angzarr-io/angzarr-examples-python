@@ -1,686 +1,590 @@
-"""Behave step definitions for projector tests."""
+"""Steps for features/example/blackjack-framework/projector.feature (the ledger).
 
-from datetime import datetime, timezone
+The ledger is fed the events of each side as its coordinator would deliver
+them: recorded in the wallet's or the table's stream (so they carry their
+sequence) and projected as a book.
+"""
 
-from behave import given, then, use_step_matcher, when
-from google.protobuf.any_pb2 import Any as ProtoAny
-from google.protobuf.timestamp_pb2 import Timestamp
-from projector import OutputProjector
-from renderer import format_card
+from __future__ import annotations
 
-from angzarr_client.proto.angzarr import types_pb2 as types
-from angzarr_client.proto.examples import hand_pb2 as hand
-from angzarr_client.proto.examples import player_pb2 as player
-from angzarr_client.proto.examples import poker_types_pb2 as poker_types
-from angzarr_client.proto.examples import table_pb2 as table
+import angzarr_client.router as _az
+from behave import given, then, when
 
-# Use regex matchers for flexibility
-use_step_matcher("re")
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import ledger_pb2 as _l
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import player_pb2 as _p
+from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
+from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
+from angzarr_blackjack._runtime.inprocess import InProcess
+from unit_steps._harness import (
+    PLAYER,
+    TABLE,
+    cover,
+    player_root,
+    request_id,
+    table_root,
+)
+
+LOSE = _table.SeatOutcome.Outcome.OUTCOME_LOSE
+WIN = _table.SeatOutcome.Outcome.OUTCOME_WIN
 
 
-def make_timestamp():
-    """Create current timestamp."""
-    return Timestamp(seconds=int(datetime.now(timezone.utc).timestamp()))
+def feed(w, domain: str, root: bytes, *events) -> list:
+    """Record ``events`` on ``(domain, root)`` and deliver them to the ledger."""
+    pages = w.seed(domain, root, *events)
+    book = _t.EventBook(cover=cover(domain, root, w.correlation))
+    book.pages.extend(pages)
+    w.project(book)
+    return pages
 
 
-def make_event_page(event_msg, time_str: str = None) -> types.EventPage:
-    """Create EventPage with packed event."""
-    event_any = ProtoAny()
-    event_any.Pack(event_msg, type_url_prefix="type.googleapis.com/")
+def feed_player(w, name: str, *events):
+    return feed(w, PLAYER, player_root(name), *events)
 
-    created_at = None
-    if time_str:
-        h, m, s = map(int, time_str.split(":"))
-        dt = datetime(2024, 1, 1, h, m, s, tzinfo=timezone.utc)
-        created_at = Timestamp(seconds=int(dt.timestamp()))
-    else:
-        created_at = make_timestamp()
 
-    return types.EventPage(
-        header=types.PageHeader(sequence=0),
-        event=event_any,
-        created_at=created_at,
+def feed_table(w, table: str, *events):
+    return feed(w, TABLE, table_root(table), *events)
+
+
+def view(w, name: str) -> _l.PlayerBalanceView:
+    return w.ledger.player_view(player_root(name))
+
+
+def totals(w) -> _l.LedgerTotals:
+    w.ledger.refresh_totals()
+    return w.ledger.projection.totals
+
+
+def table_row(w, table: str) -> _l.TableLedgerRow:
+    return w.ledger.projection.tables[table_root(table).hex()]
+
+
+def seats(w, table: str) -> dict[str, int]:
+    return w.labels.setdefault(("seats", table), {})
+
+
+def buy_in(w, name: str, table: str, amount: int, label: str | None = None) -> None:
+    """Both sides of a buy-in: hold, seat, spend."""
+    label = label or f"buy-in:{name}:{table}"
+    seat = seats(w, table).setdefault(name, len(seats(w, table)))
+    feed_player(
+        w,
+        name,
+        _p.FundsHeld(
+            hold_id=request_id(label), table_root=table_root(table), amount=amount
+        ),
+    )
+    feed_table(
+        w,
+        table,
+        _table.PlayerSeated(
+            buy_in_id=request_id(label),
+            player_root=player_root(name),
+            seat=seat,
+            stack=amount,
+        ),
+    )
+    feed_player(
+        w,
+        name,
+        _p.FundsCaptured(
+            hold_id=request_id(label), table_root=table_root(table), amount=amount
+        ),
     )
 
 
-def make_card(rank: int, suit: int):
-    """Create a card proto."""
-    return poker_types.Card(rank=rank, suit=suit)
+def register_and_deposit(w, name: str, amount: int = 0) -> None:
+    feed_player(
+        w,
+        name,
+        _p.PlayerRegistered(display_name=name, email=f"{name.lower()}@example.com"),
+    )
+    if amount:
+        feed_player(w, name, _p.FundsDeposited(amount=amount))
 
 
-def parse_card(card_str: str):
-    """Parse card string like 'As', 'Kh', '7s' into rank and suit."""
-    rank_map = {
-        "2": 2,
-        "3": 3,
-        "4": 4,
-        "5": 5,
-        "6": 6,
-        "7": 7,
-        "8": 8,
-        "9": 9,
-        "T": 10,
-        "10": 10,
-        "J": 11,
-        "Q": 12,
-        "K": 13,
-        "A": 14,
-    }
-    suit_map = {
-        "s": poker_types.SPADES,
-        "h": poker_types.HEARTS,
-        "d": poker_types.DIAMONDS,
-        "c": poker_types.CLUBS,
-    }
-    # Handle both "As" and "10s" formats
-    rank_char = card_str[:-1] if len(card_str) > 2 else card_str[0]
-    suit_char = card_str[-1].lower()
-    rank = rank_map.get(rank_char)
-    if rank is None:
-        try:
-            rank = int(rank_char)
-        except ValueError:
-            rank = 2  # Default
-    return make_card(rank, suit_map.get(suit_char, poker_types.SPADES))
+# --- wallets ------------------------------------------------------------------------------
 
 
-# --- Given steps ---
-
-
-@given("an OutputProjector")
-def step_given_output_projector(context):
-    """Create OutputProjector instance."""
-    context.output_lines = []
-    context.projector = OutputProjector(
-        output_fn=lambda text: context.output_lines.append(text),
-        show_timestamps=False,
+@when('the ledger applies "{name}" registering as "{display}"')
+def step_applies_registering(context, name, display):
+    feed_player(
+        context.world,
+        name,
+        _p.PlayerRegistered(display_name=display, email="x@example.com"),
     )
 
 
-@given('an OutputProjector with player name "(?P<name>[^"]+)"')
-def step_given_projector_with_player(context, name):
-    """Create projector with a player name registered."""
-    context.output_lines = []
-    context.projector = OutputProjector(
-        output_fn=lambda text: context.output_lines.append(text),
-        show_timestamps=False,
-    )
-    context.projector.set_player_name(b"player-1", name)
+@given('the ledger has applied "{name}" registering')
+def step_has_applied_registering(context, name):
+    register_and_deposit(context.world, name)
 
 
-@given('an OutputProjector with player names "(?P<name1>[^"]+)" and "(?P<name2>[^"]+)"')
-def step_given_projector_with_two_players(context, name1, name2):
-    """Create projector with two player names registered."""
-    context.output_lines = []
-    context.projector = OutputProjector(
-        output_fn=lambda text: context.output_lines.append(text),
-        show_timestamps=False,
-    )
-    context.projector.set_player_name(b"player-1", name1)
-    context.projector.set_player_name(b"player-2", name2)
-
-
-@given("an OutputProjector with show_timestamps enabled")
-def step_given_projector_with_timestamps(context):
-    """Create projector with timestamps enabled."""
-    context.output_lines = []
-    context.projector = OutputProjector(
-        output_fn=lambda text: context.output_lines.append(text),
-        show_timestamps=True,
-    )
-
-
-@given("an OutputProjector with show_timestamps disabled")
-def step_given_projector_without_timestamps(context):
-    """Create projector with timestamps disabled."""
-    context.output_lines = []
-    context.projector = OutputProjector(
-        output_fn=lambda text: context.output_lines.append(text),
-        show_timestamps=False,
-    )
-
-
-@given('a PlayerRegistered event with display_name "(?P<name>[^"]+)"')
-def step_given_player_registered_with_name(context, name):
-    """Create a PlayerRegistered event with given name."""
-    context.event = player.PlayerRegistered(
-        display_name=name,
-        email="test@example.com",
-        player_type=poker_types.HUMAN,
-    )
+@given('the ledger has applied "{name}" registering and depositing {amount:d}')
+def step_has_applied_deposit(context, name, amount):
+    register_and_deposit(context.world, name, amount)
 
 
 @given(
-    "a FundsDeposited event with amount (?P<amount>\\d+) and new_balance (?P<balance>\\d+)"
+    'the ledger has applied "{name}" registering and enrolling in the loyalty programme'
 )
-def step_given_funds_deposited_with_balance(context, amount, balance):
-    """Create a FundsDeposited event with specific balance."""
-    context.event = player.FundsDeposited(
-        amount=poker_types.Currency(amount=int(amount)),
-        new_balance=poker_types.Currency(amount=int(balance)),
-    )
+def step_has_applied_enrolling(context, name):
+    register_and_deposit(context.world, name)
+    feed_player(context.world, name, _p.LoyaltyEnrolled())
 
 
-@given(
-    "a FundsWithdrawn event with amount (?P<amount>\\d+) and new_balance (?P<balance>\\d+)"
+@when('the ledger is asked for "{name}"')
+def step_asked_for(context, name):
+    context.view = view(context.world, name)
+
+
+@then('the ledger reports that it has not seen "{name}"')
+def step_not_seen(context, name):
+    assert not context.view.found
+
+
+@then(
+    'the ledger shows "{name}" as "{display}" with a bankroll of {bankroll:d} and nothing held'
 )
-def step_given_funds_withdrawn_with_balance(context, amount, balance):
-    """Create a FundsWithdrawn event with specific balance."""
-    context.event = player.FundsWithdrawn(
-        amount=poker_types.Currency(amount=int(amount)),
-        new_balance=poker_types.Currency(amount=int(balance)),
-    )
+def step_shows_as(context, name, display, bankroll):
+    v = view(context.world, name)
+    assert v.found and v.player.display_name == display
+    assert (v.player.bankroll, v.player.held) == (bankroll, 0)
 
 
-@given("a FundsReserved event with amount (?P<amount>\\d+)")
-def step_given_funds_reserved_event(context, amount):
-    """Create a FundsReserved event."""
-    context.event = player.FundsReserved(
-        amount=poker_types.Currency(amount=int(amount)),
-        key=b"table-1",
-    )
+@then('the ledger shows "{name}" with a bankroll of {bankroll:d} and nothing held')
+def step_shows_bankroll(context, name, bankroll):
+    v = view(context.world, name)
+    assert (v.player.bankroll, v.player.held) == (bankroll, 0), v
 
 
-@given("a TableCreated event with:")
-def step_given_table_created_with_table(context):
-    """Create a TableCreated event from datatable."""
-    row = {
-        context.table.headings[i]: context.table[0][i]
-        for i in range(len(context.table.headings))
-    }
-    variant = getattr(poker_types, row.get("game_variant", "TEXAS_HOLDEM"))
-
-    context.event = table.TableCreated(
-        table_name=row["table_name"],
-        game_variant=variant,
-        small_blind=int(row["small_blind"]),
-        big_blind=int(row["big_blind"]),
-        min_buy_in=int(row.get("min_buy_in", 200)),
-        max_buy_in=int(row.get("max_buy_in", 1000)),
-        max_players=int(row.get("max_players", 9)),
-        created_at=make_timestamp(),
-    )
-
-
-@given("a PlayerJoined event at seat (?P<seat>\\d+) with buy_in (?P<buy_in>\\d+)")
-def step_given_player_joined_buy_in(context, seat, buy_in):
-    """Create a PlayerJoined event with buy_in."""
-    context.event = table.PlayerJoined(
-        player_root=b"player-1",
-        seat_position=int(seat),
-        stack=int(buy_in),
-        buy_in_amount=int(buy_in),
-        joined_at=make_timestamp(),
-    )
-
-
-@given("a PlayerLeft event with chips_cashed_out (?P<amount>\\d+)")
-def step_given_player_left_cashed(context, amount):
-    """Create a PlayerLeft event with cashed out amount."""
-    context.event = table.PlayerLeft(
-        player_root=b"player-1",
-        chips_cashed_out=int(amount),
-        left_at=make_timestamp(),
-    )
-
-
-# "a HandStarted event with:" step is defined in process_manager_steps.py
-# to avoid duplication
-
-
-@given(
-    'active players "(?P<player1>[^"]+)", "(?P<player2>[^"]+)", "(?P<player3>[^"]+)" at seats (?P<seats>.+)'
+@then(
+    'the ledger shows "{name}" with a bankroll of {bankroll:d}, {held:d} held and {available:d} available'
 )
-def step_given_active_players_three(context, player1, player2, player3, seats):
-    """Add three active players from inline list."""
-    player_names = [player1, player2, player3]
-    seat_nums = [int(s.strip()) for s in seats.split(",")]
-
-    for i, (name, seat) in enumerate(zip(player_names, seat_nums)):
-        context.hand_started.active_players.append(
-            table.SeatSnapshot(
-                player_root=f"player-{i + 1}".encode(),
-                position=seat,
-                stack=500,
-            )
-        )
-        context.projector.set_player_name(f"player-{i + 1}".encode(), name)
+def step_shows_held(context, name, bankroll, held, available):
+    v = view(context.world, name)
+    assert (v.player.bankroll, v.player.held, v.available) == (
+        bankroll,
+        held,
+        available,
+    ), v
 
 
-@given(
-    'active players "(?P<player1>[^"]+)" and "(?P<player2>[^"]+)" at seats (?P<seats>.+)'
-)
-def step_given_active_players_two(context, player1, player2, seats):
-    """Add two active players from inline list."""
-    player_names = [player1, player2]
-    seat_nums = [int(s.strip()) for s in seats.split(",")]
-
-    for i, (name, seat) in enumerate(zip(player_names, seat_nums)):
-        context.hand_started.active_players.append(
-            table.SeatSnapshot(
-                player_root=f"player-{i + 1}".encode(),
-                position=seat,
-                stack=500,
-            )
-        )
-        context.projector.set_player_name(f"player-{i + 1}".encode(), name)
-
-
-@given('a HandEnded event with winner "(?P<winner>[^"]+)" amount (?P<amount>\\d+)')
-def step_given_hand_ended_with_winner(context, winner, amount):
-    """Create a HandEnded event with winner."""
-    context.event = table.HandEnded(
-        hand_root=b"hand-1",
-        ended_at=make_timestamp(),
-    )
-    # Use results field which the renderer expects
-    context.event.results.append(
-        table.PotResult(
-            winner_root=b"player-1",
-            amount=int(amount),
-            pot_type="main",
-        )
-    )
-    context.projector.set_player_name(b"player-1", winner)
+_PLAYER_EVENTS = {
+    "deposit": lambda r: _p.FundsDeposited(amount=int(r["amount"])),
+    "withdrawal": lambda r: _p.FundsWithdrawn(amount=int(r["amount"])),
+    "round result recorded": lambda r: _p.RoundResultRecorded(
+        table_root=table_root("Main"),
+        round=int(r["round"]),
+        wager=abs(int(r["amount"])),
+        net=int(r["amount"]),
+    ),
+    "round result retracted": lambda r: _p.RoundResultRetracted(
+        table_root=table_root("Main"), round=int(r["round"]), net=int(r["amount"])
+    ),
+    "loyalty points awarded": lambda r: _p.LoyaltyPointsAwarded(
+        table_root=table_root("Main"), round=int(r["round"]), points=int(r["amount"])
+    ),
+}
 
 
-@given('a CardsDealt event with player "(?P<player_name>[^"]+)" holding (?P<cards>.+)')
-def step_given_cards_dealt_for_player(context, player_name, cards):
-    """Create a CardsDealt event with player cards."""
-    event = hand.CardsDealt(
-        table_root=b"table-1",
-        hand_number=1,
-        game_variant=poker_types.TEXAS_HOLDEM,
-    )
-    card_list = [parse_card(c.strip()) for c in cards.split()]
-    event.player_cards.append(
-        hand.PlayerHoleCards(
-            player_root=b"player-1",
-            cards=card_list,
-        )
-    )
-    context.event = event
-    context.projector.set_player_name(b"player-1", player_name)
-
-
-@given(
-    'a BlindPosted event for "(?P<player>[^"]+)" type "(?P<blind_type>[^"]+)" amount (?P<amount>\\d+)'
-)
-def step_given_blind_posted_event(context, player, blind_type, amount):
-    """Create a BlindPosted event."""
-    context.event = hand.BlindPosted(
-        player_root=b"player-1",
-        blind_type=blind_type,
-        amount=int(amount),
-        pot_total=int(amount),
-        player_stack=500 - int(amount),
-    )
-
-
-@given('an ActionTaken event for "(?P<player>[^"]+)" action (?P<action>\\w+)')
-def step_given_action_taken_fold(context, player, action):
-    """Create an ActionTaken event for fold."""
-    action_enum = getattr(poker_types, action)
-    context.event = hand.ActionTaken(
-        player_root=b"player-1",
-        action=action_enum,
-        amount=0,
-        pot_total=0,
-        player_stack=500,
-    )
-
-
-@given(
-    'an ActionTaken event for "(?P<player>[^"]+)" action (?P<action>\\w+) amount (?P<amount>\\d+) pot_total (?P<pot>\\d+)'
-)
-def step_given_action_taken_with_amount(context, player, action, amount, pot):
-    """Create an ActionTaken event with amount."""
-    action_enum = getattr(poker_types, action)
-    context.event = hand.ActionTaken(
-        player_root=b"player-1",
-        action=action_enum,
-        amount=int(amount),
-        pot_total=int(pot),
-        player_stack=500 - int(amount),
-    )
-
-
-@given("a CommunityCardsDealt event for (?P<phase>\\w+) with cards (?P<cards>.+)")
-def step_given_community_cards_event(context, phase, cards):
-    """Create a CommunityCardsDealt event."""
-    phase_enum = getattr(poker_types, phase)
-    event = hand.CommunityCardsDealt(phase=phase_enum)
-    for card_str in cards.split():
-        event.cards.append(parse_card(card_str.strip()))
-    context.event = event
-
-
-@given("a CommunityCardsDealt event for (?P<phase>\\w+) with card (?P<card>\\w+)")
-def step_given_community_cards_single(context, phase, card):
-    """Create a CommunityCardsDealt event with single card."""
-    phase_enum = getattr(poker_types, phase)
-    event = hand.CommunityCardsDealt(phase=phase_enum)
-    event.cards.append(parse_card(card.strip()))
-    context.event = event
-
-
-@given("a ShowdownStarted event")
-def step_given_showdown_started(context):
-    """Create a ShowdownStarted event."""
-    context.event = hand.ShowdownStarted()
-
-
-@given(
-    'a CardsRevealed event for "(?P<player>[^"]+)" with cards (?P<cards>\\w+ \\w+) and ranking (?P<ranking>\\w+)'
-)
-def step_given_cards_revealed(context, player, cards, ranking):
-    """Create a CardsRevealed event."""
-    card_list = [parse_card(c.strip()) for c in cards.split()]
-    ranking_enum = getattr(poker_types, ranking, poker_types.HIGH_CARD)
-    context.event = hand.CardsRevealed(
-        player_root=b"player-1",
-        cards=card_list,
-        ranking=poker_types.HandRanking(rank_type=ranking_enum),
-        revealed_at=make_timestamp(),
-    )
-
-
-@given('a CardsMucked event for "(?P<player>[^"]+)"')
-def step_given_cards_mucked(context, player):
-    """Create a CardsMucked event."""
-    context.event = hand.CardsMucked(player_root=b"player-1")
-
-
-@given('a PotAwarded event with winner "(?P<winner>[^"]+)" amount (?P<amount>\\d+)')
-def step_given_pot_awarded_event(context, winner, amount):
-    """Create a PotAwarded event."""
-    event = hand.PotAwarded()
-    event.winners.append(
-        hand.PotWinner(
-            player_root=b"player-1",
-            amount=int(amount),
-            pot_type="main",
-        )
-    )
-    context.event = event
-
-
-@given("a HandComplete event with final stacks:")
-def step_given_hand_complete_with_stacks(context):
-    """Create a HandComplete event from datatable."""
-    event = hand.HandComplete(table_root=b"table-1")
-
-    for i, row in enumerate(context.table):
-        row_dict = {
-            context.table.headings[j]: row[j]
-            for j in range(len(context.table.headings))
-        }
-        player_name = row_dict.get("player", f"Player{i + 1}")
-        player_root = f"player-{i + 1}".encode()
-        has_folded_str = row_dict.get("has_folded", "false").lower()
-        has_folded = has_folded_str in ("true", "yes", "1")
-        event.final_stacks.append(
-            hand.PlayerStackSnapshot(
-                player_root=player_root,
-                stack=int(row_dict.get("stack", 500)),
-                has_folded=has_folded,
-            )
-        )
-        context.projector.set_player_name(player_root, player_name)
-    context.event = event
-
-
-@given(
-    'a PlayerTimedOut event for "(?P<player>[^"]+)" with default_action (?P<action>\\w+)'
-)
-def step_given_player_timed_out(context, player, action):
-    """Create a PlayerTimedOut event."""
-    action_enum = getattr(poker_types, action, poker_types.FOLD)
-    context.event = hand.PlayerTimedOut(
-        player_root=b"player-1",
-        default_action=action_enum,
-        timed_out_at=make_timestamp(),
-    )
-
-
-@given('player "(?P<player_id>[^"]+)" is registered as "(?P<name>[^"]+)"')
-def step_given_player_registered_as(context, player_id, name):
-    """Register player with name."""
-    context.projector.set_player_name(player_id.encode(), name)
-
-
-@given("an event with created_at (?P<time>\\d+:\\d+:\\d+)")
-def step_given_event_with_time(context, time):
-    """Create a simple event with specific created_at timestamp."""
-    context.event = player.PlayerRegistered(
-        display_name="Test",
-        email="test@example.com",
-        player_type=poker_types.HUMAN,
-    )
-    context.event_time = time
-
-
-@given("an event with created_at")
-def step_given_event_with_created_at(context):
-    """Create a simple event with default timestamp."""
-    context.event = player.PlayerRegistered(
-        display_name="Test",
-        email="test@example.com",
-        player_type=poker_types.HUMAN,
-    )
-
-
-@given("an event book with PlayerJoined and BlindPosted events")
-def step_given_event_book_with_two_events(context):
-    """Create event book with two events."""
-    context.event_book = types.EventBook(
-        cover=types.Cover(root=types.UUID(value=b"player-1"), domain="table"),
-        pages=[
-            make_event_page(
-                table.PlayerJoined(
-                    player_root=b"player-1",
-                    seat_position=1,
-                    stack=500,
-                    buy_in_amount=500,
-                    joined_at=make_timestamp(),
-                )
-            ),
-            make_event_page(
-                hand.BlindPosted(
-                    player_root=b"player-1",
-                    blind_type="small",
-                    amount=5,
-                    pot_total=5,
-                    player_stack=495,
-                )
-            ),
-        ],
-    )
-
-
-@given('an event with unknown type_url "(?P<type_url>[^"]+)"')
-def step_given_unknown_event(context, type_url):
-    """Create an unknown event type."""
-    context.event_page_override = types.EventPage(
-        header=types.PageHeader(sequence=0),
-        event=ProtoAny(type_url=type_url),
-        created_at=make_timestamp(),
-    )
-
-
-# --- When steps ---
-
-
-@when("the projector handles the event")
-def step_when_projector_handles_event(context):
-    """Handle the event with projector."""
-    if hasattr(context, "event_page_override"):
-        event_page = context.event_page_override
-    else:
-        time_str = getattr(context, "event_time", None)
-        event_page = make_event_page(context.event, time_str)
-
-    context.projector.handle_event(event_page)
-
-
-@when("the projector handles the event book")
-def step_when_handles_event_book(context):
-    """Handle event book."""
-    context.projector.handle_event_book(context.event_book)
-
-
-@when("formatting cards:")
-def step_when_formatting_cards(context):
-    """Format cards from datatable."""
-    context.cards_output = ""
+@when('the ledger applies, for "{name}":')
+def step_applies_for(context, name):
     for row in context.table:
-        row_dict = {
-            context.table.headings[i]: row[i]
-            for i in range(len(context.table.headings))
-        }
-        rank = int(row_dict.get("rank", 2))
-        suit_name = row_dict.get("suit", "SPADES")
-        suit = getattr(poker_types, suit_name)
-        card = make_card(rank, suit)
-        context.cards_output += format_card(card) + " "
+        feed_player(context.world, name, _PLAYER_EVENTS[row["event"]](row))
 
 
-@when("formatting cards with rank 2 through 14")
-def step_when_formatting_ranks(context):
-    """Format all ranks."""
-    context.cards_output = ""
-    for rank in range(2, 15):
-        card = make_card(rank, poker_types.SPADES)
-        context.cards_output += format_card(card) + " "
+@when(
+    'the ledger applies a deposit of {amount:d} for "{name}" stored in the previous shape'
+)
+def step_applies_legacy(context, amount, name):
+    w = context.world
+    root = player_root(name)
+    w.seed_page(PLAYER, root, _az.pack(_p.FundsDepositedV1(amount_chips=amount)))
+    book = _t.EventBook(cover=cover(PLAYER, root, w.correlation))
+    book.pages.append(w.stream(PLAYER, root)[-1])
+    w.project(book)
 
 
-@when('an event references "(?P<player_id>[^"]+)"')
-def step_when_event_references(context, player_id):
-    """Handle event with player reference using PlayerJoined which renders player name."""
-    player_root = player_id.encode()
-    context.event = table.PlayerJoined(
-        player_root=player_root,
-        seat_position=1,
-        stack=500,
-        buy_in_amount=500,
-        joined_at=make_timestamp(),
+@when('the ledger applies the same deposit of {amount:d} for "{name}" again')
+def step_applies_same(context, amount, name):
+    w = context.world
+    root = player_root(name)
+    page = [
+        p for p in w.stream(PLAYER, root) if p.event.type_url.endswith("FundsDeposited")
+    ][-1]
+    book = _t.EventBook(cover=cover(PLAYER, root, w.correlation))
+    book.pages.append(page)
+    w.project(book)
+
+
+@given('the ledger has applied a hold of {amount:d} for buy-in "{label}" for "{name}"')
+def step_has_applied_hold(context, amount, label, name):
+    feed_player(
+        context.world,
+        name,
+        _p.FundsHeld(
+            hold_id=request_id(label), table_root=table_root("Main"), amount=amount
+        ),
     )
-    event_page = make_event_page(context.event)
-    event_book = types.EventBook(
-        cover=types.Cover(root=types.UUID(value=b"table-1"), domain="table"),
-        pages=[event_page],
+
+
+@when('the ledger applies a hold of {amount:d} for buy-in "{label}" for "{name}"')
+def step_applies_hold(context, amount, label, name):
+    step_has_applied_hold(context, amount, label, name)
+
+
+@then('the ledger shows "{name}" with {points:d} loyalty points')
+def step_shows_points(context, name, points):
+    assert view(context.world, name).player.loyalty_points == points
+
+
+@then(
+    'the ledger shows "{name}"\'s recent results as round {r1:d} net {n1:d} and round {r2:d} net {n2:d} retracted'
+)
+def step_shows_results(context, name, r1, n1, r2, n2):
+    results = [
+        (r.round, r.net, r.retracted)
+        for r in view(context.world, name).player.recent_results
+    ]
+    assert results == [(r1, n1, False), (r2, n2, True)], results
+
+
+# --- tables and transfers ---------------------------------------------------------------------
+
+
+@when(
+    'the ledger applies both sides of buy-in "{label}": "{name}" seated at table "{table}" with a stack of {stack:d}, and the hold spent'
+)
+def step_both_sides(context, label, name, table, stack):
+    w = context.world
+    feed_table(
+        w,
+        table,
+        _table.PlayerSeated(
+            buy_in_id=request_id(label), player_root=player_root(name), stack=stack
+        ),
     )
-    context.projector.handle_event_book(event_book)
-
-
-@when('an event references unknown "(?P<player_id>[^"]+)"')
-def step_when_event_references_unknown(context, player_id):
-    """Handle event with unknown player reference using PlayerJoined."""
-    player_root = player_id.encode()
-    context.event = table.PlayerJoined(
-        player_root=player_root,
-        seat_position=1,
-        stack=500,
-        buy_in_amount=500,
-        joined_at=make_timestamp(),
+    feed_player(
+        w,
+        name,
+        _p.FundsCaptured(
+            hold_id=request_id(label), table_root=table_root(table), amount=stack
+        ),
     )
-    event_page = make_event_page(context.event)
-    event_book = types.EventBook(
-        cover=types.Cover(root=types.UUID(value=b"table-1"), domain="table"),
-        pages=[event_page],
+
+
+@when(
+    'the ledger applies "{name}" being seated at table "{table}" through buy-in "{label}" with a stack of {stack:d}'
+)
+def step_one_side(context, name, table, label, stack):
+    feed_table(
+        context.world,
+        table,
+        _table.PlayerSeated(
+            buy_in_id=request_id(label), player_root=player_root(name), stack=stack
+        ),
     )
-    context.projector.handle_event_book(event_book)
 
 
-# --- Then steps ---
+@then('the ledger shows table "{table}" with stacks of {stacks:d}')
+def step_table_stacks(context, table, stacks):
+    assert table_row(context.world, table).stacks == stacks
 
 
-@then('the output contains "(?P<text>[^"]+)"')
-def step_then_output_contains(context, text):
-    """Verify output contains text."""
-    combined = "\n".join(context.output_lines)
-    # Also check cards_output for card formatting tests
-    if hasattr(context, "cards_output"):
-        combined += "\n" + context.cards_output
-    assert text in combined, f"Expected '{text}' in:\n{combined}"
+@then("the ledger reports nothing in flight")
+def step_nothing_in_flight(context):
+    t = totals(context.world)
+    assert (t.in_flight, t.in_flight_transfers) == (0, 0), t
 
 
-@then('the output starts with "(?P<prefix>[^"]+)"')
-def step_then_output_starts_with(context, prefix):
-    """Verify output starts with prefix."""
-    if context.output_lines:
-        assert context.output_lines[0].startswith(
-            prefix
-        ), f"Expected start '{prefix}' in:\n{context.output_lines[0]}"
+@then("the ledger reports {amount:d} in flight in {count:d} transfer")
+def step_in_flight(context, amount, count):
+    t = totals(context.world)
+    assert (t.in_flight, t.in_flight_transfers) == (amount, count), t
+
+
+@then("the ledger does not report the money as balanced")
+def step_not_balanced(context):
+    totals(context.world)
+    assert not context.world.ledger.ledger_view().balanced
+
+
+@then("the ledger reports the money as balanced")
+def step_balanced(context):
+    totals(context.world)
+    assert (
+        context.world.ledger.ledger_view().balanced
+    ), context.world.ledger.ledger_view()
+
+
+def _transfer_sides(w, transfer: str, name: str, table: str, amount: int):
+    """The (table side, wallet side) events of a transfer of ``amount``."""
+    label = f"{transfer}:{name}"
+    if transfer == "buy-in":
+        return (
+            _table.PlayerSeated(
+                buy_in_id=request_id(label), player_root=player_root(name), stack=amount
+            ),
+            _p.FundsCaptured(
+                hold_id=request_id(label), table_root=table_root(table), amount=amount
+            ),
+        )
+    if transfer == "top-up":
+        return (
+            _table.ChipsAdded(
+                hold_id=request_id(label), player_root=player_root(name), amount=amount
+            ),
+            _p.TopUpSettled(
+                hold_id=request_id(label), table_root=table_root(table), amount=amount
+            ),
+        )
+    return (
+        _table.PlayerCashedOut(
+            cashout_id=request_id(label), player_root=player_root(name), amount=amount
+        ),
+        _p.CashOutCredited(
+            cashout_id=request_id(label), table_root=table_root(table), amount=amount
+        ),
+    )
+
+
+@given(
+    'the ledger has applied the deposits and holds behind a {transfer} of {amount:d} between "{name}" and table "{table}"'
+)
+def step_behind_transfer(context, transfer, amount, name, table):
+    w = context.world
+    register_and_deposit(w, name, 1000)
+    feed_table(w, table, _table.TableCreated(name=table))
+    label = f"{transfer}:{name}"
+    if transfer == "buy-in":
+        feed_player(
+            w,
+            name,
+            _p.FundsHeld(
+                hold_id=request_id(label), table_root=table_root(table), amount=amount
+            ),
+        )
+    elif transfer == "top-up":
+        buy_in(w, name, table, 500)
+        feed_player(
+            w,
+            name,
+            _p.TopUpRequested(
+                hold_id=request_id(label), table_root=table_root(table), amount=amount
+            ),
+        )
     else:
-        raise AssertionError("No output produced")
+        buy_in(w, name, table, amount)
+    context.transfer = (transfer, amount, name, table)
 
 
-@then('the output does not start with "(?P<prefix>[^"]+)"')
-def step_then_output_not_starts_with(context, prefix):
-    """Verify output does not start with prefix."""
-    if context.output_lines:
-        assert not context.output_lines[0].startswith(prefix)
-
-
-@then("both events are rendered in order")
-def step_then_both_events_rendered(context):
-    """Verify both events rendered."""
-    assert len(context.output_lines) == 2
-
-
-@then('the output uses "(?P<name>[^"]+)"')
-def step_then_output_uses_name(context, name):
-    """Verify output uses player name."""
-    combined = "\n".join(context.output_lines)
-    assert name in combined
-
-
-@then('the output uses "(?P<name>[^"]+)" prefix')
-def step_then_output_uses_name_prefix(context, name):
-    """Verify output uses player name prefix.
-
-    For 'Player_xyz789' prefix, we check for 'Player_' followed by hex chars
-    since the renderer uses hex representation of the player root.
-    """
-    combined = "\n".join(context.output_lines)
-    # Check for the Player_ prefix pattern (renderer uses hex)
-    if name.startswith("Player_"):
-        assert "Player_" in combined, f"Expected 'Player_' prefix in:\n{combined}"
+@when(
+    "the ledger applies the table side and the wallet side of the {transfer} in {order} order"
+)
+def step_both_sides_in_order(context, transfer, order):
+    w = context.world
+    _, amount, name, table = context.transfer
+    table_side, wallet_side = _transfer_sides(w, transfer, name, table, amount)
+    if order == "table-first":
+        feed_table(w, table, table_side)
+        feed_player(w, name, wallet_side)
     else:
-        assert name in combined, f"Expected '{name}' in:\n{combined}"
+        feed_player(w, name, wallet_side)
+        feed_table(w, table, table_side)
 
 
-@then('the formatted output contains "(?P<text>[^"]+)" symbols')
-def step_then_output_contains_symbols(context, text):
-    """Verify formatted output contains symbols."""
-    assert text in context.cards_output or any(
-        s in context.cards_output for s in ["♠", "♥", "♦", "♣"]
+@given('the ledger shows table "{table}" with stacks of {stacks:d} after buy-ins')
+def step_stacks_after_buy_ins(context, table, stacks):
+    w = context.world
+    feed_table(w, table, _table.TableCreated(name=table))
+    for name in ("Alice", "Bob"):
+        register_and_deposit(w, name, stacks)
+        buy_in(w, name, table, stacks // 2)
+    assert table_row(w, table).stacks == stacks
+
+
+@given('the ledger has applied bets of {first:d} and {second:d} at table "{table}"')
+def step_bets(context, first, second, table):
+    feed_table(
+        context.world,
+        table,
+        _table.BetPlaced(
+            round=1, seat=0, player_root=player_root("Alice"), amount=first
+        ),
+        _table.BetPlaced(
+            round=1, seat=1, player_root=player_root("Bob"), amount=second
+        ),
+    )
+    context.wagers = [first, second]
+
+
+@when(
+    'the ledger applies round {round:d} at table "{table}" settling with {returned:d} returned and the house winning {house:d}'
+)
+def step_round(context, round, table, returned, house):
+    first, second = context.wagers
+    assert first + second - returned == house
+    outcomes = [
+        _table.SeatOutcome(
+            seat=0,
+            player_root=player_root("Alice"),
+            wager=first,
+            outcome=WIN,
+            returned=returned,
+        ),
+        _table.SeatOutcome(
+            seat=1,
+            player_root=player_root("Bob"),
+            wager=second,
+            outcome=LOSE,
+            returned=0,
+        ),
+    ]
+    feed_table(
+        context.world,
+        table,
+        _table.RoundSettled(round=round, outcomes=outcomes, house_delta=house),
     )
 
 
-@then("ranks 2-9 display as digits")
-def step_then_ranks_2_9_display_as_digits(context):
-    """Verify ranks 2-9 are digits."""
-    for digit in "23456789":
-        assert digit in context.cards_output
+@then(
+    'the ledger shows table "{table}" with stacks of {stacks:d}, no wagers and a house result of {house:d}'
+)
+def step_table_row(context, table, stacks, house):
+    row = table_row(context.world, table)
+    assert (row.stacks, row.wagers, row.house_result) == (stacks, 0, house), row
 
 
-@then('rank (?P<rank>\\d+) displays as "(?P<symbol>[^"]+)"')
-def step_then_rank_displays_as(context, rank, symbol):
-    """Verify rank display."""
-    assert symbol in context.cards_output
+# --- whole-system balance and replay ----------------------------------------------------------
 
 
-@then("face cards display as letters")
-def step_then_face_cards_display_as_letters(context):
-    """Verify face cards are letters."""
-    for letter in "JQK":
-        assert letter in context.cards_output or "10" in context.cards_output
+def house_wins(w, table: str, amount: int) -> None:
+    """A round in which every seated player loses; seat 0 bets 20 and the
+    next seat the rest of ``amount``."""
+    players = sorted(seats(w, table), key=lambda n: seats(w, table)[n])
+    wagers = [20, amount - 20] if len(players) > 1 else [amount]
+    bets = [
+        _table.BetPlaced(
+            round=1, seat=seats(w, table)[n], player_root=player_root(n), amount=a
+        )
+        for n, a in zip(players, wagers)
+    ]
+    outcomes = [
+        _table.SeatOutcome(
+            seat=b.seat, player_root=b.player_root, wager=b.amount, outcome=LOSE
+        )
+        for b in bets
+    ]
+    feed_table(
+        w,
+        table,
+        *bets,
+        _table.RoundSettled(round=1, outcomes=outcomes, house_delta=amount),
+    )
 
 
-@then("a warning is printed for unknown event")
-def step_then_warning_for_unknown_event(context):
-    """Verify warning printed."""
-    combined = "\n".join(context.output_lines)
-    assert "Unknown event type" in combined
+def cash_out(w, name: str, table: str, amount: int) -> None:
+    label = f"cash-out:{name}"
+    feed_table(
+        w,
+        table,
+        _table.PlayerCashedOut(
+            cashout_id=request_id(label), player_root=player_root(name), amount=amount
+        ),
+    )
+    feed_player(
+        w,
+        name,
+        _p.CashOutCredited(
+            cashout_id=request_id(label), table_root=table_root(table), amount=amount
+        ),
+    )
+
+
+def apply_session_row(w, what: str, amount: int) -> None:
+    if what == "the house wins a round":
+        return house_wins(w, "Main", amount)
+    name = what.split('"')[1]
+    table = what.split('"')[3] if what.count('"') >= 4 else "Main"
+    if what.endswith("deposits"):
+        register_and_deposit(w, name, amount)
+    elif "buys in" in what:
+        if table_root(table).hex() not in w.ledger.projection.tables:
+            feed_table(w, table, _table.TableCreated(name=table))
+        buy_in(w, name, table, amount)
+    elif what.endswith("cashes out"):
+        cash_out(w, name, "Main", amount)
+    elif what.endswith("withdraws"):
+        feed_player(w, name, _p.FundsWithdrawn(amount=amount))
+    else:
+        raise AssertionError(f"unknown session step {what!r}")
+
+
+@given("the ledger has applied a complete session in which:")
+def step_complete_session(context):
+    for row in context.table:
+        apply_session_row(context.world, row["what"], int(row["amount"]))
+
+
+@given("the ledger has applied a complete two-player session")
+def step_two_player_session(context):
+    w = context.world
+    for what, amount in [
+        ('"Alice" deposits', 1000),
+        ('"Bob" deposits', 1000),
+        ('"Alice" buys in at "Main"', 500),
+        ('"Bob" buys in at "Main"', 500),
+        ("the house wins a round", 50),
+        ('"Alice" cashes out', 480),
+        ('"Bob" withdraws', 200),
+    ]:
+        apply_session_row(w, what, amount)
+
+
+@when("the ledger is asked for the totals")
+def step_asked_totals(context):
+    context.totals = totals(context.world)
+
+
+_TOTALS = {
+    "deposits": "deposits",
+    "withdrawals": "withdrawals",
+    "bankrolls": "bankrolls",
+    "stacks": "stacks",
+    "wagers": "wagers",
+    "house result": "house_result",
+}
+
+
+@then("the ledger totals are:")
+def step_totals_are(context):
+    actual = {
+        row["total"]: getattr(context.totals, _TOTALS[row["total"]])
+        for row in context.table
+    }
+    expected = {row["total"]: int(row["amount"]) for row in context.table}
+    assert actual == expected, actual
+
+
+@when("the ledger is rebuilt from the same history")
+def step_rebuild_ledger(context):
+    w = context.world
+    components = InProcess()
+    context.rebuilt_components = components
+    for domain, root, page in w.log:
+        book = _t.EventBook(cover=cover(domain, root, w.correlation))
+        book.pages.append(page)
+        components.project(book)
+    components.ledger.refresh_totals()
+    context.rebuilt = components.ledger
+
+
+@then("the rebuilt ledger equals the original ledger")
+def step_rebuilt_equals(context):
+    original = context.world.ledger
+    original.refresh_totals()
+    try:
+        assert context.rebuilt.projection == original.projection
+        assert context.rebuilt.balanced() == original.balanced()
+    finally:
+        context.rebuilt_components.close()

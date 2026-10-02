@@ -1,60 +1,47 @@
-"""Pytest wrapper that runs behave on each .feature file.
+"""pytest -> behave bridge for the in-process scenario tier.
 
-Bridges the behave (gherkin) tier into pytest so mutmut can drive it.
-Each feature becomes one parametrized pytest test; on failure the captured
-behave output is surfaced via pytest.fail so diagnostics aren't lost.
+Runs every blackjack and blackjack-framework scenario as one pytest test, in
+this process, so that
 
-Runs behave IN-PROCESS (not subprocess): mutmut's trampoline coverage
-tracking lives on ``mutmut.config`` in the running interpreter, so a
-fork would lose it and crash with ``AttributeError: 'NoneType' object
-has no attribute 'max_stack_depth'``.
+* ``just mutation-test`` (mutmut drives pytest) kills a mutant that breaks a
+  scenario, and sees which business functions the scenarios call; and
+* a plain ``pytest`` run covers the scenario tier as well as the native tests.
 
-Uses ``--stage unit`` so behave discovers ``unit_steps/`` and
-``unit_environment.py`` at the repo root via walk-up — no symlinks into
-the submodule.
+The run is rooted at this file's repository (``parents[2]``): when mutmut
+copies the tree into ``mutants/`` the bridge runs the mutated copy.
 """
 
+from __future__ import annotations
+
+import os
 from pathlib import Path
 
-import pytest
-from behave.__main__ import run_behave
-from behave.configuration import Configuration
+from behave.__main__ import main as behave_main
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-FEATURES_DIR = ROOT / "angzarr-project" / "features" / "example" / "unit"
-
-# projector_steps.py is out of sync with prj-output/main.py (constructor args
-# the class no longer accepts). Pre-existing breakage, unrelated to the
-# behave→pytest bridge; excluded here so mutmut can establish a baseline.
-BROKEN_FEATURES = {"projector.feature"}
-
-FEATURE_FILES = (
-    sorted(f for f in FEATURES_DIR.glob("*.feature") if f.name not in BROKEN_FEATURES)
-    if FEATURES_DIR.exists()
-    else []
-)
+_REPO = Path(__file__).resolve().parents[2]
+_FEATURES = [
+    "angzarr-project/features/example/blackjack",
+    "angzarr-project/features/example/blackjack-framework",
+]
 
 
-@pytest.mark.parametrize("feature", FEATURE_FILES, ids=lambda f: f.name)
-def test_feature(feature: Path, capsys) -> None:
-    if not FEATURES_DIR.exists():
-        pytest.skip(f"feature directory missing: {FEATURES_DIR}")
-    config = Configuration(
-        command_args=[
-            "--stage",
-            "unit",
-            str(feature),
-            "--tags=~@wip",
-            "--no-capture",
-        ],
-        load_config=False,
-    )
-    rc = run_behave(config)
-    if rc != 0:
-        captured = capsys.readouterr()
-        pytest.fail(
-            f"behave failed for {feature.name} (exit {rc})\n"
-            f"--- stdout ---\n{captured.out}\n"
-            f"--- stderr ---\n{captured.err}",
-            pytrace=False,
+def test_behave_unit_suite() -> None:
+    """Every in-process scenario passes; undefined or pending steps fail."""
+    cwd = os.getcwd()
+    os.chdir(_REPO)
+    try:
+        status = behave_main(
+            [
+                "--stage",
+                "unit",
+                "--format",
+                "progress",
+                "--no-capture",
+                "--tags",
+                "not @wip",
+                *_FEATURES,
+            ]
         )
+    finally:
+        os.chdir(cwd)
+    assert status == 0, "behave unit suite failed"
