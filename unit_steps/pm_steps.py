@@ -340,3 +340,10 @@ def step_nothing_asked(context, nothing):
 def step_request_conversation(context, label, corr):
     (sent,) = asked(context, _table.ConfirmSeat)
     assert sent.delivered.cover.correlation_id == corr
+
+
+@then('the failure of buy-in "{label}" records code "{code}"')
+def step_failure_code(context, label, code):
+    state = buy_in_state(context.world, label)
+    assert state.phase == Phase.PHASE_FAILED, Phase.Name(state.phase)
+    assert state.failure_reason == code, state.failure_reason

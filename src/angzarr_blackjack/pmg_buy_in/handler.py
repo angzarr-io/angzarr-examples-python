@@ -23,7 +23,6 @@ from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_client.proto.io.angzarr.v1 import process_manager_pb2 as _pm
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import deferred_command, event_book, unpack
-from angzarr_blackjack.errors import rejection_code
 
 BuyInState = _b.BuyInState
 Phase = BuyInState.Phase
@@ -128,7 +127,7 @@ class BuyInProcessManager:
         hold = unpack(rejection.rejected_command.pages[0].command, _p.HoldFunds)
         if not _belongs(state, hold.hold_id, Phase.PHASE_AWAITING_HOLD):
             return _respond()
-        reason = rejection_code(rejection.rejection_reason)
+        reason = rejection.code
         return _respond(
             _b.BuyInFailed(
                 buy_in_id=state.buy_in_id,
@@ -149,7 +148,7 @@ class BuyInProcessManager:
         )
         if not _belongs(state, confirm.buy_in_id, Phase.PHASE_AWAITING_SEAT):
             return _respond()
-        reason = rejection_code(rejection.rejection_reason)
+        reason = rejection.code
         return _respond(
             _b.BuyInFailed(
                 buy_in_id=state.buy_in_id,

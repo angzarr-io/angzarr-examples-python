@@ -13,7 +13,8 @@ Invariant L4, checked only when nothing is in flight:
 ``sum(bankroll) + sum(stacks + wagers) + sum(house_result) = deposits - withdrawals``.
 
 Every applied event is remembered by (domain, root, sequence), so replaying or
-redelivering an event leaves the read model unchanged. The projection handed
+redelivering an event leaves the read model unchanged, and a speculative
+delivery changes nothing: it reports the ledger as it stands. The projection handed
 to each fold is the ledger's own ``LedgerProjection``; each fold reads its
 book's root from its page context.
 """
@@ -88,9 +89,12 @@ class Ledger:
 
     # --- applied events ---
 
-    def first_time(self, ctx: _az.PageContext) -> bool:
-        """Whether the page ``ctx`` names is new to the ledger; it is
-        remembered as applied."""
+    def applies(self, ctx: _az.PageContext) -> bool:
+        """Whether the page ``ctx`` names changes the ledger: it is neither
+        speculative nor already applied. A page that applies is remembered as
+        applied."""
+        if ctx.speculative:
+            return False
         key = (ctx.cover.domain, ctx.cover.root.value.hex(), ctx.sequence)
         if key in self.applied:
             return False
@@ -136,17 +140,18 @@ class Ledger:
 
 
 # The decorator runs when the class is defined, before mutmut selects a
-# mutant, so its lines are excluded from mutation; Ledger.first_time carries
+# mutant, so its lines are excluded from mutation; Ledger.applies carries
 # the decision and is mutated and tested.
 def _once(fold):  # pragma: no mutate
-    """Apply a fold only to a page the ledger has not applied yet, so a
-    redelivered or replayed event leaves the read model unchanged."""
+    """Apply a fold only to a page the ledger applies (Ledger.applies): a
+    speculative, redelivered or replayed event leaves the read model
+    unchanged."""
 
     @functools.wraps(fold)  # pragma: no mutate
     def apply(
         self, projection, event, ctx: _az.PageContext
     ) -> None:  # pragma: no mutate
-        if self.ledger.first_time(ctx):  # pragma: no mutate
+        if self.ledger.applies(ctx):  # pragma: no mutate
             fold(self, projection, event, ctx)  # pragma: no mutate
 
     return apply  # pragma: no mutate
@@ -336,8 +341,10 @@ class LedgerProjector:
     # --- the delivery's result ---
 
     def finish(self, projection, events: _t.EventBook) -> _t.Projection:
-        """Refresh the totals and report the row this book changed."""
-        self.ledger.refresh_totals()
+        """Report the row this book changed, refreshing the totals first
+        unless the delivery is speculative (which changes nothing)."""
+        if not _az.current_page().speculative:
+            self.ledger.refresh_totals()
         root = events.cover.root.value
         view = (
             self.ledger.player_view(root)

@@ -171,7 +171,8 @@ def test_pm_compensation_keeps_its_commands(components):
         _az.pack(
             _t.RejectionNotification(
                 rejected_command=rejected,
-                rejection_reason="INSUFFICIENT_AVAILABLE_FUNDS: no",
+                code="INSUFFICIENT_AVAILABLE_FUNDS",
+                rejection_reason="requested 500 but only 0 is available",
             )
         )
     )

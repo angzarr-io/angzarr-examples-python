@@ -16,7 +16,6 @@ from angzarr_client.proto.io.angzarr.v1 import process_manager_pb2 as _pm
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_client.proto.io.angzarr.v1 import upcaster_pb2 as _up
 from angzarr_blackjack._runtime.books import type_name, unpack
-from angzarr_blackjack.errors import rejection_code, status_message
 from angzarr_blackjack.player.agg.upcaster import PlayerUpcaster, upcast_book
 from angzarr_blackjack.player.saga_table.handler import PlayerTableSaga
 from angzarr_blackjack.pmg_buy_in.handler import BuyInProcessManager
@@ -188,18 +187,18 @@ def test_foreign_or_repeated_news_is_a_no_op(method, event, phase):
     assert not response.commands and not response.process_events
 
 
-def rejection_of(command, reason):
+def rejection_of(command, code):
     rejected = _t.CommandBook()
     rejected.pages.add().command.CopyFrom(_az.pack(command))
-    return _t.RejectionNotification(rejected_command=rejected, rejection_reason=reason)
+    return _t.RejectionNotification(
+        rejected_command=rejected, code=code, rejection_reason="refused for a reason"
+    )
 
 
 def test_refused_hold_fails_the_buy_in_and_releases_the_seat():
     response = BuyInProcessManager().on_hold_funds_rejected(
         _t.Notification(),
-        rejection_of(
-            _p.HoldFunds(hold_id=B1), "INSUFFICIENT_AVAILABLE_FUNDS: requested 500"
-        ),
+        rejection_of(_p.HoldFunds(hold_id=B1), "INSUFFICIENT_AVAILABLE_FUNDS"),
         state_at(Phase.PHASE_AWAITING_HOLD),
     )
     assert process_event(response, _b.BuyInFailed) == _b.BuyInFailed(
@@ -217,7 +216,7 @@ def test_refused_hold_fails_the_buy_in_and_releases_the_seat():
 def test_refused_confirmation_releases_money_and_seat():
     response = BuyInProcessManager().on_confirm_seat_rejected(
         _t.Notification(),
-        rejection_of(_table.ConfirmSeat(buy_in_id=B1), "PLAYER_ALREADY_SEATED: seated"),
+        rejection_of(_table.ConfirmSeat(buy_in_id=B1), "PLAYER_ALREADY_SEATED"),
         state_at(Phase.PHASE_AWAITING_SEAT),
     )
     failed = process_event(response, _b.BuyInFailed)
@@ -253,7 +252,7 @@ def test_refused_confirmation_releases_money_and_seat():
 )
 def test_late_or_foreign_refusals_change_nothing(method, command, phase):
     response = getattr(BuyInProcessManager(), method)(
-        _t.Notification(), rejection_of(command, "X: y"), state_at(phase)
+        _t.Notification(), rejection_of(command, "X"), state_at(phase)
     )
     assert not response.commands and not response.process_events
 
@@ -397,19 +396,6 @@ def test_upcaster_rewrites_only_the_legacy_deposit():
 # --- errors ---------------------------------------------------------------------------------
 
 
-def test_rejection_reasons_carry_their_code():
-    err = _az.CodedError(code="WAGER_IN_PLAY", message="the seat has a wager in play")
-    assert status_message(err) == "WAGER_IN_PLAY: the seat has a wager in play"
-    assert status_message(_az.CodedError(message="plain")) == "plain"
-    assert (
-        rejection_code("WAGER_IN_PLAY: the seat has a wager in play") == "WAGER_IN_PLAY"
-    )
-    assert rejection_code("HOLD_2_X: y") == "HOLD_2_X"
-    assert rejection_code(" no code here ") == "no code here"
-    assert rejection_code("Mixed: case") == "Mixed: case"
-    assert rejection_code(": empty head") == ": empty head"
-
-
 def test_type_names_accept_any_prefix():
     assert type_name("io.angzarr.v1.Notification") == "io.angzarr.v1.Notification"
     assert type_name("/io.angzarr.v1.Notification") == "io.angzarr.v1.Notification"
@@ -527,6 +513,27 @@ def test_ledger_round_results_keep_the_newest_ten(ledger):
     results = ledger.ledger.player_view(ALICE).player.recent_results
     assert [r.round for r in results] == list(range(3, 13))
     assert [r.retracted for r in results] == [False] * 9 + [True]
+
+
+def test_speculation_leaves_the_ledger_untouched(ledger):
+    deliver(ledger, "player", ALICE, _p.FundsDeposited(amount=10))
+    book = _t.EventBook(cover=cover("player", ALICE))
+    book.pages.add(event=_az.pack(_p.FundsDeposited(amount=5))).header.sequence = 1
+    book.pages.add(
+        event=_az.pack(_p.FundsHeld(hold_id=B1, amount=3))
+    ).header.sequence = 2
+    before = _l.LedgerProjection()
+    before.CopyFrom(ledger.ledger.projection)
+    applied = set(ledger.ledger.applied)
+    projection = ledger.router.dispatch_projector(book, speculative=True)
+    assert ledger.ledger.projection == before
+    assert ledger.ledger.applied == applied
+    assert ledger.ledger.open_holds == {}
+    view = unpack(projection.projection, _l.PlayerBalanceView)
+    assert (view.player.bankroll, view.player.held) == (10, 0)
+    ledger.project(book)
+    row = ledger.ledger.player_view(ALICE)
+    assert (row.player.bankroll, row.player.held, row.available) == (15, 3, 12)
 
 
 def test_unknown_player_is_not_found(ledger):

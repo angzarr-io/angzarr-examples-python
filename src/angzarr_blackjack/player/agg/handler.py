@@ -16,7 +16,6 @@ from angzarr_blackjack._gen.io.angzarr.examples.v1 import table_pb2 as _table
 from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2 as _ch
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import event_book, unpack
-from angzarr_blackjack.errors import rejection_code
 from angzarr_blackjack.player.agg import logic as L
 
 
@@ -127,7 +126,7 @@ class PlayerAggregate:
         """Release the top-up's hold. The refusal is matched by hold id against
         the wallet as it is now; a hold already settled or refused is left alone."""
         add_chips = unpack(rejection.rejected_command.pages[0].command, _table.AddChips)
-        reason = rejection_code(rejection.rejection_reason)
+        reason = rejection.code
         return _response(L.compute_top_up_refused(add_chips.hold_id, reason, state))
 
     # endregion rejected_handler

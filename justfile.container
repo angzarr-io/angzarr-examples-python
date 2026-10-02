@@ -13,7 +13,7 @@ COMPONENTS := "agg-player agg-table pmg-buy-in saga-player-table saga-table-play
 CLI_SRC := env_var_or_default("ANGZARR_CLI_SRC", "../../angzarr-cli/main")
 # The angzarr-client revision whose codegen templates render the wiring; the
 # pyproject pins the same revision.
-CLIENT_REF := "5e373719f6aba8f8d84bc3006de4bcc8075ae72d"
+CLIENT_REF := "218413414e69d646839ccaf0b254251dd2813ff1"
 
 # Features: the in-process tiers and the cluster tier, read straight from the
 # angzarr-project submodule.

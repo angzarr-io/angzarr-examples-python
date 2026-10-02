@@ -121,10 +121,18 @@ def table_event_book(w: World, table: str, event, sequence: int = 0) -> _t.Event
     return book
 
 
-def refuse_top_up(w: World, name: str, label: str, table: str, amount: int, code: str):
+def refuse_top_up(
+    w: World,
+    name: str,
+    label: str,
+    table: str,
+    amount: int,
+    code: str,
+    message: str = "the table refused the chips",
+):
     """The table's refusal of a top-up's AddChips, delivered to the wallet."""
     rejected = add_chips_command(name, label, table, amount)
-    notification = w.rejection(rejected, f"{code}: the table refused the chips")
+    notification = w.rejection(rejected, code, message)
     return w.notify(
         notification, rejected.pages[0].header.angzarr_deferred, w.correlation
     )

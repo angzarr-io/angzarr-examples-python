@@ -243,16 +243,25 @@ def _holder(w, label: str) -> str:
 
 
 @when('table "{table}" refuses top-up "{label}" because a wager is in play')
-def step_table_refuses(context, table, label):
+def step_table_refuses_wager(context, table, label):
+    step_table_refuses(
+        context, table, label, "WAGER_IN_PLAY", "the seat has a wager in play"
+    )
+
+
+@when(
+    'table "{table}" refuses top-up "{label}" with code "{code}" and message "{message}"'
+)
+def step_table_refuses(context, table, label, code, message):
     w = context.world
     name = _holder(w, label)
     hold = wallet(w, name).holds.get(request_id(label).hex())
     amount = hold.amount if hold is not None else 0
-    w.last = refuse_top_up(w, name, label, table, amount, "WAGER_IN_PLAY")
+    w.last = refuse_top_up(w, name, label, table, amount, code, message)
 
 
-@then('the top-up "{label}" is refused with reason "{reason}"')
-def step_top_up_refused(context, label, reason):
+@then('the top-up "{label}" is refused with code "{code}"')
+def step_top_up_refused(context, label, code):
     w = context.world
     refused = [
         e
@@ -260,7 +269,7 @@ def step_top_up_refused(context, label, reason):
         if e.hold_id == request_id(label)
     ]
     assert len(refused) == 1, f"expected one refusal of {label}, got {len(refused)}"
-    assert refused[0].reason == reason, f"reason is {refused[0].reason!r}"
+    assert refused[0].reason == code, f"reason is {refused[0].reason!r}"
 
 
 @then("the refusal changes nothing in the wallet")
@@ -356,7 +365,6 @@ def step_still_stands(context, round, table, name):
 
 
 @then('"{name}" has {count:d} standing round result')
-@then('"{name}" has {count:d} standing round results')
 def step_standing_results(context, name, count):
     standing = [
         r for r in wallet(context.world, name).round_results.values() if not r.retracted

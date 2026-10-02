@@ -113,7 +113,9 @@ def test_wallet_ledger_balances_after_every_event(steps):
                 response = player.on_add_chips_rejected(
                     _t.Notification(),
                     _t.RejectionNotification(
-                        rejected_command=rejected, rejection_reason="WAGER_IN_PLAY: x"
+                        rejected_command=rejected,
+                        code="WAGER_IN_PLAY",
+                        rejection_reason="the seat has a wager in play",
                     ),
                     state,
                     CCTX,

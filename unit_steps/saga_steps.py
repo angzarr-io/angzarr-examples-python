@@ -186,12 +186,13 @@ def step_wallet_told(context, name):
 
 
 @when(
-    'the wallet of "{name}" is told table "{table}" refused the request to add chips from top-up "{label}"'
+    'the wallet of "{name}" is told table "{table}" refused the request to add chips '
+    'from top-up "{label}" with code "{code}"'
 )
-def step_told_add_chips_refused(context, name, table, label):
+def step_told_add_chips_refused(context, name, table, label, code):
     w = context.world
     hold = wallet(w, name).holds[request_id(label).hex()]
-    w.last = refuse_top_up(w, name, label, table, hold.amount, "WAGER_IN_PLAY")
+    w.last = refuse_top_up(w, name, label, table, hold.amount, code)
 
 
 @when('the wallet of "{name}" is told table "{table}" refused a seat confirmation')
@@ -201,7 +202,9 @@ def step_told_confirm_refused(context, name, table):
     page = rejected.pages.add()
     page.header.angzarr_deferred.source.CopyFrom(cover(PLAYER, player_root(name)))
     page.command.CopyFrom(_az.pack(_table.ConfirmSeat(buy_in_id=request_id("B1"))))
-    notification = w.rejection(rejected, "PLAYER_ALREADY_SEATED: the player is seated")
+    notification = w.rejection(
+        rejected, "PLAYER_ALREADY_SEATED", "the player is already seated"
+    )
     w.last = w.notify(notification, page.header.angzarr_deferred, w.correlation)
 
 

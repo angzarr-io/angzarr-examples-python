@@ -32,7 +32,6 @@ from angzarr_client.proto.io.angzarr.v1 import saga_pb2 as _saga
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 from angzarr_blackjack._runtime.books import type_name, unpack
 from angzarr_blackjack._runtime.inprocess import InProcess
-from angzarr_blackjack.errors import status_message
 from angzarr_blackjack.player.agg.upcaster import upcast_book
 
 PLAYER, TABLE, BUY_IN = "player", "table", "buy-in"
@@ -410,13 +409,17 @@ class World:
         for _, arrive in held:
             arrive()
 
-    def rejection(self, rejected: _t.CommandBook, reason: str) -> _t.Notification:
+    def rejection(
+        self, rejected: _t.CommandBook, code: str, message: str
+    ) -> _t.Notification:
+        """The notification a coordinator sends a refused command's source:
+        the code from the refusal's ErrorInfo, the message from its status."""
         source = rejected.pages[0].header.angzarr_deferred.source
         notification = _t.Notification(cover=source)
         notification.payload.CopyFrom(
             _az.pack(
                 _t.RejectionNotification(
-                    rejected_command=rejected, rejection_reason=reason
+                    rejected_command=rejected, rejection_reason=message, code=code
                 )
             )
         )
@@ -432,7 +435,7 @@ class World:
     ) -> Outcome:
         """Send a refused deferred command's RejectionNotification to its
         source: the aggregate whose event triggered a saga, or the process."""
-        notification = self.rejection(rejected, status_message(error))
+        notification = self.rejection(rejected, error.code, error.message)
         if origin == "pm":
             trigger = _t.EventBook(cover=rejected.cover)
             trigger.cover.domain = rejected.cover.domain
