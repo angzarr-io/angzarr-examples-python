@@ -104,6 +104,11 @@ applications:
       debug:
         enabled: true
         nodePort: 31320
+      # The coordinator upcasts stored player events by calling the
+      # UpcasterService agg-player serves on its own address (legacy
+      # FundsDepositedV1 -> FundsDeposited).
+      upcaster:
+        enabled: true
     - name: agg-table
       domain: table
       port: 50402
@@ -114,6 +119,8 @@ applications:
       debug:
         enabled: true
         nodePort: 31321
+      # A routine snapshot of the table every 20 events (ANGZARR_SNAPSHOT_EVERY).
+      snapshotEvery: 20
 
   # One service per saga deployable; keep replicas at 1 (replicas of one
   # service share a queue). saga-table-player hosts the settlement, history
@@ -164,12 +171,6 @@ applications:
       debug:
         enabled: true
         nodePort: 31325
-
-# The coordinators call UpcasterService on each aggregate's own address:
-# agg-player rewrites legacy FundsDepositedV1; agg-table has no legacy shapes
-# and returns events unchanged.
-upcaster:
-  enabled: true
 
 # Infrastructure settings
 infrastructure:

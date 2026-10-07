@@ -50,3 +50,4 @@ vendor/
 .codex/config.toml
 build.json
 .deps/
+.core-build.json

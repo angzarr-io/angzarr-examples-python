@@ -47,11 +47,15 @@ deploy:
           storage.postgres.password: "{{.ANGZARR_DB_PASSWORD}}"
           storage.postgres.uri: "postgres://angzarr:{{.ANGZARR_DB_PASSWORD}}@angzarr-db:5432/angzarr"
           messaging.amqp.url: "amqp://angzarr:{{.ANGZARR_MQ_PASSWORD}}@angzarr-mq:5672/%2F"
+          # Dead letters go to the bus (exchange angzarr.dlq).
+          config.dlq.targets[0].type: "amqp"
+          config.dlq.targets[0].amqp.url: "amqp://angzarr:{{.ANGZARR_MQ_PASSWORD}}@angzarr-mq:5672/%2F"
           applications.business[0].name: "agg-player"
           applications.business[0].domain: "player"
           applications.business[0].port: "50401"
           applications.business[0].debug.enabled: "true"
           applications.business[0].debug.nodePort: "31320"
+          applications.business[0].upcaster.enabled: "true"
           applications.business[0].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_agg_player}}"
           applications.business[0].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_agg_player}}"
           applications.business[0].image.pullPolicy: "IfNotPresent"
@@ -60,6 +64,7 @@ deploy:
           applications.business[1].port: "50402"
           applications.business[1].debug.enabled: "true"
           applications.business[1].debug.nodePort: "31321"
+          applications.business[1].snapshotEvery: "20"
           applications.business[1].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_agg_table}}"
           applications.business[1].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_agg_table}}"
           applications.business[1].image.pullPolicy: "IfNotPresent"
@@ -99,6 +104,29 @@ deploy:
           applications.projectors[0].image.pullPolicy: "IfNotPresent"
 
 profiles:
+  # Local acceptance against coordinators built from a core checkout
+  # (`just acceptance-local`): the chart comes from ANGZARR_CORE_SRC and the
+  # four coordinator images carry the tags that core's own
+  # skaffold build gave them (ANGZARR_<COORDINATOR>_TAG, already loaded into
+  # kind).
+  - name: local-core
+    patches:
+      - op: replace
+        path: /deploy/helm/releases/0/chartPath
+        value: "{{.ANGZARR_CORE_SRC}}/deploy/k8s/helm/angzarr"
+      - op: add
+        path: /deploy/helm/releases/0/setValueTemplates/images.aggregate.tag
+        value: "{{.ANGZARR_AGGREGATE_TAG}}"
+      - op: add
+        path: /deploy/helm/releases/0/setValueTemplates/images.saga.tag
+        value: "{{.ANGZARR_SAGA_TAG}}"
+      - op: add
+        path: /deploy/helm/releases/0/setValueTemplates/images.projector.tag
+        value: "{{.ANGZARR_PROJECTOR_TAG}}"
+      - op: add
+        path: /deploy/helm/releases/0/setValueTemplates/images.processManager.tag
+        value: "{{.ANGZARR_PROCESS_MANAGER_TAG}}"
+
   # CI deploys with the published chart instead of a local core checkout.
   - name: ci
     deploy:
@@ -119,11 +147,15 @@ profiles:
               storage.postgres.password: "{{.ANGZARR_DB_PASSWORD}}"
               storage.postgres.uri: "postgres://angzarr:{{.ANGZARR_DB_PASSWORD}}@angzarr-db:5432/angzarr"
               messaging.amqp.url: "amqp://angzarr:{{.ANGZARR_MQ_PASSWORD}}@angzarr-mq:5672/%2F"
+              # Dead letters go to the bus (exchange angzarr.dlq).
+              config.dlq.targets[0].type: "amqp"
+              config.dlq.targets[0].amqp.url: "amqp://angzarr:{{.ANGZARR_MQ_PASSWORD}}@angzarr-mq:5672/%2F"
               applications.business[0].name: "agg-player"
               applications.business[0].domain: "player"
               applications.business[0].port: "50401"
               applications.business[0].debug.enabled: "true"
               applications.business[0].debug.nodePort: "31320"
+              applications.business[0].upcaster.enabled: "true"
               applications.business[0].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_agg_player}}"
               applications.business[0].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_agg_player}}"
               applications.business[0].image.pullPolicy: "IfNotPresent"
@@ -132,6 +164,7 @@ profiles:
               applications.business[1].port: "50402"
               applications.business[1].debug.enabled: "true"
               applications.business[1].debug.nodePort: "31321"
+              applications.business[1].snapshotEvery: "20"
               applications.business[1].image.repository: "{{.IMAGE_REPO_ghcr_io_angzarr_io_examples_python_agg_table}}"
               applications.business[1].image.tag: "{{.IMAGE_TAG_ghcr_io_angzarr_io_examples_python_agg_table}}"
               applications.business[1].image.pullPolicy: "IfNotPresent"

@@ -81,6 +81,22 @@ watches the event bus (`AMQP_URL`, or `secret/angzarr-mq` through a
 port-forward). Scenarios tagged `@needs-core-X-NNN` wait on a framework fix
 and are excluded from the required run.
 
+### Against coordinators built from a core checkout
+
+```bash
+ANGZARR_CORE_SRC=../../core/<worktree> just acceptance-local
+```
+
+One recipe for the whole local run: the kind cluster, secrets, PostgreSQL and
+RabbitMQ; the four coordinator images built by core's own skaffold from
+`ANGZARR_CORE_SRC` (default `../../core/main`) and loaded into kind; the six
+components deployed with that checkout's chart (skaffold profile
+`local-core`); the event store emptied and the in-memory ledger restarted
+(`just reset-data`); then every cluster scenario, `@needs-core-*` included
+(`just test-example-acceptance-all`). Re-running it rebuilds what changed and
+starts the scenarios from empty storage. Another examples repository mirrors
+it with its own component images, deployment names and runner.
+
 ## License
 
 BSD-3-Clause

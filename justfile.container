@@ -75,6 +75,12 @@ test-example-acceptance:
         --tags="not @wip and not @needs-core-*" \
         {{ACCEPTANCE_FEATURES}}
 
+# Every cluster scenario, including those still waiting on a framework fix.
+test-example-acceptance-all:
+    uv run behave --stage acceptance --format progress \
+        --tags="not @wip" \
+        {{ACCEPTANCE_FEATURES}}
+
 # Parse every acceptance scenario and resolve every step without a cluster.
 acceptance-dry-run:
     uv run behave --stage acceptance --dry-run --format progress \

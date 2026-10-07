@@ -89,6 +89,9 @@ test-example-unit:
 test-example-acceptance:
     just _container test-example-acceptance
 
+test-example-acceptance-all:
+    just _container test-example-acceptance-all
+
 acceptance-dry-run:
     just _container acceptance-dry-run
 
@@ -193,12 +196,73 @@ deploy-apps: _credentials
     export ANGZARR_MQ_PASSWORD=$(kubectl get secret -n {{NAMESPACE}} angzarr-credentials -o jsonpath='{.data.mq-password}' | base64 -d)
     cd {{ROOT}}
     # Build, load the images into the kind node (they are never pushed), then
-    # deploy exactly those builds.
-    skaffold build --kube-context "kind-{{KIND_CLUSTER}}" --file-output=build.json
+    # deploy exactly those builds. Always rebuilt: the git-commit tag of a
+    # working tree with uncommitted changes never changes, so skaffold's
+    # artifact cache would serve stale images (docker's layer cache keeps an
+    # unchanged build fast).
+    skaffold build --kube-context "kind-{{KIND_CLUSTER}}" --cache-artifacts=false --file-output=build.json
     for image in $(python3 -c 'import json; print(" ".join(b["tag"] for b in json.load(open("build.json"))["builds"]))'); do
         kind load docker-image "$image" --name {{KIND_CLUSTER}}
     done
     skaffold deploy --kube-context "kind-{{KIND_CLUSTER}}" --build-artifacts=build.json --status-check=true
+
+# --- local acceptance against core built from source (host) ------------------------------
+#
+# `just acceptance-local` is the whole local run: a kind cluster, PostgreSQL and
+# RabbitMQ, the four coordinators built from a core checkout (ANGZARR_CORE_SRC,
+# default ../../core/main) with core's own skaffold, the chart from that same
+# checkout, the six components, then every cluster scenario including the ones
+# tagged @needs-core-*. Re-running it rebuilds and redeploys only what changed.
+
+CORE_SRC := env_var_or_default("ANGZARR_CORE_SRC", ROOT + "/../../core/main")
+CORE_BUILD := ROOT + "/.core-build.json"
+CORE_COORDINATORS := "angzarr-aggregate angzarr-saga angzarr-projector angzarr-process-manager"
+
+acceptance-local: kind-create seed-secrets deploy-infra core-images deploy-apps-local reset-data
+    just _container test-example-acceptance-all
+
+# Empty every event-store table and restart the ledger projector (its ledger
+# lives in memory), so the ledger and the stored histories start equal.
+reset-data:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    psql=(kubectl exec -n {{NAMESPACE}} angzarr-db-0 -- psql -U angzarr -d angzarr -v ON_ERROR_STOP=1)
+    tables=$("${psql[@]}" -Atc "SELECT string_agg(quote_ident(tablename), ', ') FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_sqlx_migrations'")
+    if [ -n "$tables" ]; then "${psql[@]}" -c "TRUNCATE $tables"; fi
+    kubectl rollout restart -n {{NAMESPACE}} deployment/projector-player-table-ledger-projector
+    kubectl rollout status -n {{NAMESPACE}} deployment/projector-player-table-ledger-projector --timeout=120s
+
+# Build the coordinators from CORE_SRC with core's skaffold; load them into kind.
+core-images: kind-create
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{CORE_SRC}}"
+    images=(-b ghcr.io/angzarr-io/angzarr-base -b ghcr.io/angzarr-io/angzarr-rust)
+    for c in {{CORE_COORDINATORS}}; do images+=(-b "ghcr.io/angzarr-io/$c"); done
+    # Always rebuild (docker's layer cache keeps unchanged builds fast): the
+    # git-commit tag of a checkout with uncommitted changes never changes, so
+    # skaffold's artifact cache would serve images built before the changes.
+    skaffold build "${images[@]}" --cache-artifacts=false --file-output="{{CORE_BUILD}}"
+    for c in {{CORE_COORDINATORS}}; do
+        kind load docker-image "$(just -f {{justfile()}} _core-image "$c")" --name {{KIND_CLUSTER}}
+    done
+
+# The built tag of one coordinator image (from CORE_BUILD).
+[private]
+_core-image name:
+    @python3 -c 'import json,sys; print(next(b["tag"] for b in json.load(open(sys.argv[1]))["builds"] if b["imageName"].endswith("/" + sys.argv[2])).split("@")[0])' "{{CORE_BUILD}}" "{{name}}"
+
+# Deploy the six components with the chart and coordinators from CORE_SRC.
+deploy-apps-local:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export ANGZARR_CORE_SRC="$(realpath "{{CORE_SRC}}")"
+    for c in {{CORE_COORDINATORS}}; do
+        image="$(just -f {{justfile()}} _core-image "$c")"
+        var="$(echo "${c#angzarr-}" | tr 'a-z-' 'A-Z_')"
+        export "ANGZARR_${var}_TAG=${image##*:}"
+    done
+    SKAFFOLD_PROFILE=local-core just -f {{justfile()}} deploy-apps
 
 # --- submodules -----------------------------------------------------------------------------
 # Submodules are kept chmod a-w so accidental edits fail loudly.
