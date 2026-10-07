@@ -50,6 +50,11 @@ Outcome = _table.SeatOutcome.Outcome
 PERSIST = _t.SnapshotRetention.RETENTION_PERSIST
 SNAPSHOT_EVERY = 20
 
+# The wallet's reason for refusing a loyalty award to a non-member: a CASCADE
+# answer reports a failed reaction by its reason (the rejection's code travels
+# only on the RejectionNotification).
+NOT_A_LOYALTY_MEMBER = "the player is not a loyalty member"
+
 _STEP_REASONS = {
     "a wager is in play": "WAGER_IN_PLAY",
     "the funds are not available": "INSUFFICIENT_AVAILABLE_FUNDS",
@@ -964,9 +969,9 @@ def step_stand_async(context, name):
 
 @then('the answer is a failure because "{name}" is not a loyalty member')
 def step_answer_failure(context, name):
-    assert refused_with(
-        context.world.error, "LOYALTY_NOT_ENROLLED"
-    ), context.world.error
+    """A CASCADE request fails with the failing reaction's reason."""
+    error = context.world.error
+    assert error is not None and NOT_A_LOYALTY_MEMBER in (error.details() or ""), error
 
 
 @then("the answer is a success")
@@ -994,7 +999,8 @@ def step_one_reaction_error(context, name):
     (error,) = context.world.response.reaction_errors
     assert error.command_type == _p.AwardLoyaltyPoints.DESCRIPTOR.full_name
     assert error.target.root.value == context.world.player(name)
-    assert "LOYALTY_NOT_ENROLLED" in error.message
+    assert error.code == grpc.StatusCode.FAILED_PRECONDITION.value[0], error
+    assert error.message == NOT_A_LOYALTY_MEMBER, error
 
 
 @then("the answer reports no failed follow-ups")
@@ -1151,10 +1157,7 @@ def step_starts_from_snapshot(context, nth):
 
 
 def _replayed(w, table):
-    full = _t.EventBook()
-    for book in w.client.books(TABLE, w.table(table)):
-        full.pages.extend(book.pages)
-    return w.client.fold(TABLE, full)
+    return w.client.fold(TABLE, w.client.history(TABLE, w.table(table)))
 
 
 @then(
@@ -1171,11 +1174,7 @@ def step_snapshot_equals_replay(context, name):
 @when('table "{table}"\'s stored snapshots are listed')
 def step_snapshots_listed(context, table):
     w = context.world
-    w.notes["snapshots"] = [
-        b.snapshot
-        for b in w.client.books(TABLE, w.table(table))
-        if b.HasField("snapshot")
-    ]
+    w.notes["snapshots"] = w.client.snapshots(TABLE, w.table(table))
 
 
 @then("there is a lasting snapshot for each of shoes {a:d}, {b:d} and {c:d}")
@@ -1193,7 +1192,9 @@ def step_lasting_per_shoe(context, a, b, c):
 def step_one_routine(context):
     snaps = context.world.notes["snapshots"]
     routine = [s for s in snaps if s.retention != PERSIST]
-    assert len(routine) == 1 and routine[0].sequence == max(s.sequence for s in snaps)
+    assert len(routine) == 1 and routine[0].sequence == max(
+        s.sequence for s in snaps
+    ), [(s.sequence, _t.SnapshotRetention.Name(s.retention)) for s in snaps]
 
 
 # --- what-ifs, speculation, upcasting, looking back -----------------------------------------

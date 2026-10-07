@@ -34,10 +34,30 @@ from angzarr_blackjack._runtime.inprocess import InProcess
 PLAYER, TABLE = "player", "table"
 ENDPOINTS = {PLAYER: ("PLAYER_URL", 31320), TABLE: ("TABLE_URL", 31321)}
 LEDGER = ("LEDGER_URL", 31325)
+# The Deployment the angzarr chart names for each component: aggregates by
+# domain, the others by name with their kind as suffix.
+DEPLOYMENTS = {
+    "agg-player": "player-aggregate",
+    "agg-table": "table-aggregate",
+    "pmg-buy-in": "pmg-buy-in-pm",
+    "saga-player-table": "saga-player-table-saga",
+    "saga-table-player": "saga-table-player-saga",
+    "projector-player-table-ledger": "projector-player-table-ledger-projector",
+}
 NAMESPACE = os.environ.get("ANGZARR_NAMESPACE", "angzarr")
 SYNC = _t.SyncMode
 CASCADE_ERROR = _t.CascadeErrorMode
 MERGE = _t.MergeStrategy
+
+
+# Reconnect promptly once a restarted service answers again: gRPC's default
+# backoff grows towards two minutes and would outlast a scenario's
+# "within N seconds".
+_RECONNECT = [
+    ("grpc.initial_reconnect_backoff_ms", 200),
+    ("grpc.min_reconnect_backoff_ms", 200),
+    ("grpc.max_reconnect_backoff_ms", 1000),
+]
 
 
 def _endpoint(variable: str, port: int) -> str:
@@ -59,9 +79,12 @@ class ClusterClient:
         for channel in self._channels.values():
             channel.close()
         self._channels = {
-            d: grpc.insecure_channel(_endpoint(*ENDPOINTS[d])) for d in ENDPOINTS
+            d: grpc.insecure_channel(_endpoint(*ENDPOINTS[d]), options=_RECONNECT)
+            for d in ENDPOINTS
         }
-        self._channels["ledger"] = grpc.insecure_channel(_endpoint(*LEDGER))
+        self._channels["ledger"] = grpc.insecure_channel(
+            _endpoint(*LEDGER), options=_RECONNECT
+        )
         self._commands = {
             d: _ch_grpc.CommandHandlerCoordinatorServiceStub(self._channels[d])
             for d in ENDPOINTS
@@ -151,18 +174,46 @@ class ClusterClient:
             query.temporal.CopyFrom(temporal)
         return self._queries[domain].GetEventBook(query, timeout=30.0)
 
-    def books(self, domain: str, root: bytes) -> list[_t.EventBook]:
-        """Every book the store streams for ``(domain, root)``, snapshots included."""
+    def history(self, domain: str, root: bytes) -> _t.EventBook:
+        """Every stored page of ``(domain, root)`` from its first event, without
+        a snapshot."""
         query = _t.Query(cover=cover(domain, root))
         query.range.lower = 0
-        return list(self._queries[domain].GetEvents(query, timeout=30.0))
+        history = _t.EventBook(cover=query.cover)
+        for book in self._queries[domain].GetEvents(query, timeout=30.0):
+            history.pages.extend(book.pages)
+        return history
+
+    def snapshots(self, domain: str, root: bytes) -> list[_t.Snapshot]:
+        """The snapshots the store keeps for ``(domain, root)``, oldest first.
+
+        Read through temporal queries: the history as of each sequence
+        starts from the newest kept snapshot at or before it, so asking at
+        every sequence meets every kept snapshot."""
+        head = self.book(domain, root).next_sequence
+        found: dict[int, _t.Snapshot] = {}
+        for sequence in range(head):
+            temporal = _t.TemporalQuery(as_of_sequence=sequence)
+            book = self.book(domain, root, temporal=temporal)
+            if book.HasField("snapshot"):
+                found.setdefault(book.snapshot.sequence, book.snapshot)
+        return [found[s] for s in sorted(found)]
 
     def conversation(self, domain: str, correlation: str) -> _t.EventBook:
-        """Stored events of ``domain`` in one conversation (correlation query)."""
-        return self._queries[domain].GetEventBook(
+        """Stored events of ``domain`` in one conversation: the correlation
+        query streams a book per aggregate the conversation touched, in every
+        domain; the pages of ``domain``'s books are gathered into one."""
+        stream = self._queries[domain].GetEvents(
             _t.Query(cover=_t.Cover(domain=domain, correlation_id=correlation)),
             timeout=30.0,
         )
+        gathered = _t.EventBook(
+            cover=_t.Cover(domain=domain, correlation_id=correlation)
+        )
+        for book in stream:
+            if book.cover.domain == domain:
+                gathered.pages.extend(book.pages)
+        return gathered
 
     def roots(self, domain: str) -> list[bytes]:
         """Every aggregate root the store holds for ``domain``."""
@@ -188,10 +239,9 @@ class ClusterClient:
 
     # --- operations ----------------------------------------------------------------
 
-    def restart(self, *deployments: str, wait: bool = True) -> None:
-        """Restart deployments (``kubectl rollout restart``) and reconnect."""
-        prefix = os.environ.get("ANGZARR_DEPLOYMENT_PREFIX", "")
-        names = [f"deployment/{prefix}{name}" for name in deployments]
+    def restart(self, *components: str, wait: bool = True) -> None:
+        """Restart components' deployments (``kubectl rollout restart``) and reconnect."""
+        names = [f"deployment/{DEPLOYMENTS[c]}" for c in components]
         subprocess.run(
             ["kubectl", "rollout", "restart", "-n", NAMESPACE, *names], check=True
         )

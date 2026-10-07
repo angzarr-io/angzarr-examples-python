@@ -8,6 +8,8 @@ LedgerQueryService, and waiting is done on stored history or the event bus.
 from __future__ import annotations
 
 import grpc
+from google.rpc import error_details_pb2 as _details
+from google.rpc import status_pb2 as _status
 
 from acceptance_steps._client import CASCADE_ERROR, MERGE, PLAYER, SYNC, TABLE
 from acceptance_steps._world import World, eventually
@@ -38,8 +40,21 @@ def must(w: World, domain: str, root: bytes, message, **options):
     return response
 
 
+def rejection_code(error) -> str:
+    """The rejection code a refused call carries: the ``reason`` of the
+    ``google.rpc.ErrorInfo`` in its ``grpc-status-details-bin`` trailer."""
+    for key, value in error.trailing_metadata() or ():
+        if key != "grpc-status-details-bin":
+            continue
+        for detail in _status.Status.FromString(value).details:
+            info = _details.ErrorInfo()
+            if detail.Unpack(info):
+                return info.reason
+    return ""
+
+
 def refused_with(error, code: str) -> bool:
-    return error is not None and code in (error.details() or "")
+    return error is not None and rejection_code(error) == code
 
 
 # --- reading -----------------------------------------------------------------------

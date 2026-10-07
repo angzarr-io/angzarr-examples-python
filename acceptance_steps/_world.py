@@ -5,17 +5,21 @@ gets a root unique to the scenario: ``uuid5(NAMESPACE_OID,
 "<nonce>:<kind>:<label>")``. Every request is sent in a conversation whose
 correlation id starts with the nonce — the scenario's own default
 conversation, or one per buy-in / top-up — so the event stream keeps exactly
-this scenario's books.
+this scenario's books. Correlation ids hold only letters, digits, "_" and "-".
 """
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections.abc import Callable
 
 from acceptance_steps._client import ClusterClient
 from acceptance_steps._stream import EventStreamSubscriber
+
+# A correlation id holds only a-z, A-Z, 0-9, "_" and "-".
+_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
 
 
 class World:
@@ -45,7 +49,9 @@ class World:
         return self.root("request", label)
 
     def conversation(self, label: str) -> str:
-        return f"{self.nonce}/{label}"
+        """The scenario's conversation for ``label``: the nonce, then the label
+        with every character a correlation id may not hold replaced by ``_``."""
+        return f"{self.nonce}-{_UNSAFE.sub('_', label)}"
 
     def events(self) -> EventStreamSubscriber:
         assert self.stream is not None, "the event stream is not connected"
