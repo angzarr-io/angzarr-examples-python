@@ -441,6 +441,32 @@ def test_ledger_applies_each_event_once(ledger):
     assert ledger.ledger.projection.totals.deposits == 100
 
 
+def _deliver_in_edition(host, edition, *events, start=0):
+    book = _t.EventBook(cover=cover("player", ALICE))
+    book.cover.edition.name = edition
+    for offset, event in enumerate(events):
+        page = book.pages.add(event=_az.pack(event))
+        page.header.sequence = start + offset
+    return host.project(book)
+
+
+def test_ledger_ignores_a_what_if_edition(ledger):
+    """A what-if is a branch of history, not money: the ledger counts only
+    the main timeline."""
+    deliver(ledger, "player", ALICE, _p.PlayerRegistered(display_name="A"))
+    _deliver_in_edition(ledger, "what-if", _p.FundsDeposited(amount=500), start=1)
+    view = ledger.ledger.player_view(ALICE)
+    assert view.player.bankroll == 0
+    assert ledger.ledger.projection.totals.deposits == 0
+
+
+@pytest.mark.parametrize("edition", ["", "angzarr"])
+def test_ledger_counts_the_main_timeline_by_either_name(ledger, edition):
+    deliver(ledger, "player", ALICE, _p.PlayerRegistered(display_name="A"))
+    _deliver_in_edition(ledger, edition, _p.FundsDeposited(amount=500), start=1)
+    assert ledger.ledger.player_view(ALICE).player.bankroll == 500
+
+
 def test_ledger_projection_reports_the_changed_row(ledger):
     projection = deliver(
         ledger,

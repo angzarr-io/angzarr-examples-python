@@ -12,6 +12,7 @@ until both sides are seen:
 Invariant L4, checked only when nothing is in flight:
 ``sum(bankroll) + sum(stacks + wagers) + sum(house_result) = deposits - withdrawals``.
 
+Only the main timeline counts: events of a what-if edition are ignored.
 Every applied event is remembered by (domain, root, sequence), so replaying or
 redelivering an event leaves the read model unchanged, and a speculative
 delivery changes nothing: it reports the ledger as it stands. The projection handed
@@ -34,6 +35,8 @@ PROJECTOR = "LedgerProjector"
 RECENT_RESULTS = 10
 BUY_IN, TOP_UP, CASH_OUT = "buy-in", "top-up", "cash-out"
 TABLE_SIDE, WALLET_SIDE = "table", "wallet"
+# The names of the main timeline ("" and unset are the same timeline).
+MAIN_TIMELINE = ("", "angzarr")
 
 
 class Ledger:
@@ -90,10 +93,11 @@ class Ledger:
     # --- applied events ---
 
     def applies(self, ctx: _az.PageContext) -> bool:
-        """Whether the page ``ctx`` names changes the ledger: it is neither
-        speculative nor already applied. A page that applies is remembered as
-        applied."""
-        if ctx.speculative:
+        """Whether the page ``ctx`` names changes the ledger: it is on the
+        main timeline (a what-if edition is a branch of history, not money),
+        neither speculative nor already applied. A page that applies is
+        remembered as applied."""
+        if ctx.speculative or ctx.cover.edition.name not in MAIN_TIMELINE:
             return False
         key = (ctx.cover.domain, ctx.cover.root.value.hex(), ctx.sequence)
         if key in self.applied:
