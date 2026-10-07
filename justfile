@@ -160,7 +160,14 @@ kind-create:
     kubectl create namespace {{NAMESPACE}} --dry-run=client -o yaml | kubectl apply -f -
 
 # Generate db/mq passwords into the angzarr-credentials Secret (never on disk).
+# An existing Secret is kept: PostgreSQL and RabbitMQ keep the passwords they
+# were first deployed with, so replacing them would lock every component out.
 seed-secrets: kind-create
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if kubectl get secret -n {{NAMESPACE}} angzarr-credentials >/dev/null 2>&1; then
+        exit 0
+    fi
     python3 {{ROOT}}/tools/generate_secrets.py --namespace {{NAMESPACE}} --name angzarr-credentials \
         | kubectl apply -f -
 
