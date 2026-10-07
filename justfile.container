@@ -13,7 +13,7 @@ COMPONENTS := "agg-player agg-table pmg-buy-in saga-player-table saga-table-play
 CLI_SRC := env_var_or_default("ANGZARR_CLI_SRC", "../../angzarr-cli/main")
 # The angzarr-client revision whose codegen templates render the wiring; the
 # pyproject pins the same revision.
-CLIENT_REF := "da9759af50283a93c9df45a2f649ab0f0d5b3f1b"
+CLIENT_REF := "5147f50bdc9aee5607e33e1b35a9a303b410df19"
 
 # Features: the in-process tiers and the cluster tier, read straight from the
 # angzarr-project submodule.
@@ -38,14 +38,15 @@ cli-build:
 ci-setup: cli-build install
 
 # Generate the blackjack message types, gRPC stubs and angzarr dispatch wiring
-# into src/angzarr_blackjack/_gen, then reroot the plugins' path imports:
+# into src/angzarr_blackjack/_gen as regular packages (so the import graph
+# that `archlint` checks resolves them), then reroot the plugins' path imports:
 # framework protos under angzarr_client.proto, the example protos under the
 # package (never shadowing stdlib `io`).
 proto-gen:
     rm -rf src/angzarr_blackjack/_gen
     PATH="{{justfile_directory()}}/.tools/bin:$PATH" buf generate \
         --path angzarr-project/proto/io/angzarr/examples
-    touch src/angzarr_blackjack/_gen/__init__.py
+    find src/angzarr_blackjack/_gen -type d -exec touch {}/__init__.py \;
     uv run python tools/fixup_gen_imports.py \
         src/angzarr_blackjack/_gen \
         io.angzarr.v1=angzarr_client.proto.io.angzarr.v1 \
@@ -90,7 +91,7 @@ acceptance-dry-run:
 test: test-unit test-example-unit
 
 # CI entry point for the test job.
-ci-test: lint (fmt "--check") test acceptance-dry-run
+ci-test: lint archlint (fmt "--check") test acceptance-dry-run
 
 fmt *FLAGS:
     uv run black {{FLAGS}} src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
@@ -98,6 +99,13 @@ fmt *FLAGS:
 fmt-fix:
     uv run ruff check --fix src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
     uv run black src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
+
+# Architecture lint: the import contracts in .importlinter (package layering)
+# and .importlinter-external (third-party imports), via import-linter. The
+# graph is rebuilt every run: the mtime-keyed cache goes stale across checkouts.
+archlint:
+    PYTHONPATH=src uv run lint-imports --no-cache --config .importlinter
+    PYTHONPATH=src uv run lint-imports --no-cache --config .importlinter-external
 
 lint:
     uv run ruff check src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py

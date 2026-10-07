@@ -11,8 +11,8 @@
 
 set shell := ["bash", "-c"]
 
-# Reusable submodule-protection recipes (install-submodule-hooks,
-# check-submodules-clean). Source of truth: angzarr-project/submodule.just.
+# Reusable submodule-protection and secret-scanning recipes
+# (install-submodule-hooks, check-submodules-clean, scan-secrets). Source of truth: angzarr-project/submodule.just.
 import? 'angzarr-project/submodule.just'
 
 ROOT := `git rev-parse --show-toplevel`
@@ -110,6 +110,9 @@ fmt-fix:
 lint:
     just _container lint
 
+archlint:
+    just _container archlint
+
 demo-session *ARGS:
     just _container demo-session {{ARGS}}
 
@@ -118,7 +121,7 @@ components:
 
 # --- CI entry points ---------------------------------------------------------------------
 
-# Tests, lint, format check and the acceptance dry run.
+# Tests, lint, architecture lint, format check and the acceptance dry run.
 ci-test:
     just _container ci-test
 
