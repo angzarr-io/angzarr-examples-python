@@ -31,7 +31,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "218413414e69d646839ccaf0b254251dd2813ff1" }
+angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "da9759af50283a93c9df45a2f649ab0f0d5b3f1b" }
 
 [build-system]
 requires = ["hatchling"]
