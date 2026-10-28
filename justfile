@@ -32,6 +32,13 @@ GID := `id -g`
 # Build the devcontainer image
 [private]
 _build-image:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Inside a devcontainer _container runs recipes directly, so no image is
+    # needed (and there is no docker to build one with).
+    if [ "${DEVCONTAINER:-}" = "true" ]; then
+        exit 0
+    fi
     docker build -t {{IMAGE}} -f "{{ROOT}}/.devcontainer/Containerfile" "{{ROOT}}/.devcontainer"
 
 # Run a justfile.container recipe in the dev container (or directly inside one).
