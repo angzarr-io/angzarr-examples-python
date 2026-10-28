@@ -57,14 +57,19 @@ revision (`pyproject.toml`); installing it builds its router library, so
 
 ```bash
 export ANGZARR_CLI_SRC=../../angzarr-cli/main
-just -f justfile.container ci-setup     # cli-build, proto-gen, uv sync
+just -f justfile.container ci-setup     # cli-build, proto-gen, version, uv sync
 ```
+
+`just version` installs the pinned versionator (`VERSIONATOR_VERSION` in
+`justfile.container`, sha256-checked) into `.tools/bin` and generates
+`src/angzarr_blackjack/_version.py` from `VERSION` and git; the file is not
+committed, and the image build fails without it.
 
 Each deployable's `main.register(host)` adds its component to an
 angzarr-client `ComponentHost`, which serves it over gRPC; `main()` runs that
-host on `$PORT`. The host refuses to start without the build's
-`rules_version`, and `main()` does not give one yet, so `just run agg-table`
-stops with `MISSING_RULES_VERSION` until a version source is chosen.
+host on `$PORT`, reporting the generated build version as its
+`rules_version` (the host refuses to start without one,
+`MISSING_RULES_VERSION`).
 
 ## Tests
 

@@ -101,8 +101,8 @@ def test_the_table_host_serves_commands_and_reports_coded_refusals():
     from angzarr_client import ComponentHost
     from angzarr_client.proto.io.angzarr.v1 import command_handler_pb2_grpc as _ch_grpc
 
-    # The deployable's main() does not yet say its build version (README:
-    # waiting on a rules_version source); the host refuses to start without one.
+    # A version of the test's own, so this test does not depend on the
+    # generated build version (the next test covers that).
     host = table_main.register(ComponentHost(rules_version="0.0.0+test"))
     address = host.start("127.0.0.1:0")
     try:
@@ -119,6 +119,27 @@ def test_the_table_host_serves_commands_and_reports_coded_refusals():
             assert info.value.code() == grpc.StatusCode.FAILED_PRECONDITION
             assert info.value.details() == "the table already exists"
             assert _error_code(info.value) == "TABLE_ALREADY_EXISTS"
+    finally:
+        host.stop()
+
+
+def test_the_deployable_host_reports_the_generated_build_version():
+    from angzarr_client.proto.io.angzarr.v1 import component_pb2 as _component
+    from angzarr_client.proto.io.angzarr.v1 import component_pb2_grpc as _c_grpc
+
+    from angzarr_blackjack._version import __version__
+
+    # main()'s host starts (no MISSING_RULES_VERSION) and describes its
+    # component with the version versionator generated at build.
+    assert __version__
+    host = table_main.host()
+    address = host.start("127.0.0.1:0")
+    try:
+        with grpc.insecure_channel(address) as channel:
+            descriptor = _c_grpc.ComponentServiceStub(channel).Describe(
+                _component.DescribeRequest(), timeout=10
+            )
+        assert descriptor.rules_version == __version__
     finally:
         host.stop()
 

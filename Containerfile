@@ -7,7 +7,8 @@
 #   agg-table                      -> angzarr_blackjack.table.agg.main
 #
 # The build context must hold the generated ``src/angzarr_blackjack/_gen``
-# (`just proto-gen`). The deps stage installs angzarr-client from its pinned
+# (`just proto-gen`) and the build version ``src/angzarr_blackjack/_version.py``
+# (`just version`, versionator; the host refuses to start without it). The deps stage installs angzarr-client from its pinned
 # git revision, which builds its router library with cargo.
 #
 # Each target launches its module with ``uv run`` (uv resolves/paths the locked
@@ -66,6 +67,8 @@ RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
 FROM deps AS source
 
 COPY src ./src
+RUN test -f src/angzarr_blackjack/_version.py \
+    || { echo "src/angzarr_blackjack/_version.py is missing: run 'just version'" >&2; exit 1; }
 
 # ============================================================================
 # Runtime base

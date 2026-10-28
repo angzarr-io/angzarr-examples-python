@@ -11,7 +11,8 @@ on:
 env:
   # The angzarr CLI (codegen plugin) is built from source at this ref;
   # installing angzarr-client (pinned in pyproject.toml) builds its router
-  # library with cargo.
+  # library with cargo. ci-setup also installs the pinned versionator
+  # (justfile.container) and generates the build version the images carry.
   ANGZARR_CLI_REF: 734b1bbdd4e913f19f8cb87f3f1dd95c06053d99
   ANGZARR_CLI_SRC: .deps/angzarr-cli
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

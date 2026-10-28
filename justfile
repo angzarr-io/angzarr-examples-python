@@ -76,6 +76,10 @@ proto-gen:
 install:
     just _container install
 
+# Generate the build version (src/angzarr_blackjack/_version.py) with versionator.
+version:
+    just _container version
+
 test-unit:
     just _container test-unit
 

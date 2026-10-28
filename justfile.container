@@ -17,6 +17,13 @@ CLI_SRC := env_var_or_default("ANGZARR_CLI_SRC", "../../angzarr-cli/main")
 # pyproject pins the same revision.
 CLIENT_REF := "1621e8c92318bf023db27d9ad163ed9e361fd702"
 
+# versionator generates the build version (src/angzarr_blackjack/_version.py,
+# never committed) that each component's host reports as its rules_version.
+# Pinned to a release and its sha256 (checksums.txt of that release).
+VERSIONATOR_VERSION := "0.2.3"
+VERSIONATOR_SHA256_AMD64 := "315a5c746cbb3c9701bfe37c441e19fd54b676ce25746accca2bed26d4dfabc9"
+VERSIONATOR_SHA256_ARM64 := "06a618df82e85aef939d215b7cf462171312b49b050923ebe9a4b6d10770b9a0"
+
 # Features: the in-process tier, read straight from the angzarr-project
 # submodule. Only the stage-1 slice runs: table creation (EU-1440..1442) and
 # the golden shoe vectors (EU-1520..1525). Keep in step with
@@ -37,9 +44,43 @@ cli-build:
     cd {{CLI_SRC}} && go build -o {{justfile_directory()}}/.tools/bin/angzarr .
 
 # Everything a fresh checkout needs before tests or image builds: the CLI,
-# generated code and the environment (installing angzarr-client builds its
-# router library with cargo).
+# generated code, the build version and the environment (installing
+# angzarr-client builds its router library with cargo).
 ci-setup: cli-build install
+
+# Install the pinned versionator into .tools/bin (kept while it matches the pin).
+versionator-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bin=.tools/bin/versionator
+    stamp=.tools/bin/versionator.version
+    if [ -x "$bin" ] && [ "$(cat "$stamp" 2>/dev/null)" = "{{VERSIONATOR_VERSION}}" ]; then
+        exit 0
+    fi
+    case "$(uname -m)" in
+        x86_64) arch=amd64; sha={{VERSIONATOR_SHA256_AMD64}} ;;
+        aarch64|arm64) arch=arm64; sha={{VERSIONATOR_SHA256_ARM64}} ;;
+        *) echo "versionator: no pinned build for $(uname -m)" >&2; exit 1 ;;
+    esac
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    curl -fsSL -o "$tmp/versionator.tgz" \
+        "https://github.com/benjaminabbitt/versionator/releases/download/v{{VERSIONATOR_VERSION}}/versionator_{{VERSIONATOR_VERSION}}_linux_${arch}.tar.gz"
+    echo "${sha}  $tmp/versionator.tgz" | sha256sum -c --quiet -
+    tar -xzf "$tmp/versionator.tgz" -C "$tmp" versionator
+    mkdir -p .tools/bin
+    install -m 0755 "$tmp/versionator" "$bin"
+    echo "{{VERSIONATOR_VERSION}}" > "$stamp"
+
+# Generate the build version module the components' hosts report (the
+# VERSION file plus git metadata; client-python's documented versionator
+# invocation). Rewritten whole, so a failed run leaves no partial module.
+version: versionator-install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=src/angzarr_blackjack/_version.py
+    .tools/bin/versionator output emit python --metadata > "$out.tmp"
+    mv "$out.tmp" "$out"
 
 # Generate the blackjack message types, gRPC stubs and angzarr dispatch wiring
 # into src/angzarr_blackjack/_gen as regular packages (so the import graph
@@ -58,8 +99,8 @@ proto-gen:
         sererr=angzarr_client.proto.sererr \
         io.angzarr.examples.v1=angzarr_blackjack._gen.io.angzarr.examples.v1
 
-# Generate code and sync the environment.
-install *FLAGS: proto-gen
+# Generate code and the build version, and sync the environment.
+install *FLAGS: proto-gen version
     uv sync {{FLAGS}}
 
 # Native unit tests: the table's CreateTable logic, its configuration rule,
@@ -97,7 +138,7 @@ lint:
     uv run ruff check src tests unit_steps tools unit_environment.py
 
 # Run one component locally (e.g. `just run agg-table`).
-run component:
+run component: version
     PYTHONPATH=src uv run python -m \
         "angzarr_blackjack.$(just -f {{justfile()}} _module {{component}})"
 
