@@ -16,8 +16,15 @@ set shell := ["bash", "-c"]
 import? 'angzarr-project/submodule.just'
 
 ROOT := `git rev-parse --show-toplevel`
-ANGZARR_ROOT := `realpath "$(git rev-parse --show-toplevel)/../.."`
-REPO_DIR := file_name(ROOT)
+# The repository's shared git dir: `.git` of the main checkout, also when ROOT
+# is a linked worktree (whose `.git` file points into it). Mounted at its own
+# path in the dev container so git resolves there.
+GIT_COMMON := `git rev-parse --path-format=absolute --git-common-dir`
+# The angzarr-cli source checkout `cli-build` compiles. Defaults to the
+# sibling of this repository's main checkout (the workspace layout
+# <workspace>/examples-python/main beside <workspace>/angzarr-cli/main), found
+# from the shared git dir so a worktree elsewhere resolves the same checkout.
+CLI_SRC := env_var_or_default("ANGZARR_CLI_SRC", parent_directory(GIT_COMMON) / "../../angzarr-cli/main")
 IMAGE := "angzarr-examples-python-dev"
 UID := `id -u`
 GID := `id -g`
@@ -28,12 +35,20 @@ _build-image:
     docker build -t {{IMAGE}} -f "{{ROOT}}/.devcontainer/Containerfile" "{{ROOT}}/.devcontainer"
 
 # Run a justfile.container recipe in the dev container (or directly inside one).
+#
+# The container sees exactly what the build needs, wherever the checkout
+# lives (main checkout or a linked worktree):
+#   * ROOT (this checkout's top level) at /workspace, the working directory,
+#     with justfile.container mounted over its justfile;
+#   * the shared git dir at its own host path, so git works in a worktree;
+#   * the angzarr-cli source (CLI_SRC) at /deps/angzarr-cli, for `cli-build`.
+# The uv cache stays inside the checkout (.uv-cache), as before.
 [private]
 _container +ARGS: _build-image
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "${DEVCONTAINER:-}" = "true" ]; then
-        just -f justfile.container {{ARGS}}
+        just --justfile "{{ROOT}}/justfile.container" {{ARGS}}
     else
         # Rootless Docker maps the container's root to the host user, so files
         # written in the mounted repo stay host-owned only when the container
@@ -47,17 +62,25 @@ _container +ARGS: _build-image
         else
             user_flag=(-u {{UID}}:{{GID}})
         fi
+        cli_mount=()
+        if [ -d "{{CLI_SRC}}" ]; then
+            cli_mount=(-v "$(realpath "{{CLI_SRC}}"):/deps/angzarr-cli")
+        fi
         docker run --rm --network=host \
             "${user_flag[@]}" \
-            -e UV_CACHE_DIR=/angzarr/examples-python/{{REPO_DIR}}/.uv-cache \
-            -e ANGZARR_CLI_SRC="${ANGZARR_CLI_SRC:-/angzarr/angzarr-cli/main}" \
-            -e ANGZARR_ROUTER_SRC="${ANGZARR_ROUTER_SRC:-/angzarr/angzarr-router/main}" \
+            -e UV_CACHE_DIR=/workspace/.uv-cache \
+            -e ANGZARR_CLI_SRC=/deps/angzarr-cli \
             -e KUBECONFIG=/home/user/.kube/config \
-            -v "{{ANGZARR_ROOT}}:/angzarr" \
-            -v "{{ROOT}}/justfile.container:/angzarr/examples-python/{{REPO_DIR}}/justfile:ro" \
+            -e GIT_CONFIG_COUNT=1 \
+            -e GIT_CONFIG_KEY_0=safe.directory \
+            -e GIT_CONFIG_VALUE_0='*' \
+            -v "{{ROOT}}:/workspace" \
+            -v "{{GIT_COMMON}}:{{GIT_COMMON}}" \
+            "${cli_mount[@]}" \
+            -v "{{ROOT}}/justfile.container:/workspace/justfile:ro" \
             -v "/usr/bin/kubectl:/usr/local/bin/kubectl:ro" \
             -v "${HOME}/.kube:/home/user/.kube:ro" \
-            -w /angzarr/examples-python/{{REPO_DIR}} \
+            -w /workspace \
             {{IMAGE}} just {{ARGS}}
     fi
 
