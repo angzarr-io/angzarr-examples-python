@@ -51,9 +51,11 @@ cascade replies). It is not ported or stubbed here; its last version is
 
 ## Setup
 
-The CLI is built from a source checkout. angzarr-client is pinned to a git
-revision (`pyproject.toml`); installing it builds its router library, so
-`cargo` must be on PATH:
+The CLI is built from a source checkout, so `go` (the version angzarr-cli's
+go.mod names, 1.24.4 or later) must be on PATH. angzarr-client is pinned to a
+git revision (`pyproject.toml`); installing it builds its router library, so
+`cargo` must be on PATH too. The dev container image
+(`.devcontainer/Containerfile`) carries both, Go pinned and checksum-verified:
 
 ```bash
 export ANGZARR_CLI_SRC=../../angzarr-cli/main
