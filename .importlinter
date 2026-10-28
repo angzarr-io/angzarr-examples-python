@@ -2,70 +2,49 @@
 # (`just archlint`; pre-commit and CI run it). Contracts on third-party
 # imports live in .importlinter-external.
 #
-# Shape of the package (src/angzarr_blackjack):
-#   cards, table.agg.rules   card, shoe and hand rules: pure, no framework.
-#   player.agg.logic, errors player decisions and the coded rejections they
-#                            raise (errors uses the router's CodedError).
+# Shape of the package (src/angzarr_blackjack) on this branch, the stage-1
+# slice (the other components wait on the blackjack rulings R1-R4; README):
+#   cards, table.agg.rules   the shoe and the configuration rule: pure, no
+#                            framework.
+#   errors                   the coded rejections (the router's CodedError).
 #   <component>.handler      the component's handlers over the router binding.
 #   <component>.main         wiring: the generated *_angzarr registration and
 #                            the ComponentHost that serves it.
-#   components               player.agg, table.agg (aggregates),
-#                            player.saga_table, table.saga_player (sagas),
-#                            pmg_buy_in (process manager), prj_ledger
-#                            (projector). None imports another.
-#   _runtime.books           shared book/command helpers for handlers.
+#   components               table.agg (aggregate).
+#   _runtime.books           shared book helpers for handlers.
 #   _runtime.inprocess       in-process harness over every component's wiring
 #                            (unit tiers); no component imports it.
 #   _gen                     generated message types (anyone), gRPC stubs and
-#                            *_angzarr wiring (main/query modules only).
-# tests/, unit_steps/ and acceptance_steps/ may import anything; the package
-# never imports them.
+#                            *_angzarr wiring (main modules only).
+# tests/ and unit_steps/ may import anything; the package never imports them.
 
 [importlinter]
 root_packages =
     angzarr_blackjack
     angzarr_client
     tests
-    acceptance_steps
 
 [importlinter:contract:layers]
 name = Harness over components over shared helpers over generated types
 type = layers
 layers =
     angzarr_blackjack._runtime.inprocess
-    angzarr_blackjack.player | angzarr_blackjack.table | angzarr_blackjack.pmg_buy_in | angzarr_blackjack.prj_ledger
+    angzarr_blackjack.table
     angzarr_blackjack._runtime.books | angzarr_blackjack.cards | angzarr_blackjack.errors
     angzarr_blackjack._gen
-
-[importlinter:contract:components-independent]
-name = Components never import one another (sagas, PM and projector stay off aggregate internals)
-type = independence
-modules =
-    angzarr_blackjack.player.agg
-    angzarr_blackjack.player.saga_table
-    angzarr_blackjack.table.agg
-    angzarr_blackjack.table.saga_player
-    angzarr_blackjack.pmg_buy_in
-    angzarr_blackjack.prj_ledger
 
 [importlinter:contract:component-layers]
 name = Within a component, wiring (main) sits over handlers over domain logic
 type = layers
 containers =
-    angzarr_blackjack.player.agg
-    angzarr_blackjack.player.saga_table
     angzarr_blackjack.table.agg
-    angzarr_blackjack.table.saga_player
-    angzarr_blackjack.pmg_buy_in
-    angzarr_blackjack.prj_ledger
 layers =
     main
-    (query)
-    (upcaster) | handler
-    (logic) | (rules)
+    handler
+    rules
 
 [importlinter:contract:rules-pure]
-name = Card, shoe and hand rules use no framework code
+name = Card, shoe and table rules use no framework code
 type = forbidden
 source_modules =
     angzarr_blackjack.cards
@@ -82,15 +61,8 @@ source_modules =
     angzarr_blackjack.cards
     angzarr_blackjack.errors
     angzarr_blackjack._runtime.books
-    angzarr_blackjack.player.agg.handler
-    angzarr_blackjack.player.agg.logic
-    angzarr_blackjack.player.agg.upcaster
-    angzarr_blackjack.player.saga_table.handler
-    angzarr_blackjack.pmg_buy_in.handler
-    angzarr_blackjack.prj_ledger.handler
     angzarr_blackjack.table.agg.handler
     angzarr_blackjack.table.agg.rules
-    angzarr_blackjack.table.saga_player.handler
 forbidden_modules =
     angzarr_client.host
     angzarr_client.client
@@ -100,35 +72,17 @@ forbidden_modules =
     angzarr_client.testing
 
 [importlinter:contract:generated-wiring-in-main-only]
-name = Generated wiring and gRPC stubs are imported only by wiring and query modules
+name = Generated wiring and gRPC stubs are imported only by wiring modules
 type = forbidden
 source_modules =
     angzarr_blackjack.cards
     angzarr_blackjack.errors
     angzarr_blackjack._runtime.books
-    angzarr_blackjack.player.agg.handler
-    angzarr_blackjack.player.agg.logic
-    angzarr_blackjack.player.agg.upcaster
-    angzarr_blackjack.player.saga_table.handler
-    angzarr_blackjack.pmg_buy_in.handler
-    angzarr_blackjack.prj_ledger.handler
     angzarr_blackjack.table.agg.handler
     angzarr_blackjack.table.agg.rules
-    angzarr_blackjack.table.saga_player.handler
 forbidden_modules =
-    angzarr_blackjack._gen.io.angzarr.examples.v1.buy_in_process_manager_angzarr
-    angzarr_blackjack._gen.io.angzarr.examples.v1.ledger_projector_angzarr
-    angzarr_blackjack._gen.io.angzarr.examples.v1.player_aggregate_angzarr
-    angzarr_blackjack._gen.io.angzarr.examples.v1.player_table_saga_angzarr
     angzarr_blackjack._gen.io.angzarr.examples.v1.table_aggregate_angzarr
-    angzarr_blackjack._gen.io.angzarr.examples.v1.table_player_history_saga_angzarr
-    angzarr_blackjack._gen.io.angzarr.examples.v1.table_player_loyalty_saga_angzarr
-    angzarr_blackjack._gen.io.angzarr.examples.v1.table_player_settlement_saga_angzarr
-    angzarr_blackjack._gen.io.angzarr.examples.v1.buy_in_pb2_grpc
     angzarr_blackjack._gen.io.angzarr.examples.v1.cards_pb2_grpc
-    angzarr_blackjack._gen.io.angzarr.examples.v1.ledger_pb2_grpc
-    angzarr_blackjack._gen.io.angzarr.examples.v1.player_pb2_grpc
-    angzarr_blackjack._gen.io.angzarr.examples.v1.sagas_pb2_grpc
     angzarr_blackjack._gen.io.angzarr.examples.v1.table_pb2_grpc
 
 [importlinter:contract:package-free-of-tests]
@@ -138,4 +92,3 @@ source_modules =
     angzarr_blackjack
 forbidden_modules =
     tests
-    acceptance_steps

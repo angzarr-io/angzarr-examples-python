@@ -50,10 +50,6 @@ _container +ARGS: _build-image
         docker run --rm --network=host \
             "${user_flag[@]}" \
             -e UV_CACHE_DIR=/angzarr/examples-python/{{REPO_DIR}}/.uv-cache \
-            -e PLAYER_URL="${PLAYER_URL:-}" \
-            -e TABLE_URL="${TABLE_URL:-}" \
-            -e LEDGER_URL="${LEDGER_URL:-}" \
-            -e AMQP_URL="${AMQP_URL:-}" \
             -e ANGZARR_CLI_SRC="${ANGZARR_CLI_SRC:-/angzarr/angzarr-cli/main}" \
             -e ANGZARR_ROUTER_SRC="${ANGZARR_ROUTER_SRC:-/angzarr/angzarr-router/main}" \
             -e KUBECONFIG=/home/user/.kube/config \
@@ -86,15 +82,6 @@ test-unit:
 test-example-unit:
     just _container test-example-unit
 
-test-example-acceptance:
-    just _container test-example-acceptance
-
-test-example-acceptance-all:
-    just _container test-example-acceptance-all
-
-acceptance-dry-run:
-    just _container acceptance-dry-run
-
 test:
     just _container test
 
@@ -113,27 +100,18 @@ lint:
 archlint:
     just _container archlint
 
-demo-session *ARGS:
-    just _container demo-session {{ARGS}}
-
 components:
     @just -f {{ROOT}}/justfile.container components
 
 # --- CI entry points ---------------------------------------------------------------------
 
-# Tests, lint, architecture lint, format check and the acceptance dry run.
+# Tests, lint, architecture lint and the format check.
 ci-test:
     just _container ci-test
 
 # Build every component image (skaffold, content-addressed tags).
 ci-images:
     skaffold build --file-output={{ROOT}}/build.json
-
-# Deploy to a kind cluster (published chart) and run the required acceptance
-# scenarios.
-ci-acceptance:
-    SKAFFOLD_PROFILE=ci just up
-    just -f justfile.container test-example-acceptance
 
 # --- kind cluster and deployment (host) ------------------------------------------------------
 
@@ -216,31 +194,17 @@ deploy-apps: _credentials
     done
     skaffold deploy --kube-context "kind-{{KIND_CLUSTER}}" --build-artifacts=build.json --status-check=true
 
-# --- local acceptance against core built from source (host) ------------------------------
+# --- local deployment against core built from source (host) ------------------------------
 #
-# `just acceptance-local` is the whole local run: a kind cluster, PostgreSQL and
-# RabbitMQ, the four coordinators built from a core checkout (ANGZARR_CORE_SRC,
-# default ../../core/main) with core's own skaffold, the chart from that same
-# checkout, the six components, then every cluster scenario including the ones
-# tagged @needs-core-*. Re-running it rebuilds and redeploys only what changed.
+# `just core-images` builds the four coordinators from a core checkout
+# (ANGZARR_CORE_SRC, default ../../core/main) with core's own skaffold and
+# loads them into kind; `just deploy-apps-local` then deploys the components
+# with that checkout's chart and coordinators. (The cluster acceptance tier
+# and `just acceptance-local` wait on the blackjack rulings R1-R4; README.)
 
 CORE_SRC := env_var_or_default("ANGZARR_CORE_SRC", ROOT + "/../../core/main")
 CORE_BUILD := ROOT + "/.core-build.json"
 CORE_COORDINATORS := "angzarr-aggregate angzarr-saga angzarr-projector angzarr-process-manager"
-
-acceptance-local: kind-create seed-secrets deploy-infra core-images deploy-apps-local reset-data
-    just _container test-example-acceptance-all
-
-# Empty every event-store table and restart the ledger projector (its ledger
-# lives in memory), so the ledger and the stored histories start equal.
-reset-data:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    psql=(kubectl exec -n {{NAMESPACE}} angzarr-db-0 -- psql -U angzarr -d angzarr -v ON_ERROR_STOP=1)
-    tables=$("${psql[@]}" -Atc "SELECT string_agg(quote_ident(tablename), ', ') FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_sqlx_migrations'")
-    if [ -n "$tables" ]; then "${psql[@]}" -c "TRUNCATE $tables"; fi
-    kubectl rollout restart -n {{NAMESPACE}} deployment/projector-player-table-ledger-projector
-    kubectl rollout status -n {{NAMESPACE}} deployment/projector-player-table-ledger-projector --timeout=120s
 
 # Build the coordinators from CORE_SRC with core's skaffold; load them into kind.
 core-images: kind-create
@@ -262,7 +226,7 @@ core-images: kind-create
 _core-image name:
     @python3 -c 'import json,sys; print(next(b["tag"] for b in json.load(open(sys.argv[1]))["builds"] if b["imageName"].endswith("/" + sys.argv[2])).split("@")[0])' "{{CORE_BUILD}}" "{{name}}"
 
-# Deploy the six components with the chart and coordinators from CORE_SRC.
+# Deploy the components with the chart and coordinators from CORE_SRC.
 deploy-apps-local:
     #!/usr/bin/env bash
     set -euo pipefail

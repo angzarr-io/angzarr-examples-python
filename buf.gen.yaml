@@ -27,5 +27,5 @@ plugins:
     out: src/angzarr_blackjack/_gen
     opt:
       - paths=source_relative
-      - templates=github.com/angzarr-io/angzarr-client-python@218413414e69d646839ccaf0b254251dd2813ff1
+      - templates=github.com/angzarr-io/angzarr-client-python@1621e8c92318bf023db27d9ad163ed9e361fd702
     strategy: all

@@ -1,4 +1,4 @@
-"""The shoe and card values. The shuffle vectors are the cross-language golden
+"""The shoe and the card notation. The shuffle vectors are the cross-language golden
 vectors from cards.proto / shoe.feature: every language must produce these
 exact numbers and cards, so a change here is a parity break, not a refactor."""
 
@@ -94,52 +94,6 @@ def test_canonical_index():
     assert cards.card_from_index(13) == Card(rank=1, suit=Suit.DIAMONDS)
     assert cards.card_from_index(51) == Card(rank=13, suit=Suit.SPADES)
     assert all(cards.card_index(cards.card_from_index(i)) == i for i in range(52))
-
-
-@pytest.mark.parametrize(
-    "hand, total, soft",
-    [
-        ("K♣ Q♦", 20, False),
-        ("A♣ 6♣", 17, True),
-        ("A♣ A♦", 12, True),
-        ("A♣ 6♣ 10♥", 17, False),
-        ("A♣ A♦ 9♥", 21, True),
-        ("A♣ K♦", 21, True),
-        ("7♣ 4♦ K♥", 21, False),
-        ("A♣ 10♦ K♥", 21, False),
-        ("K♣ Q♦ 2♥", 22, False),
-        ("5♣", 5, False),
-    ],
-)
-def test_hand_value(hand, total, soft):
-    assert cards.hand_value(cards.parse_cards(hand)) == (total, soft)
-
-
-def test_blackjack_is_exactly_two_cards_of_21():
-    assert cards.is_blackjack(cards.parse_cards("A♠ K♠"))
-    assert cards.is_blackjack(cards.parse_cards("10♥ A♦"))
-    assert not cards.is_blackjack(cards.parse_cards("7♣ 7♦ 7♥"))
-    assert not cards.is_blackjack(cards.parse_cards("A♠ 9♠"))
-
-
-def test_ten_or_ace_up_card():
-    assert cards.is_ten_or_ace(cards.parse_card("A♣"))
-    assert cards.is_ten_or_ace(cards.parse_card("J♦"))
-    assert cards.is_ten_or_ace(cards.parse_card("10♥"))
-    assert not cards.is_ten_or_ace(cards.parse_card("9♠"))
-
-
-def test_points():
-    assert [
-        cards.points(cards.parse_card(t)) for t in ("A♣", "9♣", "10♣", "J♣", "Q♣", "K♣")
-    ] == [
-        1,
-        9,
-        10,
-        10,
-        10,
-        10,
-    ]
 
 
 def test_notation_round_trips():

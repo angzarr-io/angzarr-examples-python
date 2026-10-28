@@ -1,4 +1,4 @@
-"""Cards, hand values and the deterministic shoe (house rules AHR-2, AHR-3).
+"""Cards and the deterministic shoe (house rule AHR-3).
 
 The shuffle is pinned byte for byte in ``cards.proto``: SplitMix64 from a
 64-bit seed drives a descending Fisher–Yates shuffle through unbiased bounded
@@ -8,7 +8,7 @@ seed; the golden vectors live in ``features/example/blackjack/shoe.feature``.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 
 from angzarr_blackjack._gen.io.angzarr.examples.v1 import cards_pb2 as _cards
 
@@ -21,10 +21,6 @@ _MIX_1 = 0xBF58476D1CE4E5B9
 _MIX_2 = 0x94D049BB133111EB
 
 CARDS_PER_DECK = 52
-ACE = 1
-BLACKJACK = 21
-# A hand of 21 or less never holds more than 11 cards (AHR-4).
-MAX_CARDS_PER_HAND = 11
 
 
 class SplitMix64:
@@ -78,33 +74,6 @@ def shuffled_indices(seed: int, decks: int) -> list[int]:
 def shuffle(seed: int, decks: int) -> list[Card]:
     """A shuffled shoe of ``decks`` decks, in deal order."""
     return [card_from_index(i) for i in shuffled_indices(seed, decks)]
-
-
-def points(card: Card) -> int:
-    """Hard points of one card: Ace 1, Jack/Queen/King 10."""
-    return min(card.rank, 10)
-
-
-def hand_value(cards: Iterable[Card]) -> tuple[int, bool]:
-    """(total, soft) of a hand: an Ace counts 11 unless that busts the hand."""
-    hard = 0
-    has_ace = False
-    for card in cards:
-        hard += points(card)
-        has_ace = has_ace or card.rank == ACE
-    if has_ace and hard + 10 <= BLACKJACK:
-        return hard + 10, True
-    return hard, False
-
-
-def is_blackjack(cards: Sequence[Card]) -> bool:
-    """Exactly two cards totalling 21."""
-    return len(cards) == 2 and hand_value(cards)[0] == BLACKJACK
-
-
-def is_ten_or_ace(card: Card) -> bool:
-    """The dealer's up-card shows an Ace or a 10-point card (AHR-7 peek)."""
-    return card.rank == ACE or points(card) == 10
 
 
 # --- notation: rank then suit, e.g. "A♠", "10♦", "Q♣" -----------------------

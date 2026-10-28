@@ -20,9 +20,6 @@ source_modules =
     angzarr_blackjack.cards
     angzarr_blackjack.errors
     angzarr_blackjack._runtime
-    angzarr_blackjack.player
-    angzarr_blackjack.pmg_buy_in
-    angzarr_blackjack.prj_ledger
     angzarr_blackjack.table
 forbidden_modules =
     grpc
@@ -36,7 +33,5 @@ source_modules =
     angzarr_blackjack
 forbidden_modules =
     behave
-    hypothesis
     mutmut
-    pika
     pytest

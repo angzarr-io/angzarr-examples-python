@@ -6,19 +6,23 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# The six deployable components (Containerfile target == image suffix).
-COMPONENTS := "agg-player agg-table pmg-buy-in saga-player-table saga-table-player projector-player-table-ledger"
+# The deployable components (Containerfile target == image suffix). On this
+# branch only the stage-1 slice: agg-table. The other five wait on the
+# blackjack rulings R1-R4 (README).
+COMPONENTS := "agg-table"
 
 # The angzarr CLI (codegen plugin) is built from a source checkout.
 CLI_SRC := env_var_or_default("ANGZARR_CLI_SRC", "../../angzarr-cli/main")
 # The angzarr-client revision whose codegen templates render the wiring; the
 # pyproject pins the same revision.
-CLIENT_REF := "5147f50bdc9aee5607e33e1b35a9a303b410df19"
+CLIENT_REF := "1621e8c92318bf023db27d9ad163ed9e361fd702"
 
-# Features: the in-process tiers and the cluster tier, read straight from the
-# angzarr-project submodule.
-UNIT_FEATURES := "angzarr-project/features/example/blackjack angzarr-project/features/example/blackjack-framework"
-ACCEPTANCE_FEATURES := "angzarr-project/features/example/blackjack-acceptance"
+# Features: the in-process tier, read straight from the angzarr-project
+# submodule. Only the stage-1 slice runs: table creation (EU-1440..1442) and
+# the golden shoe vectors (EU-1520..1525). Keep in step with
+# tests/example/test_features.py.
+UNIT_FEATURES := "angzarr-project/features/example/blackjack/table.feature angzarr-project/features/example/blackjack/shoe.feature"
+UNIT_TAGS := "not @wip and (@EU-1440 or @EU-1441 or @EU-1442 or @EU-1520 or @EU-1521 or @EU-1522 or @EU-1523 or @EU-1524 or @EU-1525)"
 
 default:
     @just --list
@@ -58,47 +62,29 @@ proto-gen:
 install *FLAGS: proto-gen
     uv sync {{FLAGS}}
 
-# Native unit tests: pure handler logic, rules, shoe golden vectors, ledger
-# property tests.
+# Native unit tests: the table's CreateTable logic, its configuration rule,
+# the shoe golden vectors, and the table through the router and over gRPC.
 test-unit:
     uv run pytest tests/unit
 
-# The behave unit tier: every blackjack and blackjack-framework scenario, run
-# in-process through the router binding. Undefined or pending steps fail.
+# The behave unit tier: the stage-1 scenarios, run in-process through the
+# router binding. Undefined or pending steps fail.
 test-example-unit:
     uv run behave --stage unit --format progress \
-        --no-skipped --tags="not @wip" {{UNIT_FEATURES}}
-
-# The cluster acceptance tier against a deployed example. Scenarios that wait
-# on a framework fix (@needs-core-X-NNN) are excluded from the required run.
-test-example-acceptance:
-    uv run behave --stage acceptance --format progress \
-        --tags="not @wip and not @needs-core-*" \
-        {{ACCEPTANCE_FEATURES}}
-
-# Every cluster scenario, including those still waiting on a framework fix.
-test-example-acceptance-all:
-    uv run behave --stage acceptance --format progress \
-        --tags="not @wip" \
-        {{ACCEPTANCE_FEATURES}}
-
-# Parse every acceptance scenario and resolve every step without a cluster.
-acceptance-dry-run:
-    uv run behave --stage acceptance --dry-run --format progress \
-        {{ACCEPTANCE_FEATURES}}
+        --no-skipped --tags="{{UNIT_TAGS}}" {{UNIT_FEATURES}}
 
 # Unit + behave tiers.
 test: test-unit test-example-unit
 
 # CI entry point for the test job.
-ci-test: lint archlint (fmt "--check") test acceptance-dry-run
+ci-test: lint archlint (fmt "--check") test
 
 fmt *FLAGS:
-    uv run black {{FLAGS}} src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
+    uv run black {{FLAGS}} src tests unit_steps tools unit_environment.py
 
 fmt-fix:
-    uv run ruff check --fix src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
-    uv run black src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
+    uv run ruff check --fix src tests unit_steps tools unit_environment.py
+    uv run black src tests unit_steps tools unit_environment.py
 
 # Architecture lint: the import contracts in .importlinter (package layering)
 # and .importlinter-external (third-party imports), via import-linter. The
@@ -108,9 +94,9 @@ archlint:
     PYTHONPATH=src uv run lint-imports --no-cache --config .importlinter-external
 
 lint:
-    uv run ruff check src tests unit_steps acceptance_steps tools unit_environment.py acceptance_environment.py
+    uv run ruff check src tests unit_steps tools unit_environment.py
 
-# Run one component locally (e.g. `just run agg-player`).
+# Run one component locally (e.g. `just run agg-table`).
 run component:
     PYTHONPATH=src uv run python -m \
         "angzarr_blackjack.$(just -f {{justfile()}} _module {{component}})"
@@ -119,18 +105,9 @@ run component:
 _module component:
     #!/usr/bin/env bash
     case "{{component}}" in
-        agg-player) echo player.agg.main ;;
         agg-table) echo table.agg.main ;;
-        pmg-buy-in) echo pmg_buy_in.main ;;
-        saga-player-table) echo player.saga_table.main ;;
-        saga-table-player) echo table.saga_player.main ;;
-        projector-player-table-ledger) echo prj_ledger.main ;;
         *) echo "unknown component {{component}}" >&2; exit 1 ;;
     esac
-
-# Drive a short basic-strategy session against a deployed cluster.
-demo-session *ARGS:
-    PYTHONPATH=.:src uv run python tools/play_session.py {{ARGS}}
 
 # Mutation testing (mutmut over the business logic, killed by pytest + the
 # behave bridge). Fails below a 90% kill rate.

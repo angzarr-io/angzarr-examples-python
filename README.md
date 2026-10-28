@@ -14,28 +14,40 @@ lives in the `angzarr-project` submodule:
 
 ## Components
 
+This branch carries only the **stage-1 slice** of the example, on the spec at
+`angzarr-project` 541cadc: `CreateTable` records `TableCreated` and the first
+`ShoeShuffled`.
+
 | Deployable | Package | What it is |
 |---|---|---|
-| `agg-player` | `player/agg` | The wallet (functional: pure `guard`/`validate`/`compute` in `logic.py`), plus the `PlayerUpcaster` on the same server |
-| `agg-table` | `table/agg` | Seats, shoe, rounds, dealer and settlement (object-oriented; house rules in `rules.py`) |
-| `pmg-buy-in` | `pmg_buy_in` | The buy-in process manager: holds the seat, then the money, then confirms and spends, undoing either half |
-| `saga-player-table` | `player/saga_table` | A top-up request becomes AddChips at the table; a refusal is compensated by the wallet |
-| `saga-table-player` | `table/saga_player` | Settlement facts (chips added, cash-outs), round history and loyalty, each a saga of its own |
-| `projector-player-table-ledger` | `prj_ledger` | The money ledger over both domains and `LedgerQueryService` |
+| `agg-table` | `table/agg` | Creating a table and shuffling its first shoe; the configuration rule (AHR-1) is in `rules.py` |
 
 All live under `src/angzarr_blackjack/`. `cards.py` holds the deterministic
-shoe (SplitMix64 + Fisher–Yates, exactly as `cards.proto` pins it) and hand
-values.
+shoe (SplitMix64 + Fisher–Yates, exactly as `cards.proto` pins it) and the
+card notation the scenarios use.
 
-Each component implements the handler interface the angzarr CLI generates from
-the protos with angzarr-client-python's codegen templates
-(`src/angzarr_blackjack/_gen`, not committed) and is registered on the router
-binding `angzarr_client.router`; framework protos come from
-`angzarr_client.proto`. Commands, rejections, undo, facts and `Replay` all
-dispatch through the binding, and handlers read the cover they are handling
-from their context (`cctx.cover` or a `PageContext`).
-`_runtime/inprocess.py` registers every component on one router for the
-in-process tests and the acceptance tier's state reader.
+The in-process tier runs table creation (EU-1440..1442) and the golden shoe
+vectors (EU-1520..1525); every other scenario in the submodule is skipped.
+
+### Waiting on blackjack rulings R1-R4
+
+The rest of the example waits on the open rulings in
+`angzarr-project/docs/design/blackjack-latest-proto-rulings.md` (R1 top-up
+compensation, R2 buy-in refusals into pmg-buy-in, R3 saga-injected facts, R4
+cascade replies). It is not ported or stubbed here; its last version is
+`feat/blackjack` 8647b82:
+
+- the wallet `agg-player` and its upcaster, `pmg-buy-in`,
+  `saga-player-table`, `saga-table-player` and
+  `projector-player-table-ledger`;
+- the table's seats, chips, bets, rounds and settlement (the
+  `TableAggregateHandler` methods other than `create_table` and the
+  `TableCreated` / `ShoeShuffled` appliers; a command for them fails as an
+  internal error), and the hand-value and round rules;
+- the in-process steps for every scenario outside the slice, and the
+  cluster acceptance tier (`acceptance_steps/`, `just
+  test-example-acceptance`, `just acceptance-dry-run`, `just
+  acceptance-local`, `just demo-session` and CI's acceptance job).
 
 ## Setup
 
@@ -48,54 +60,36 @@ export ANGZARR_CLI_SRC=../../angzarr-cli/main
 just -f justfile.container ci-setup     # cli-build, proto-gen, uv sync
 ```
 
-Each deployable's `main.register(host)` adds its components (and, for the
-ledger, its LedgerQueryService) to an angzarr-client `ComponentHost`, which
-serves them over gRPC; `main()` runs that host on `$PORT`.
+Each deployable's `main.register(host)` adds its component to an
+angzarr-client `ComponentHost`, which serves it over gRPC; `main()` runs that
+host on `$PORT`. The host refuses to start without the build's
+`rules_version`, and `main()` does not give one yet, so `just run agg-table`
+stops with `MISSING_RULES_VERSION` until a version source is chosen.
 
 ## Tests
 
 ```bash
-just test                  # native unit tests + every in-process scenario
-just test-unit             # pytest: exact rejection codes, golden shoes, L1/L2 properties
-just test-example-unit     # behave: blackjack + blackjack-framework scenarios
-just acceptance-dry-run    # every cluster scenario parses and resolves its steps
+just test                  # native unit tests + the stage-1 scenarios
+just test-unit             # pytest: exact rejection codes, golden shoes, the table through the router
+just test-example-unit     # behave: EU-1440..1442 and EU-1520..1525
 just mutation-test         # mutmut, 90% kill gate
 ```
 
 The in-process tier (`unit_steps/`) runs every component on one router; its
-`World` plays the coordinators in memory. Undefined or pending steps fail the
+`World` plays the coordinator in memory. Undefined or pending steps fail the
 run. Entity roots are `uuid5(NAMESPACE_OID, "<kind>:<label>")`.
 
 ## Cluster
 
 ```bash
 just up                         # kind cluster, secrets, postgres/rabbitmq, skaffold run
-just test-example-acceptance    # required cluster scenarios
-just demo-session 5             # a basic-strategy player plays five rounds
 just down
 ```
 
-The acceptance tier reads `PLAYER_URL` (default `localhost:31320`),
-`TABLE_URL` (`localhost:31321`) and `LEDGER_URL` (`localhost:31325`), and
-watches the event bus (`AMQP_URL`, or `secret/angzarr-mq` through a
-port-forward). Scenarios tagged `@needs-core-X-NNN` wait on a framework fix
-and are excluded from the required run.
-
-### Against coordinators built from a core checkout
-
-```bash
-ANGZARR_CORE_SRC=../../core/<worktree> just acceptance-local
-```
-
-One recipe for the whole local run: the kind cluster, secrets, PostgreSQL and
-RabbitMQ; the four coordinator images built by core's own skaffold from
-`ANGZARR_CORE_SRC` (default `../../core/main`) and loaded into kind; the six
-components deployed with that checkout's chart (skaffold profile
-`local-core`); the event store emptied and the in-memory ledger restarted
-(`just reset-data`); then every cluster scenario, `@needs-core-*` included
-(`just test-example-acceptance-all`). Re-running it rebuilds what changed and
-starts the scenarios from empty storage. Another examples repository mirrors
-it with its own component images, deployment names and runner.
+`just core-images` then `just deploy-apps-local` deploy against the
+coordinators and chart of a core checkout (`ANGZARR_CORE_SRC`, default
+`../../core/main`; skaffold profile `local-core`). The cluster acceptance
+tier waits on the rulings above.
 
 ## License
 

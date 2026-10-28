@@ -90,25 +90,11 @@ messaging:
 
 # The blackjack components. Each business container serves one component's
 # framework service on its port; the chart pairs it with the matching
-# coordinator sidecar.
+# coordinator sidecar. On this branch only the stage-1 slice, agg-table, is
+# deployed; the wallet, the sagas, the buy-in process and the ledger
+# projector wait on the blackjack rulings R1-R4 (README).
 applications:
   business:
-    # agg-player also serves the PlayerUpcaster (UpcasterService) on its port.
-    - name: agg-player
-      domain: player
-      port: 50401
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-agg-player
-        tag: latest
-        pullPolicy: IfNotPresent
-      debug:
-        enabled: true
-        nodePort: 31320
-      # The coordinator upcasts stored player events by calling the
-      # UpcasterService agg-player serves on its own address (legacy
-      # FundsDepositedV1 -> FundsDeposited).
-      upcaster:
-        enabled: true
     - name: agg-table
       domain: table
       port: 50402
@@ -121,56 +107,6 @@ applications:
         nodePort: 31321
       # A routine snapshot of the table every 20 events (ANGZARR_SNAPSHOT_EVERY).
       snapshotEvery: 20
-
-  # One service per saga deployable; keep replicas at 1 (replicas of one
-  # service share a queue). saga-table-player hosts the settlement, history
-  # and loyalty sagas, all consuming the table domain.
-  sagas:
-    - name: saga-player-table
-      sourceDomain: player
-      domain: table
-      port: 50411
-      topics: ["player"]
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-saga-player-table
-        tag: latest
-        pullPolicy: IfNotPresent
-    - name: saga-table-player
-      sourceDomain: table
-      domain: player
-      port: 50412
-      topics: ["table"]
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-saga-table-player
-        tag: latest
-        pullPolicy: IfNotPresent
-
-  # The buy-in process: triggers from table (SeatHeld, PlayerSeated) and
-  # player (FundsHeld, FundsCaptured); owns the buy-in stream.
-  processManagers:
-    - name: pmg-buy-in
-      domain: buy-in
-      port: 50421
-      topics: ["table", "player"]
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-pmg-buy-in
-        tag: latest
-        pullPolicy: IfNotPresent
-
-  # The ledger projector consumes player and table and serves
-  # LedgerQueryService on its port, exposed on NodePort 31325.
-  projectors:
-    - name: projector-player-table-ledger
-      domain: ledger
-      port: 50431
-      topics: ["player", "table"]
-      image:
-        repository: ghcr.io/angzarr-io/examples-python-projector-player-table-ledger
-        tag: latest
-        pullPolicy: IfNotPresent
-      debug:
-        enabled: true
-        nodePort: 31325
 
 # Infrastructure settings
 infrastructure:

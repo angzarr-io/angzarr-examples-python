@@ -1,13 +1,10 @@
 # syntax=docker/dockerfile:1.4
 # Blackjack example (Python): one image per deployable component.
 #
-# The components live in the ``angzarr_blackjack`` package under ``src/``:
-#   agg-player                     -> angzarr_blackjack.player.agg.main (+ upcaster)
+# The components live in the ``angzarr_blackjack`` package under ``src/``. On
+# this branch only the stage-1 slice is deployable (the rest waits on the
+# blackjack rulings R1-R4; README):
 #   agg-table                      -> angzarr_blackjack.table.agg.main
-#   pmg-buy-in                     -> angzarr_blackjack.pmg_buy_in.main
-#   saga-player-table              -> angzarr_blackjack.player.saga_table.main
-#   saga-table-player              -> angzarr_blackjack.table.saga_player.main
-#   projector-player-table-ledger  -> angzarr_blackjack.prj_ledger.main
 #
 # The build context must hold the generated ``src/angzarr_blackjack/_gen``
 # (`just proto-gen`). The deps stage installs angzarr-client from its pinned
@@ -18,7 +15,7 @@
 # dispatch through the router binding ``angzarr_client.router``; its library
 # ships inside the angzarr-client package.
 #
-# Build: docker build -t examples-python-agg-player --target agg-player .
+# Build: docker build -t examples-python-agg-table --target agg-table .
 
 ARG PYTHON_VERSION=3.11
 ARG UV_VERSION=0.10.3
@@ -108,32 +105,7 @@ ENV PATH=/app/.venv/bin:$PATH \
 # coordinator (replicas=1).
 # ============================================================================
 
-FROM app AS agg-player
-ENV PORT=50401
-EXPOSE 50401
-CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.player.agg.main"]
-
 FROM app AS agg-table
 ENV PORT=50402
 EXPOSE 50402
 CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.table.agg.main"]
-
-FROM app AS saga-player-table
-ENV PORT=50411
-EXPOSE 50411
-CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.player.saga_table.main"]
-
-FROM app AS saga-table-player
-ENV PORT=50412
-EXPOSE 50412
-CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.table.saga_player.main"]
-
-FROM app AS pmg-buy-in
-ENV PORT=50421
-EXPOSE 50421
-CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.pmg_buy_in.main"]
-
-FROM app AS projector-player-table-ledger
-ENV PORT=50431
-EXPOSE 50431
-CMD ["uv", "run", "--no-sync", "--no-cache", "python", "-m", "angzarr_blackjack.prj_ledger.main"]
