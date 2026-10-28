@@ -1,69 +1,103 @@
-> **⚠️ Notice:** This repository was recently extracted from the [angzarr monorepo](https://github.com/angzarr-io/angzarr) and has not yet been validated as a standalone project. Expect rough edges. See the [Angzarr documentation](https://angzarr.io/) for more information.
+# Angzarr blackjack example (Python)
 
-# Angzarr Python Examples
+A small blackjack table built on the [angzarr](https://angzarr.io/) CQRS/ES
+framework. Python is the structural template the Go, Java, C#, C++ and Rust
+examples mirror. The specification — protos, house rules and scenarios —
+lives in the `angzarr-project` submodule:
 
-Example implementations demonstrating angzarr-client usage in Python.
+- protos: `angzarr-project/proto/io/angzarr/examples/v1/`
+- house rules AHR-1..13 and ledger invariants L1..L4:
+  `angzarr-project/features/example/blackjack/RULES.md`
+- scenarios: `features/example/blackjack/` (rules),
+  `blackjack-framework/` (framework concepts, in process) and
+  `blackjack-acceptance/` (deployed cluster)
 
-## Overview
+## Components
 
-This repository contains poker domain examples implementing:
-- Player aggregate (bankroll management)
-- Table aggregate (game state)
-- Hand aggregate (gameplay logic)
-- Cross-domain sagas and process managers
-- Projectors for read models
+This branch carries only the **stage-1 slice** of the example, on the spec at
+`angzarr-project` 541cadc: `CreateTable` records `TableCreated` and the first
+`ShoeShuffled`.
 
-## Installation
+| Deployable | Package | What it is |
+|---|---|---|
+| `agg-table` | `table/agg` | Creating a table and shuffling its first shoe; the configuration rule (AHR-1) is in `rules.py` |
+
+All live under `src/angzarr_blackjack/`. `cards.py` holds the deterministic
+shoe (SplitMix64 + Fisher–Yates, exactly as `cards.proto` pins it) and the
+card notation the scenarios use.
+
+The in-process tier runs table creation (EU-1440..1442) and the golden shoe
+vectors (EU-1520..1525); every other scenario in the submodule is skipped.
+
+### Waiting on blackjack rulings R1-R4
+
+The rest of the example waits on the open rulings in
+`angzarr-project/docs/design/blackjack-latest-proto-rulings.md` (R1 top-up
+compensation, R2 buy-in refusals into pmg-buy-in, R3 saga-injected facts, R4
+cascade replies). It is not ported or stubbed here; its last version is
+`feat/blackjack` 8647b82:
+
+- the wallet `agg-player` and its upcaster, `pmg-buy-in`,
+  `saga-player-table`, `saga-table-player` and
+  `projector-player-table-ledger`;
+- the table's seats, chips, bets, rounds and settlement (the
+  `TableAggregateHandler` methods other than `create_table` and the
+  `TableCreated` / `ShoeShuffled` appliers; a command for them fails as an
+  internal error), and the hand-value and round rules;
+- the in-process steps for every scenario outside the slice, and the
+  cluster acceptance tier (`acceptance_steps/`, `just
+  test-example-acceptance`, `just acceptance-dry-run`, `just
+  acceptance-local`, `just demo-session` and CI's acceptance job).
+
+## Setup
+
+The CLI is built from a source checkout, so `go` (the version angzarr-cli's
+go.mod names, 1.24.4 or later) must be on PATH. angzarr-client is pinned to a
+git revision (`pyproject.toml`); installing it builds its router library, so
+`cargo` must be on PATH too. The dev container image
+(`.devcontainer/Containerfile`) carries both, Go pinned and checksum-verified:
 
 ```bash
-pip install angzarr-client
+export ANGZARR_CLI_SRC=../../angzarr-cli/main
+just -f justfile.container ci-setup     # cli-build, proto-gen, version, uv sync
 ```
 
-## Build
+`just version` installs the pinned versionator (`VERSIONATOR_VERSION` in
+`justfile.container`, sha256-checked) into `.tools/bin` and generates
+`src/angzarr_blackjack/_version.py` from `VERSION` and git; the file is not
+committed, and the image build fails without it.
 
-Generate proto files from buf registry:
+Each deployable's `main.register(host)` adds its component to an
+angzarr-client `ComponentHost`, which serves it over gRPC; `main()` runs that
+host on `$PORT`, reporting the generated build version as its
+`rules_version` (the host refuses to start without one,
+`MISSING_RULES_VERSION`).
+
+## Tests
 
 ```bash
-buf generate
+just test                  # native unit tests + the stage-1 scenarios
+just test-unit             # pytest: exact rejection codes, golden shoes, the table through the router
+just test-example-unit     # behave: EU-1440..1442 and EU-1520..1525
+just mutation-test         # mutmut, 90% kill gate
 ```
 
-## Run Tests
+The in-process tier (`unit_steps/`) runs every component on one router; its
+`World` plays the coordinator in memory. Undefined or pending steps fail the
+run. Entity roots are `uuid5(NAMESPACE_OID, "<kind>:<label>")`.
+
+## Cluster
 
 ```bash
-behave
+just up                         # kind cluster, secrets, postgres/rabbitmq, skaffold run
+just down
 ```
 
-## Deploy
-
-Build and deploy to Kubernetes:
-
-```bash
-skaffold run
-```
+`just core-images` then `just deploy-apps-local` deploy against the
+coordinators and chart of a core checkout (`ANGZARR_CORE_SRC`, default
+`../../core/main`; skaffold profile `local-core`). The cluster acceptance
+tier waits on the rulings above.
 
 ## License
 
 BSD-3-Clause
-
-
-## Development
-
-### Setup
-
-Install git hooks (requires [lefthook](https://github.com/evilmartians/lefthook)):
-
-```bash
-lefthook install
-```
-
-This configures a pre-commit hook that auto-formats code before each commit.
-
-### Recipes
-
-```bash
-just -l              # List all available recipes
-just build           # Build the library
-just test            # Run tests
-just fmt             # Check formatting
-just fmt-fix         # Auto-format code
-```

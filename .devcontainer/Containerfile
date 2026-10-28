@@ -2,11 +2,55 @@
 # Uses custom base image from ghcr.io/angzarr
 
 ARG PYTHON_IMAGE=ghcr.io/angzarr-io/angzarr-python:latest
-ARG UV_VERSION=0.10.3
 FROM ${PYTHON_IMAGE}
 
-# Install uv system-wide (accessible to non-root users)
-RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+# The base image already ships uv on PATH (/usr/local/bin/uv) and runs as the
+# non-root `angzarr` user. We deliberately do NOT reinstall it: writing to
+# /usr/local/bin needs root (which breaks under rootless docker) and the astral
+# installer pulls the latest uv rather than the version the base pins. Assert
+# the base still provides uv so a future base that drops it fails the build
+# loudly instead of surfacing as a confusing "uv: not found" at run time.
+RUN uv --version
+
+# Installing angzarr-client from source builds its router library with cargo.
+# The toolchain lives under /opt/rust, readable by whichever user the container
+# runs as (root under rootless Docker, the host UID otherwise).
+USER root
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo \
+    PATH=/opt/rust/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path \
+    && chmod -R a+rwX /opt/rust \
+    && cargo --version
+
+# `just cli-build` compiles the angzarr CLI from source (angzarr-cli's go.mod:
+# go 1.24.4). Go is pinned to an exact release of that line, its archive
+# checked against go.dev's published SHA-256 for each architecture.
+# GOTOOLCHAIN=local: a go.mod wanting a newer Go fails the build rather than
+# downloading one. GOPATH and the build cache live under /opt/go, writable by
+# whichever user the container runs as, as the Rust toolchain's are.
+ARG GO_VERSION=1.24.13
+ARG GO_SHA256_AMD64=1fc94b57134d51669c72173ad5d49fd62afb0f1db9bf3f798fd98ee423f8d730
+ARG GO_SHA256_ARM64=74d97be1cc3a474129590c67ebf748a96e72d9f3a2b6fef3ed3275de591d49b3
+ENV GOTOOLCHAIN=local \
+    GOPATH=/opt/go/path \
+    GOCACHE=/opt/go/cache \
+    PATH=/usr/local/go/bin:/opt/go/path/bin:$PATH
+RUN case "$(uname -m)" in \
+        x86_64) arch=amd64; sha="${GO_SHA256_AMD64}" ;; \
+        aarch64|arm64) arch=arm64; sha="${GO_SHA256_ARM64}" ;; \
+        *) echo "go: no pinned build for $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/go.tgz \
+        "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz" \
+    && echo "${sha}  /tmp/go.tgz" | sha256sum -c --quiet - \
+    && tar -xzf /tmp/go.tgz -C /usr/local \
+    && rm /tmp/go.tgz \
+    && mkdir -p /opt/go/path /opt/go/cache \
+    && chmod -R a+rwX /opt/go \
+    && go version
+USER angzarr
 
 # Mark as devcontainer for justfile detection
 ENV DEVCONTAINER=true

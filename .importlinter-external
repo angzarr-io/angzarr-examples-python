@@ -1,0 +1,37 @@
+# Contracts on third-party imports, checked by import-linter (`just archlint`).
+#
+# angzarr_client's generated protos are implicit namespace packages, which the
+# import graph does not descend into; with external packages enabled, imports
+# of them would surface as imports of the angzarr_client root. These
+# contracts therefore check direct imports only; the layering that keeps
+# indirect paths clean is in .importlinter.
+
+[importlinter]
+root_packages =
+    angzarr_blackjack
+    angzarr_client
+include_external_packages = True
+
+[importlinter:contract:components-transport-free]
+name = Components leave gRPC to the generated stubs and the host
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    angzarr_blackjack.cards
+    angzarr_blackjack.errors
+    angzarr_blackjack._runtime
+    angzarr_blackjack.table
+forbidden_modules =
+    grpc
+    grpc_health
+
+[importlinter:contract:package-free-of-test-tooling]
+name = The package imports no test framework or test-only dependency
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    angzarr_blackjack
+forbidden_modules =
+    behave
+    mutmut
+    pytest
