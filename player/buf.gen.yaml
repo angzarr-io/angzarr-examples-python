@@ -1,0 +1,32 @@
+# PLACEHOLDER: replace with `angzarr scaffold python` output.
+#
+# Generates the player's message types (pb2, pyi) and its angzarr dispatch
+# wiring (player_aggregate_angzarr.py) into src/angzarr_player/_gen
+# (gitignored; `just proto-gen`). The protos come from angzarr-project at the
+# spec revision this app is written against (decision 14.38), fetched by buf;
+# only the player's own files are generated (`--path`): the framework protos
+# (io/angzarr/v1) come from the angzarr-client package (angzarr_client.proto).
+#
+# Managed mode only adds a go_package, which the angzarr CLI requires on every
+# file; it changes nothing in the Python output.
+version: v2
+inputs:
+  - git_repo: https://github.com/angzarr-io/angzarr-project.git
+    ref: a91b88262921786c246e63e2e694509fe8060a86
+    subdir: proto
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: angzarr.local/gen
+plugins:
+  - remote: buf.build/protocolbuffers/python:v35.1
+    out: src/angzarr_player/_gen
+  - remote: buf.build/protocolbuffers/pyi:v35.1
+    out: src/angzarr_player/_gen
+  - local: ["angzarr", "codegen", "python"]
+    out: src/angzarr_player/_gen
+    opt:
+      - paths=source_relative
+      - templates=github.com/angzarr-io/angzarr-client-python@bbf0496e60c6edd76d756ba9a6ae52af627feca2
+    strategy: all

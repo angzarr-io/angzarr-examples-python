@@ -34,6 +34,16 @@ pre-commit:
     # Native unit tests and the in-process scenario tier.
     test:
       run: just test
+    # The player app (player/, a uv project run on the host). Red tests pass
+    # off the default branch, with a warning (`test-commit` says how).
+    player-test:
+      run: just --justfile player/justfile test-commit
+
+# A merge commit is tested as a commit is, and red player tests fail it.
+pre-merge-commit:
+  commands:
+    player-test:
+      run: just --justfile player/justfile test-commit merging
 
 pre-push:
   parallel: false

@@ -121,11 +121,11 @@ test: test-unit test-example-unit
 ci-test: lint archlint (fmt "--check") test
 
 fmt *FLAGS:
-    uv run black {{FLAGS}} src tests unit_steps tools unit_environment.py
+    uv run black {{FLAGS}} src tests unit_steps tools unit_environment.py player/src player/tests
 
 fmt-fix:
-    uv run ruff check --fix src tests unit_steps tools unit_environment.py
-    uv run black src tests unit_steps tools unit_environment.py
+    uv run ruff check --fix src tests unit_steps tools unit_environment.py player/src player/tests
+    uv run black src tests unit_steps tools unit_environment.py player/src player/tests
 
 # Architecture lint: the import contracts in .importlinter (package layering)
 # and .importlinter-external (third-party imports), via import-linter. The
@@ -135,7 +135,7 @@ archlint:
     PYTHONPATH=src uv run lint-imports --no-cache --config .importlinter-external
 
 lint:
-    uv run ruff check src tests unit_steps tools unit_environment.py
+    uv run ruff check src tests unit_steps tools unit_environment.py player/src player/tests
 
 # Run one component locally (e.g. `just run agg-table`).
 run component: version

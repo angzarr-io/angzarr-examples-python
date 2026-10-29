@@ -1,0 +1,48 @@
+# PLACEHOLDER: replace with `angzarr scaffold python` output.
+[project]
+name = "angzarr-player"
+version = "0.1.0"
+description = "The blackjack example's player: a bot aggregate that decides a seat's moves"
+requires-python = ">=3.11"
+dependencies = [
+    # The router binding (angzarr_client.router), the framework protos
+    # (angzarr_client.proto), ComponentHost and the child-process harness
+    # (angzarr_client.child). Not released yet: pinned to a commit; installing
+    # it builds its protos and router library (needs cargo).
+    "angzarr-client",
+    # The 7.x runtime the protocolbuffers/python v35.1 gencode targets.
+    "protobuf>=7.35.1,<8",
+    "grpcio>=1.84.1",
+    "grpcio-health-checking>=1.76.0",
+    "structlog>=24.0.0",
+]
+
+# The child entry point angzarr-embedded launches (`uv run --locked
+# angzarr-player`); `python -m angzarr_player` is the same.
+[project.scripts]
+angzarr-player = "angzarr_player.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0,<9.2",
+    "pytest-timeout>=2.3.0",
+]
+
+[tool.uv.sources]
+angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "bbf0496e60c6edd76d756ba9a6ae52af627feca2" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/angzarr_player"]
+# The generated code and build version are gitignored, so hatchling would
+# leave them out of the editable install's file list; they are part of it.
+artifacts = ["src/angzarr_player/_gen", "src/angzarr_player/_version.py"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+timeout = 60
