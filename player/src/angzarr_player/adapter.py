@@ -52,16 +52,12 @@ def memory_of(state: _player.PlayerState) -> Memory:
 
 
 def decision_of(event: _player.MoveDecided) -> Decision:
-    # SPEC GAP (a91b882): MoveDecided does not say how many cards the hand
-    # held, which hands_seen needs (PlayerState: "decisions taken on a
-    # two-card hand"). Until the spec records it, 0 is passed: no hand is
-    # counted.
     return Decision(
         table_root=event.table_root,
         round=event.round,
         seat=event.seat,
         move=_MOVES[event.action],
-        cards=0,
+        cards=len(event.cards),
     )
 
 
@@ -84,6 +80,10 @@ class PlayerAggregate:
                 round=cmd.round,
                 seat=cmd.seat,
                 action=_ACTIONS[move],
+                cards=cmd.cards,
+                total=cmd.total,
+                soft=cmd.soft,
+                dealer_up=cmd.dealer_up,
             )
         ]
 
