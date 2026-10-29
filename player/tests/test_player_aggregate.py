@@ -109,6 +109,37 @@ def test_the_state_after_a_few_decisions(player):
     assert (state.decisions, state.hands_seen) == (4, 2)
 
 
+def test_the_move_decided_carries_the_hand_it_decided_on(player):
+    """14.38, amended 2026-10-29: MoveDecided copies from DecideMove what the
+    decision used (cards, total, soft, dealer_up), beside the turn and the
+    action."""
+    command = hand(1, 6, total=17, up=10, soft=True, can_double=True)
+    (decided,), _ = player.decide(**command)
+    copied = (list(decided.cards), decided.total, decided.soft, decided.dealer_up)
+    assert copied == (command["cards"], 17, True, command["dealer_up"])
+
+
+def test_the_fold_counts_a_hand_from_the_events_cards():
+    """The state is rebuilt from events only: hands_seen counts the
+    MoveDecided events whose hand held two cards."""
+    from angzarr_player.adapter import PlayerAggregate
+
+    def decided(*ranks: int) -> _player.MoveDecided:
+        return _player.MoveDecided(
+            table_root=TABLE,
+            round=1,
+            seat=0,
+            action=_player.MOVE_ACTION_HIT,
+            cards=[card(r) for r in ranks],
+        )
+
+    aggregate = PlayerAggregate()
+    state = _player.PlayerState()
+    for event in (decided(2, 4), decided(2, 4, 3), decided(10, 7)):
+        aggregate.apply_move_decided(state, event, None)
+    assert (state.decisions, state.hands_seen) == (3, 2)
+
+
 def test_the_player_describes_itself_with_its_build_version(player):
     from angzarr_player._version import __version__
     from angzarr_player.main import host
