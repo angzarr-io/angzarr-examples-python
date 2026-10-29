@@ -39,7 +39,13 @@ class Bot:
     strategy: Strategy = field(default_factory=BasicStrategy)
 
     def decide(self, turn: Turn, memory: Memory) -> Move:
-        raise NotImplementedError("red: Bot.decide")
+        move = self.strategy.choose(turn)
+        if move is Move.DOUBLE_DOWN and not turn.can_double:
+            return Move.HIT
+        return move
 
     def remember(self, memory: Memory, decision: Decision) -> Memory:
-        raise NotImplementedError("red: Bot.remember")
+        return Memory(
+            decisions=memory.decisions + 1,
+            hands_seen=memory.hands_seen + (1 if decision.cards == 2 else 0),
+        )

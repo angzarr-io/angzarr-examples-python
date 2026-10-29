@@ -28,5 +28,5 @@ plugins:
     out: src/angzarr_player/_gen
     opt:
       - paths=source_relative
-      - templates=github.com/angzarr-io/angzarr-client-python@bbf0496e60c6edd76d756ba9a6ae52af627feca2
+      - templates=github.com/angzarr-io/angzarr-client-python@49a0c219035aefb54d75bf26185507e88a5fc745
     strategy: all

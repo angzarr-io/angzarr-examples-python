@@ -21,7 +21,7 @@ class Strategy(Protocol):
 
 class BasicStrategy:
     """A simplified basic strategy, by the hand's total (AHR-2) and the
-    dealer's up-card (Ace counts 11, a face card 10):
+    dealer's up-card:
 
     - hard 10 or 11: double down when the turn may double, else hit;
     - hard 11 or less otherwise: hit;
@@ -32,4 +32,18 @@ class BasicStrategy:
     """
 
     def choose(self, turn: Turn) -> Move:
-        raise NotImplementedError("red: BasicStrategy.choose")
+        # Only a dealer 2 to 6 changes a move, so the rank is compared as it
+        # is (an Ace, 1, and a face card, 11 to 13, both fall outside).
+        up = turn.dealer_up.rank
+        total = turn.total
+        if turn.soft:
+            return Move.STAND if total >= 18 else Move.HIT
+        if total in (10, 11):
+            return Move.DOUBLE_DOWN if turn.can_double else Move.HIT
+        if total <= 11:
+            return Move.HIT
+        if total == 12:
+            return Move.STAND if 4 <= up <= 6 else Move.HIT
+        if total <= 16:
+            return Move.STAND if 2 <= up <= 6 else Move.HIT
+        return Move.STAND
