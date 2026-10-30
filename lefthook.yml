@@ -48,10 +48,13 @@ pre-merge-commit:
 pre-push:
   parallel: false
   commands:
-    # Gate the mutation kill rate (90%).
+    # Gate the mutation kill rate (90%) over the modules the push changes
+    # (justfile.container `mutation-test`); the scheduled Mutation workflow
+    # runs every mutant.
     mutation:
       tags: slow
-      run: just mutation-test
+      glob: "src/**/*.py"
+      run: just mutation-test {push_files}
     # The player's mutants, over the modules the push changes (player/justfile).
     player-mutation:
       glob: "player/src/**/*.py"

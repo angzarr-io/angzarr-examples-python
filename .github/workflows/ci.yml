@@ -53,6 +53,19 @@ jobs:
       - run: just -f justfile.container ci-setup
       - run: just -f justfile.container ci-test
 
+  # The player app (player/, its own uv project on the native router): its
+  # locked environment and its tests (player/justfile).
+  player-test:
+    name: Player test
+    runs-on: ubuntu-latest
+    needs: [submodules]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      - uses: astral-sh/setup-uv@v6
+      - run: just --justfile player/justfile install
+      - run: just --justfile player/justfile test
+
   images:
     name: Images
     runs-on: ubuntu-latest

@@ -91,7 +91,7 @@ mutation-test *CHANGED:
     cd {{TOP}}/..
     only=()
     if [ -n "{{CHANGED}}" ]; then
-        globs="$(python3 tools/mutation_scope.py player {{CHANGED}})"
+        globs="$(uv run --quiet --locked --project player python tools/mutation_scope.py player {{CHANGED}})"
         read -ra only <<< "$globs"
         if [ "${#only[@]}" -eq 0 ]; then
             echo "player mutation: the push changes no mutated module"

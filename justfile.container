@@ -114,8 +114,12 @@ test-example-unit:
     uv run behave --stage unit --format progress \
         --no-skipped --tags="{{UNIT_TAGS}}" {{UNIT_FEATURES}}
 
-# Unit + behave tiers.
-test: test-unit test-example-unit
+# The repository's own tooling (tools/test_*.py).
+test-tools:
+    uv run pytest -p no:cacheprovider tools/test_mutation_scope.py
+
+# Unit + behave tiers, and the tooling's tests.
+test: test-unit test-example-unit test-tools
 
 # CI entry point for the test job.
 ci-test: lint archlint (fmt "--check") test
@@ -151,10 +155,22 @@ _module component:
     esac
 
 # Mutation testing (mutmut over the business logic, killed by pytest + the
-# behave bridge). Fails below a 90% kill rate.
-mutation-test:
+# behave bridge). Fails below a 90% kill rate. With no paths, every mutant
+# (the scheduled CI pass); given the repository-relative paths a push changed
+# (the pre-push hook), only the mutants of the changed modules
+# (tools/mutation_scope.py), and nothing when none has a mutant.
+mutation-test *CHANGED:
     #!/usr/bin/env bash
     set -euo pipefail
+    only=()
+    if [ -n "{{CHANGED}}" ]; then
+        globs="$(uv run --quiet python tools/mutation_scope.py . {{CHANGED}})"
+        read -ra only <<< "$globs"
+        if [ "${#only[@]}" -eq 0 ]; then
+            echo "mutation: the push changes no module with mutants"
+            exit 0
+        fi
+    fi
     rm -rf mutants
-    uv run mutmut run --max-children "${MUTMUT_CHILDREN:-4}"
-    uv run python tools/mutation_gate.py mutants 90
+    uv run mutmut run --max-children "${MUTMUT_CHILDREN:-4}" "${only[@]}"
+    uv run python tools/mutation_gate.py mutants 90 "${only[@]}"

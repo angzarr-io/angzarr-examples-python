@@ -119,8 +119,11 @@ test-example-unit:
 test:
     just _container test
 
-mutation-test:
-    just _container mutation-test
+mutation-test *CHANGED:
+    just _container mutation-test {{CHANGED}}
+
+test-tools:
+    just _container test-tools
 
 fmt *FLAGS:
     just _container fmt {{FLAGS}}
