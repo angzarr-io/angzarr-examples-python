@@ -78,6 +78,7 @@ just test                  # native unit tests + the stage-1 scenarios
 just test-unit             # pytest: exact rejection codes, golden shoes, the table through the router
 just test-example-unit     # behave: EU-1440..1442 and EU-1520..1525
 just mutation-test         # mutmut, 90% kill gate
+just push-check origin     # pre-push: every test (root and player) of each pushed commit; red refused on main only
 ```
 
 The in-process tier (`unit_steps/`) runs every component on one router; its
