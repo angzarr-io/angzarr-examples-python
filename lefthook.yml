@@ -26,12 +26,9 @@ pre-commit:
     fmt:
       run: just fmt-fix
       stage_fixed: true
-    archlint:
-      glob: "{*.py,pyproject.toml,.importlinter,.importlinter-external}"
-      run: just archlint
     scan-secrets:
       run: just scan-secrets
-    # Native unit tests and the in-process scenario tier.
+    # The root's tests (the tooling's, in the dev container).
     test:
       run: just test
     # The player app (player/, a uv project run on the host). Red tests pass
@@ -46,12 +43,12 @@ pre-merge-commit:
       run: just --justfile player/justfile test-commit merging
 
 # No mutation testing in any hook: it runs while tests are written and judged
-# (`just mutation-test <changed paths>` and `just --justfile player/justfile
-# mutation-test <changed paths>`, by hand), at the end of an unattended run,
+# (`just --justfile player/justfile mutation-test <changed paths>`, by hand),
+# at the end of an unattended run,
 # and in the scheduled CI full pass (.github/workflows/mutation.yml).
 
 # Red tests never reach the default branch: `just push-check` runs every test
-# (the root app's and the player's) in each pushed commit's own tree (the
+# (the root's and the player's) in each pushed commit's own tree (the
 # justfile says how), refusing a push to the default branch whose tests fail
 # and warning on any other branch. git's pushed refs are on stdin, and {1} is
 # the remote's name. lefthook skips a pre-push command when it finds no files

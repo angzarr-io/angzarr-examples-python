@@ -9,12 +9,6 @@ on:
   workflow_dispatch:
 
 env:
-  # The angzarr CLI (codegen plugin) is built from source at this ref;
-  # installing angzarr-client (pinned in pyproject.toml) builds its router
-  # library with cargo. ci-setup also installs the pinned versionator
-  # (justfile.container) and generates the build version the images carry.
-  ANGZARR_CLI_REF: 734b1bbdd4e913f19f8cb87f3f1dd95c06053d99
-  ANGZARR_CLI_SRC: .deps/angzarr-cli
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -28,6 +22,8 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just check-submodules-clean
 
+  # The root's tooling: lint and the format check over the player, and the
+  # tests of tools/ (justfile.container).
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -36,21 +32,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-cli
-          ref: ${{ env.ANGZARR_CLI_REF }}
-          path: .deps/angzarr-cli
       - uses: extractions/setup-just@v2
-      - uses: bufbuild/buf-action@v1
-        with:
-          setup_only: true
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-      - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v6
-      - run: just -f justfile.container ci-setup
+      - run: just -f justfile.container install
       - run: just -f justfile.container ci-test
 
   # The player app (player/, its own uv project on the native router): its
@@ -65,48 +49,3 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: just --justfile player/justfile install
       - run: just --justfile player/justfile test
-
-  images:
-    name: Images
-    runs-on: ubuntu-latest
-    needs: [test]
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-cli
-          ref: ${{ env.ANGZARR_CLI_REF }}
-          path: .deps/angzarr-cli
-      - uses: extractions/setup-just@v2
-      - uses: bufbuild/buf-action@v1
-        with:
-          setup_only: true
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: astral-sh/setup-uv@v6
-      - uses: yokawasa/action-setup-kube-tools@v0.11.2
-        with:
-          setup-tools: skaffold
-          # skaffold.yaml uses apiVersion skaffold/v4beta11 (skaffold >= 2.10).
-          skaffold: 2.17.0
-      - uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - run: just -f justfile.container ci-setup
-      - run: just ci-images
-        env:
-          SKAFFOLD_PUSH: ${{ github.event_name != 'pull_request' }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts
-          path: build.json

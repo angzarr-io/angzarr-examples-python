@@ -4,12 +4,7 @@
     "dockerfile": "Containerfile"
   },
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
-      "helm": "latest",
-      "kubectl": "latest",
-      "minikube": "none"
-    }
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
   "customizations": {
     "vscode": {
@@ -17,8 +12,7 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "charliermarsh.ruff",
-        "zxh404.vscode-proto3",
-        "cucumberopen.cucumber-official"
+        "zxh404.vscode-proto3"
       ],
       "settings": {
         "python.defaultInterpreterPath": ".venv/bin/python",

@@ -1,177 +1,36 @@
-# Angzarr blackjack example (Python) — container recipes.
+# Angzarr Python examples — container recipes.
 #
 # Mounted as `justfile` inside the dev container (see the host justfile's
 # `_container`) and used directly by CI container jobs. Every recipe runs from
-# the repository root.
+# the repository root, in the root's tooling environment (pyproject.toml): the
+# formatter and linter over the player app, and the tests of tools/. The
+# player app itself runs on the host (player/justfile).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
-
-# The deployable components (Containerfile target == image suffix). On this
-# branch only the stage-1 slice: agg-table. The other five wait on the
-# blackjack rulings R1-R4 (README).
-COMPONENTS := "agg-table"
-
-# The angzarr CLI (codegen plugin) is built from a source checkout.
-CLI_SRC := env_var_or_default("ANGZARR_CLI_SRC", "../../angzarr-cli/main")
-# The angzarr-client revision whose codegen templates render the wiring; the
-# pyproject pins the same revision.
-CLIENT_REF := "1621e8c92318bf023db27d9ad163ed9e361fd702"
-
-# versionator generates the build version (src/angzarr_blackjack/_version.py,
-# never committed) that each component's host reports as its rules_version.
-# Pinned to a release and its sha256 (checksums.txt of that release).
-VERSIONATOR_VERSION := "0.2.3"
-VERSIONATOR_SHA256_AMD64 := "315a5c746cbb3c9701bfe37c441e19fd54b676ce25746accca2bed26d4dfabc9"
-VERSIONATOR_SHA256_ARM64 := "06a618df82e85aef939d215b7cf462171312b49b050923ebe9a4b6d10770b9a0"
-
-# Features: the in-process tier, read straight from the angzarr-project
-# submodule. Only the stage-1 slice runs: table creation (EU-1440..1442) and
-# the golden shoe vectors (EU-1520..1525). Keep in step with
-# tests/example/test_features.py.
-UNIT_FEATURES := "angzarr-project/features/example/blackjack/table.feature angzarr-project/features/example/blackjack/shoe.feature"
-UNIT_TAGS := "not @wip and (@EU-1440 or @EU-1441 or @EU-1442 or @EU-1520 or @EU-1521 or @EU-1522 or @EU-1523 or @EU-1524 or @EU-1525)"
 
 default:
     @just --list
 
-# The component list, for CI matrices.
-components:
-    @echo {{COMPONENTS}}
-
-# Build the angzarr CLI (the buf `angzarr codegen python` plugin) into .tools/bin.
-cli-build:
-    mkdir -p .tools/bin
-    cd {{CLI_SRC}} && go build -o {{justfile_directory()}}/.tools/bin/angzarr .
-
-# Everything a fresh checkout needs before tests or image builds: the CLI,
-# generated code, the build version and the environment (installing
-# angzarr-client builds its router library with cargo).
-ci-setup: cli-build install
-
-# Install the pinned versionator into .tools/bin (kept while it matches the pin).
-versionator-install:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bin=.tools/bin/versionator
-    stamp=.tools/bin/versionator.version
-    if [ -x "$bin" ] && [ "$(cat "$stamp" 2>/dev/null)" = "{{VERSIONATOR_VERSION}}" ]; then
-        exit 0
-    fi
-    case "$(uname -m)" in
-        x86_64) arch=amd64; sha={{VERSIONATOR_SHA256_AMD64}} ;;
-        aarch64|arm64) arch=arm64; sha={{VERSIONATOR_SHA256_ARM64}} ;;
-        *) echo "versionator: no pinned build for $(uname -m)" >&2; exit 1 ;;
-    esac
-    tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' EXIT
-    curl -fsSL -o "$tmp/versionator.tgz" \
-        "https://github.com/benjaminabbitt/versionator/releases/download/v{{VERSIONATOR_VERSION}}/versionator_{{VERSIONATOR_VERSION}}_linux_${arch}.tar.gz"
-    echo "${sha}  $tmp/versionator.tgz" | sha256sum -c --quiet -
-    tar -xzf "$tmp/versionator.tgz" -C "$tmp" versionator
-    mkdir -p .tools/bin
-    install -m 0755 "$tmp/versionator" "$bin"
-    echo "{{VERSIONATOR_VERSION}}" > "$stamp"
-
-# Generate the build version module the components' hosts report (the
-# VERSION file plus git metadata; client-python's documented versionator
-# invocation). Rewritten whole, so a failed run leaves no partial module.
-version: versionator-install
-    #!/usr/bin/env bash
-    set -euo pipefail
-    out=src/angzarr_blackjack/_version.py
-    .tools/bin/versionator output emit python --metadata > "$out.tmp"
-    mv "$out.tmp" "$out"
-
-# Generate the blackjack message types, gRPC stubs and angzarr dispatch wiring
-# into src/angzarr_blackjack/_gen as regular packages (so the import graph
-# that `archlint` checks resolves them), then reroot the plugins' path imports:
-# framework protos under angzarr_client.proto, the example protos under the
-# package (never shadowing stdlib `io`).
-proto-gen:
-    rm -rf src/angzarr_blackjack/_gen
-    PATH="{{justfile_directory()}}/.tools/bin:$PATH" buf generate \
-        --path angzarr-project/proto/io/angzarr/examples
-    find src/angzarr_blackjack/_gen -type d -exec touch {}/__init__.py \;
-    uv run python tools/fixup_gen_imports.py \
-        src/angzarr_blackjack/_gen \
-        io.angzarr.v1=angzarr_client.proto.io.angzarr.v1 \
-        io.angzarr.status=angzarr_client.proto.io.angzarr.status \
-        sererr=angzarr_client.proto.sererr \
-        io.angzarr.examples.v1=angzarr_blackjack._gen.io.angzarr.examples.v1
-
-# Generate code and the build version, and sync the environment.
-install *FLAGS: proto-gen version
-    uv sync {{FLAGS}}
-
-# Native unit tests: the table's CreateTable logic, its configuration rule,
-# the shoe golden vectors, and the table through the router and over gRPC.
-test-unit:
-    uv run pytest tests/unit
-
-# The behave unit tier: the stage-1 scenarios, run in-process through the
-# router binding. Undefined or pending steps fail.
-test-example-unit:
-    uv run behave --stage unit --format progress \
-        --no-skipped --tags="{{UNIT_TAGS}}" {{UNIT_FEATURES}}
+# The tooling environment.
+install *FLAGS:
+    uv sync --locked {{FLAGS}}
 
 # The repository's own tooling (tools/test_*.py).
 test-tools:
-    uv run pytest -p no:cacheprovider tools/test_mutation_scope.py tools/test_grpc_pin.py
+    uv run --locked pytest -p no:cacheprovider tools
 
-# Unit + behave tiers, and the tooling's tests.
-test: test-unit test-example-unit test-tools
+# Every root test: the tooling's.
+test: test-tools
 
 # CI entry point for the test job.
-ci-test: lint archlint (fmt "--check") test
+ci-test: lint (fmt "--check") test
 
 fmt *FLAGS:
-    uv run black {{FLAGS}} src tests unit_steps tools unit_environment.py player/src player/tests
+    uv run --locked black {{FLAGS}} tools player/src player/tests
 
 fmt-fix:
-    uv run ruff check --fix src tests unit_steps tools unit_environment.py player/src player/tests
-    uv run black src tests unit_steps tools unit_environment.py player/src player/tests
-
-# Architecture lint: the import contracts in .importlinter (package layering)
-# and .importlinter-external (third-party imports), via import-linter. The
-# graph is rebuilt every run: the mtime-keyed cache goes stale across checkouts.
-archlint:
-    PYTHONPATH=src uv run lint-imports --no-cache --config .importlinter
-    PYTHONPATH=src uv run lint-imports --no-cache --config .importlinter-external
+    uv run --locked ruff check --fix tools player/src player/tests
+    uv run --locked black tools player/src player/tests
 
 lint:
-    uv run ruff check src tests unit_steps tools unit_environment.py player/src player/tests
-
-# Run one component locally (e.g. `just run agg-table`).
-run component: version
-    PYTHONPATH=src uv run python -m \
-        "angzarr_blackjack.$(just -f {{justfile()}} _module {{component}})"
-
-[private]
-_module component:
-    #!/usr/bin/env bash
-    case "{{component}}" in
-        agg-table) echo table.agg.main ;;
-        *) echo "unknown component {{component}}" >&2; exit 1 ;;
-    esac
-
-# Mutation testing (mutmut over the business logic, killed by pytest + the
-# behave bridge). Fails below a 90% kill rate. With no paths, every mutant
-# (the scheduled CI pass); given repository-relative changed paths (by hand,
-# e.g. `git diff --name-only origin/main`; no git hook runs mutation), only
-# the mutants of the changed modules (tools/mutation_scope.py), and nothing
-# when none has a mutant.
-mutation-test *CHANGED:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    only=()
-    if [ -n "{{CHANGED}}" ]; then
-        globs="$(uv run --quiet python tools/mutation_scope.py . {{CHANGED}})"
-        read -ra only <<< "$globs"
-        if [ "${#only[@]}" -eq 0 ]; then
-            echo "mutation: the push changes no module with mutants"
-            exit 0
-        fi
-    fi
-    rm -rf mutants
-    uv run mutmut run --max-children "${MUTMUT_CHILDREN:-4}" "${only[@]}"
-    uv run python tools/mutation_gate.py mutants 90 "${only[@]}"
+    uv run --locked ruff check tools player/src player/tests

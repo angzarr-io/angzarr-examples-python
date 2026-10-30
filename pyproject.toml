@@ -1,55 +1,29 @@
+# The repository's tooling environment: the formatter and linter run over the
+# player app (player/, its own uv project), and the tests of tools/. Not a
+# package: nothing is built or installed from the root.
+
 [project]
-name = "angzarr-blackjack"
+name = "angzarr-examples-python-tools"
 version = "0.1.0"
-description = "Blackjack table example built on the angzarr CQRS/ES framework"
+description = "Tooling for the angzarr Python examples"
 requires-python = ">=3.11"
-dependencies = [
-    # The router binding (angzarr_client.router), the framework protos
-    # (angzarr_client.proto), the component host and the codegen templates.
-    # Not released yet: pinned to a commit; installing it builds its protos
-    # and router library (needs cargo).
-    "angzarr-client",
-    # The 7.x runtime the protocolbuffers/python v35.1 gencode targets.
-    "protobuf>=7.35.1,<8",
-    # grpc/python v1.76.0 gencode checks the runtime is at least that version.
-    "grpcio>=1.76.0",
-    "grpcio-health-checking>=1.76.0",
-    "structlog>=24.0.0",
-]
+dependencies = []
 
 [dependency-groups]
 dev = [
-    "behave>=1.3.3",
     "pytest>=8.0.0",
-    "pytest-timeout>=2.3.0",
     "black>=24.0.0",
     "ruff>=0.4.0",
+    # tools/mutation_scope.py counts mutants with mutmut's own mutator.
     "mutmut>=3.2.0,<3.3",
-    "import-linter==2.15",
 ]
 
 [tool.uv]
-# Installing angzarr-client builds it, and its build (`[build-system]`
-# requires grpcio-tools>=1.84,<1.85) generates the framework's *_pb2_grpc.py
-# modules, which refuse to import on a grpcio older than the generating
-# grpcio-tools. Unconstrained, a fresh build takes the newest 1.84.x (1.84.2)
-# against the grpcio uv.lock holds (1.84.1). Pinned to that grpcio: bump the
-# two together.
-build-constraint-dependencies = ["grpcio-tools==1.84.1"]
-
-[tool.uv.sources]
-angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "1621e8c92318bf023db27d9ad163ed9e361fd702" }
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/angzarr_blackjack"]
+package = false
 
 [tool.pytest.ini_options]
-pythonpath = [".", "src"]
-testpaths = ["tests"]
+pythonpath = ["tools"]
+testpaths = ["tools"]
 addopts = "-q"
 
 [tool.black]
@@ -58,32 +32,10 @@ extend-exclude = '''
 (
     angzarr-project
     | mutants
-    | \.deps
     | _gen
     | player/src/angzarr_player/(domain|logic|main|__main__|_descriptor|_version)\.py
 )
 '''
-
-[tool.mutmut]
-# Everything under src/ is copied into mutants/; the business logic and the
-# hosts are mutated. Generated code, transport (servicers, server) and process
-# entrypoints are copied unmutated. The pytest suite — native unit tests plus
-# the in-process behave bridge (tests/example/test_features.py) — runs against
-# each mutant.
-paths_to_mutate = ["src/"]
-do_not_mutate = [
-    "src/angzarr_blackjack/_gen/*",
-    "*/main.py",
-    "*/__init__.py",
-]
-# The bridge runs behave over the submodule's features with the unit steps,
-# through the staged router binding.
-also_copy = [
-    "unit_steps/",
-    "unit_environment.py",
-    "angzarr-project/features/",
-    "uv.lock",
-]
 
 [tool.ruff]
 extend-exclude = [
@@ -96,10 +48,5 @@ extend-exclude = [
     "player/src/angzarr_player/_descriptor.py",
     "player/src/angzarr_player/_version.py",
     "angzarr-project",
-    ".deps",
     "mutants",
 ]
-
-[tool.ruff.lint.per-file-ignores]
-# Behave environments put src/ on sys.path before importing the steps.
-"unit_environment.py" = ["E402"]

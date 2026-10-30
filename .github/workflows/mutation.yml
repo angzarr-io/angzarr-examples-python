@@ -8,36 +8,7 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
-env:
-  ANGZARR_CLI_REF: 734b1bbdd4e913f19f8cb87f3f1dd95c06053d99
-  ANGZARR_CLI_SRC: .deps/angzarr-cli
-
 jobs:
-  mutation:
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-          submodules: true
-      - uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-cli
-          ref: ${{ env.ANGZARR_CLI_REF }}
-          path: .deps/angzarr-cli
-      - uses: extractions/setup-just@v2
-      - uses: bufbuild/buf-action@v1
-        with:
-          setup_only: true
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: astral-sh/setup-uv@v6
-      - run: just -f justfile.container ci-setup
-      - run: just -f justfile.container mutation-test
-
   # The player app (player/, its own uv project): every mutant of its own
   # code, gated at 90% (player/justfile `mutation-test`).
   player-mutation:
