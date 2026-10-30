@@ -52,3 +52,7 @@ pre-push:
     mutation:
       tags: slow
       run: just mutation-test
+    # The player's mutants, over the modules the push changes (player/justfile).
+    player-mutation:
+      glob: "player/src/**/*.py"
+      run: just --justfile player/justfile mutation-test {push_files}

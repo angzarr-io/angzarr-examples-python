@@ -37,3 +37,17 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: just -f justfile.container ci-setup
       - run: just -f justfile.container mutation-test
+
+  # The player app (player/, its own uv project): every mutant of its own
+  # code, gated at 90% (player/justfile `mutation-test`).
+  player-mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: extractions/setup-just@v2
+      - uses: astral-sh/setup-uv@v6
+      - run: just --justfile player/justfile install
+      - run: just --justfile player/justfile mutation-test

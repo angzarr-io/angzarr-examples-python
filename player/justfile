@@ -79,3 +79,26 @@ test-commit merging="":
     fi
     echo "RED  player tests: red tests committed on $branch, allowed off $default; $branch cannot merge into $default until they pass" >&2
     exit 0
+
+# Mutation testing: mutmut over the player's own code (pyproject
+# [tool.mutmut]), killed by its pytest suite. Fails below a 90% kill rate.
+# With no paths, every mutant (the scheduled CI pass); given the
+# repository-relative paths a push changed (the pre-push hook), only the
+# mutants of the changed modules, and nothing when none is mutated.
+mutation-test *CHANGED:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd {{TOP}}/..
+    only=()
+    if [ -n "{{CHANGED}}" ]; then
+        globs="$(python3 tools/mutation_scope.py player {{CHANGED}})"
+        read -ra only <<< "$globs"
+        if [ "${#only[@]}" -eq 0 ]; then
+            echo "player mutation: the push changes no mutated module"
+            exit 0
+        fi
+    fi
+    cd player
+    rm -rf mutants
+    uv run --locked mutmut run --max-children "${MUTMUT_CHILDREN:-4}" "${only[@]}"
+    uv run --locked python ../tools/mutation_gate.py mutants 90 "${only[@]}"
