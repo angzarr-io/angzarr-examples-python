@@ -43,6 +43,18 @@ just fmt-fix               # ruff --fix and black over the same
 just push-check origin     # pre-push: every test (root and player) of each pushed commit; red refused on main only
 ```
 
+## Git hooks
+
+lefthook (`lefthook.yml`) runs, before each commit, the submodule and secret
+guards, the formatter, and every test: the root's (`just test-commit`) and the
+player's (`just --justfile player/justfile test-commit`). Red tests are
+allowed on a branch and never reach the default branch: committed off it,
+failing tests pass with a warning; committed on it, or in a merge commit, they
+fail. Before each push, `just push-check` runs every test in the pushed
+commit's own tree and refuses a push to the default branch whose tests fail.
+No hook runs mutation testing; CI runs it on a schedule
+(`.github/workflows/mutation.yml`).
+
 ## License
 
 BSD-3-Clause

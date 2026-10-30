@@ -28,17 +28,20 @@ pre-commit:
       stage_fixed: true
     scan-secrets:
       run: just scan-secrets
-    # The root's tests (the tooling's, in the dev container).
+    # Red tests pass off the default branch, with a warning, and fail on it
+    # (each `test-commit` says how). The root's tests (the tooling's, in the
+    # dev container):
     test:
-      run: just test
-    # The player app (player/, a uv project run on the host). Red tests pass
-    # off the default branch, with a warning (`test-commit` says how).
+      run: just test-commit
+    # The player app (player/, a uv project run on the host):
     player-test:
       run: just --justfile player/justfile test-commit
 
-# A merge commit is tested as a commit is, and red player tests fail it.
+# A merge commit is tested as a commit is, and red tests fail it.
 pre-merge-commit:
   commands:
+    test:
+      run: just test-commit merging
     player-test:
       run: just --justfile player/justfile test-commit merging
 
