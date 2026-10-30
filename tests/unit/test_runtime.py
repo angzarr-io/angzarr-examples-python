@@ -157,3 +157,20 @@ def test_every_deployable_registers_its_services():
         ]
     finally:
         host.stop()
+
+
+# --- envelope readers ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "type_url",
+    [
+        "type.googleapis.com/io.angzarr.examples.v1.TableCreated",
+        "/io.angzarr.examples.v1.TableCreated",
+        "io.angzarr.examples.v1.TableCreated",  # no prefix at all
+    ],
+)
+def test_a_type_url_names_its_message_whatever_its_prefix(type_url):
+    from angzarr_blackjack._runtime.books import type_name
+
+    assert type_name(type_url) == "io.angzarr.examples.v1.TableCreated"
