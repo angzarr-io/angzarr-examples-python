@@ -12,7 +12,7 @@ from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 
 def type_name(type_url: str) -> str:
     """The fully-qualified message name a type URL identifies (text after the last "/")."""
-    return type_url.rsplit("/", 1)[-1]
+    return type_url.rpartition("/")[2]
 
 
 def unpack(any_msg, message_class):
