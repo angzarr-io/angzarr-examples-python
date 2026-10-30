@@ -19,6 +19,6 @@ def config_is_valid(
         and 0 < min_bet <= max_bet
         and min_bet % 2 == 0
         and max_bet % 2 == 0
-        and 0 < min_buy_in <= max_buy_in
+        and min_buy_in <= max_buy_in
         and min_bet <= min_buy_in
     )
