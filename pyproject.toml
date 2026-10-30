@@ -51,6 +51,7 @@ extend-exclude = '''
     | mutants
     | \.deps
     | _gen
+    | player/src/angzarr_player/(domain|logic|main|__main__|_descriptor|_version)\.py
 )
 '''
 
@@ -78,6 +79,13 @@ also_copy = [
 [tool.ruff]
 extend-exclude = [
     "**/_gen/**",
+    # The player's files the angzarr CLI rewrites on every scaffold run.
+    "player/src/angzarr_player/domain.py",
+    "player/src/angzarr_player/logic.py",
+    "player/src/angzarr_player/main.py",
+    "player/src/angzarr_player/__main__.py",
+    "player/src/angzarr_player/_descriptor.py",
+    "player/src/angzarr_player/_version.py",
     "angzarr-project",
     ".deps",
     "mutants",

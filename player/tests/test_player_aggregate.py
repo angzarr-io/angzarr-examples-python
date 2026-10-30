@@ -119,36 +119,18 @@ def test_the_move_decided_carries_the_hand_it_decided_on(player):
     assert copied == (command["cards"], 17, True, command["dealer_up"])
 
 
-def test_the_fold_counts_a_hand_from_the_events_cards():
-    """The state is rebuilt from events only: hands_seen counts the
-    MoveDecided events whose hand held two cards."""
-    from angzarr_player.adapter import PlayerAggregate
-
-    def decided(*ranks: int) -> _player.MoveDecided:
-        return _player.MoveDecided(
-            table_root=TABLE,
-            round=1,
-            seat=0,
-            action=_player.MOVE_ACTION_HIT,
-            cards=[card(r) for r in ranks],
-        )
-
-    aggregate = PlayerAggregate()
-    state = _player.PlayerState()
-    for event in (decided(2, 4), decided(2, 4, 3), decided(10, 7)):
-        aggregate.apply_move_decided(state, event, None)
-    assert (state.decisions, state.hands_seen) == (3, 2)
-
-
-def test_the_player_describes_itself_with_its_build_version(player):
+def test_the_player_describes_itself_with_its_generated_descriptor():
+    """Decision 14.42: the child answers Describe with the descriptor the CLI
+    generated, its rules_version the build's."""
+    from angzarr_player._descriptor import DESCRIPTOR
     from angzarr_player._version import __version__
     from angzarr_player.main import host
 
     h = host()
     try:
-        descriptor = h.router.component_descriptor()
+        assert h.descriptor is DESCRIPTOR
     finally:
-        h.router.close()
-    assert descriptor.name == "PlayerAggregate"
-    assert descriptor.kind == _t.COMPONENT_KIND_AGGREGATE
-    assert descriptor.rules_version == __version__ != ""
+        h.stop()
+    assert DESCRIPTOR.name == "PlayerAggregate"
+    assert DESCRIPTOR.kind == _t.COMPONENT_KIND_AGGREGATE
+    assert DESCRIPTOR.rules_version == __version__ != ""

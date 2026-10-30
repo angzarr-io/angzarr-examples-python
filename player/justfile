@@ -1,43 +1,52 @@
-# PLACEHOLDER: replace with `angzarr scaffold python` output.
-#
 # The player app (angzarr-player): a uv project run on the host (uv provides
 # Python; none is assumed), launched by angzarr-embedded as a child process.
+# `angzarr scaffold python` wrote it, and rewrites its generated files
+# (`just scaffold`): domain.py, the dispatch under _gen, _descriptor.py,
+# main.py, __main__.py, _version.py and buf.gen.yaml. logic_impl.py,
+# strategy.py and the tests are the player's own.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 TOP := justfile_directory()
-# The angzarr CLI, the buf codegen plugin (the repository's `just cli-build`
-# builds it into ../.tools/bin).
-CLI_DIR := env_var_or_default("ANGZARR_CLI_DIR", TOP / ".." / ".tools" / "bin")
+# The angzarr CLI whose Python scaffold wrote this project, built from
+# angzarr-cli at this revision into .tools/ (`just cli`). ANGZARR_CLI points
+# at another binary instead.
+CLI_REV := "444448d4657573f62fa054c69428c1cf086dccd2"
+CLI := env_var_or_default("ANGZARR_CLI", TOP / ".tools" / "bin" / "angzarr")
+# The angzarr-project revision whose protos the player is written against.
+SPEC_REV := "74690c7e09b163ca02a607b07eb370cdd70bed76"
+SPEC_GIT := "https://github.com/angzarr-io/angzarr-project.git"
 
 default:
     @just --list
 
-# Generate the player's message types and dispatch wiring into
-# src/angzarr_player/_gen. policies.proto is passed only because player.proto
-# names its policy (the CLI validates the declaration); the policies' wiring is
-# the Rust side's, so it is removed.
-proto-gen:
-    rm -rf {{TOP}}/src/angzarr_player/_gen
-    cd {{TOP}} && PATH="{{CLI_DIR}}:$PATH" buf generate \
-        --path io/angzarr/examples/v1/player.proto \
-        --path io/angzarr/examples/v1/cards.proto \
-        --path io/angzarr/examples/v1/policies.proto
-    rm -f {{TOP}}/src/angzarr_player/_gen/io/angzarr/examples/v1/*_policy_angzarr.py \
-        {{TOP}}/src/angzarr_player/_gen/io/angzarr/examples/v1/policies_pb2.py*
-    find {{TOP}}/src/angzarr_player/_gen -type d -exec touch {}/__init__.py \;
-    cd {{TOP}} && uv run --no-project python ../tools/fixup_gen_imports.py \
-        src/angzarr_player/_gen \
-        io.angzarr.v1=angzarr_client.proto.io.angzarr.v1 \
-        io.angzarr.examples.v1=angzarr_player._gen.io.angzarr.examples.v1
+# Install the angzarr CLI at CLI_REV into .tools/ with cargo (skipped when
+# ANGZARR_CLI names another binary).
+cli:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "${ANGZARR_CLI:-}" ]; then exit 0; fi
+    if [ -x "{{CLI}}" ] && [ "$(cat {{TOP}}/.tools/angzarr.rev 2>/dev/null)" = "{{CLI_REV}}" ]; then exit 0; fi
+    cargo install --quiet --locked --git https://github.com/angzarr-io/angzarr-cli --rev {{CLI_REV}} angzarr-cli --root {{TOP}}/.tools
+    echo "{{CLI_REV}}" > {{TOP}}/.tools/angzarr.rev
 
-# The build version the host reports as its rules_version.
-version:
-    cd {{TOP}} && versionator output emit python --metadata > src/angzarr_player/_version.py.tmp
-    mv {{TOP}}/src/angzarr_player/_version.py.tmp {{TOP}}/src/angzarr_player/_version.py
+# Rewrite the generated files from the protos at SPEC_REV, the build version
+# (VERSION) the domain reports as its rules_version, and the lock.
+scaffold: cli
+    #!/usr/bin/env bash
+    set -euo pipefail
+    spec="$(mktemp -d)"
+    trap 'rm -rf "$spec"' EXIT
+    git -C "$spec" init --quiet
+    git -C "$spec" fetch --quiet --depth 1 {{SPEC_GIT}} {{SPEC_REV}}
+    git -C "$spec" checkout --quiet FETCH_HEAD -- proto
+    cd {{TOP}}/.. && "{{CLI}}" --format text scaffold python -I "$spec/proto" \
+        --src player --domain player --rules-version "$(cat {{TOP}}/VERSION)" \
+        --proto-git {{SPEC_GIT}} --proto-ref {{SPEC_REV}} \
+        io/angzarr/examples/v1/player.proto
 
-# Generated code, the build version, and the locked environment.
-install: proto-gen version
+# The locked environment.
+install:
     cd {{TOP}} && uv sync --locked
 
 test:

@@ -62,9 +62,11 @@ def test_the_launched_player_describes_itself(child):
         descriptor = component_pb2_grpc.ComponentServiceStub(channel).Describe(
             component_pb2.DescribeRequest(), timeout=10
         )
+    from angzarr_player._descriptor import DESCRIPTOR
+
+    assert descriptor == DESCRIPTOR
     assert descriptor.name == "PlayerAggregate"
     assert descriptor.kind == _t.COMPONENT_KIND_AGGREGATE
-    assert descriptor.rules_version
 
 
 def test_the_launched_player_decides_a_move(child):
