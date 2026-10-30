@@ -28,6 +28,15 @@ dev = [
     "import-linter==2.15",
 ]
 
+[tool.uv]
+# Installing angzarr-client builds it, and its build (`[build-system]`
+# requires grpcio-tools>=1.84,<1.85) generates the framework's *_pb2_grpc.py
+# modules, which refuse to import on a grpcio older than the generating
+# grpcio-tools. Unconstrained, a fresh build takes the newest 1.84.x (1.84.2)
+# against the grpcio uv.lock holds (1.84.1). Pinned to that grpcio: bump the
+# two together.
+build-constraint-dependencies = ["grpcio-tools==1.84.1"]
+
 [tool.uv.sources]
 angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "1621e8c92318bf023db27d9ad163ed9e361fd702" }
 

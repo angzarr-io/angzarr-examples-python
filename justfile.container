@@ -116,7 +116,7 @@ test-example-unit:
 
 # The repository's own tooling (tools/test_*.py).
 test-tools:
-    uv run pytest -p no:cacheprovider tools/test_mutation_scope.py
+    uv run pytest -p no:cacheprovider tools/test_mutation_scope.py tools/test_grpc_pin.py
 
 # Unit + behave tiers, and the tooling's tests.
 test: test-unit test-example-unit test-tools

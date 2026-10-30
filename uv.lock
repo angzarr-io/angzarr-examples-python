@@ -7,6 +7,9 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 
+[manifest]
+build-constraints = [{ name = "grpcio-tools", specifier = "==1.84.1" }]
+
 [[package]]
 name = "angzarr-blackjack"
 version = "0.1.0"
