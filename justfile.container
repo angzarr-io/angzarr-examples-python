@@ -156,9 +156,10 @@ _module component:
 
 # Mutation testing (mutmut over the business logic, killed by pytest + the
 # behave bridge). Fails below a 90% kill rate. With no paths, every mutant
-# (the scheduled CI pass); given the repository-relative paths a push changed
-# (the pre-push hook), only the mutants of the changed modules
-# (tools/mutation_scope.py), and nothing when none has a mutant.
+# (the scheduled CI pass); given repository-relative changed paths (by hand,
+# e.g. `git diff --name-only origin/main`; no git hook runs mutation), only
+# the mutants of the changed modules (tools/mutation_scope.py), and nothing
+# when none has a mutant.
 mutation-test *CHANGED:
     #!/usr/bin/env bash
     set -euo pipefail

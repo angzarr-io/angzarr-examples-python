@@ -82,9 +82,10 @@ test-commit merging="":
 
 # Mutation testing: mutmut over the player's own code (pyproject
 # [tool.mutmut]), killed by its pytest suite. Fails below a 90% kill rate.
-# With no paths, every mutant (the scheduled CI pass); given the
-# repository-relative paths a push changed (the pre-push hook), only the
-# mutants of the changed modules, and nothing when none is mutated.
+# With no paths, every mutant (the scheduled CI pass); given
+# repository-relative changed paths (by hand, e.g. `git diff --name-only
+# origin/main`; no git hook runs mutation), only the mutants of the changed
+# modules, and nothing when none is mutated.
 mutation-test *CHANGED:
     #!/usr/bin/env bash
     set -euo pipefail
