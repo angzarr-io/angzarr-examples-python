@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"io/angzarr/examples/v1/cards.proto\x12\x16io.angzarr.examples.v1\"L\n\x04\x43\x61rd\x12\x12\n\x04rank\x18\x01 \x01(\rR\x04rank\x12\x30\n\x04suit\x18\x02 \x01(\x0e\x32\x1c.io.angzarr.examples.v1.SuitR\x04suit*M\n\x04Suit\x12\x14\n\x10SUIT_UNSPECIFIED\x10\x00\x12\t\n\x05\x43LUBS\x10\x01\x12\x0c\n\x08\x44IAMONDS\x10\x02\x12\n\n\x06HEARTS\x10\x03\x12\n\n\x06SPADES\x10\x04\x42\x93\x01\n\x13io.angzarr.examplesP\x01ZSgithub.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples\xaa\x02\x10\x41ngzarr.Examples\xea\x02\x11\x41ngzarr::Examplesb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"io/angzarr/examples/v1/cards.proto\x12\x16io.angzarr.examples.v1\"L\n\x04\x43\x61rd\x12\x12\n\x04rank\x18\x01 \x01(\rR\x04rank\x12\x30\n\x04suit\x18\x02 \x01(\x0e\x32\x1c.io.angzarr.examples.v1.SuitR\x04suit*a\n\x04Suit\x12\x14\n\x10SUIT_UNSPECIFIED\x10\x00\x12\x0e\n\nSUIT_CLUBS\x10\x01\x12\x11\n\rSUIT_DIAMONDS\x10\x02\x12\x0f\n\x0bSUIT_HEARTS\x10\x03\x12\x0f\n\x0bSUIT_SPADES\x10\x04\x42\x93\x01\n\x13io.angzarr.examplesP\x01ZSgithub.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples\xaa\x02\x10\x41ngzarr.Examples\xea\x02\x11\x41ngzarr::Examplesb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,7 +33,7 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\023io.angzarr.examplesP\001ZSgithub.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples\252\002\020Angzarr.Examples\352\002\021Angzarr::Examples'
   _globals['_SUIT']._serialized_start=140
-  _globals['_SUIT']._serialized_end=217
+  _globals['_SUIT']._serialized_end=237
   _globals['_CARD']._serialized_start=62
   _globals['_CARD']._serialized_end=138
 # @@protoc_insertion_point(module_scope)

@@ -58,7 +58,7 @@ def player():
     p.close()
 
 
-def card(rank: int, suit=_cards.CLUBS) -> _cards.Card:
+def card(rank: int, suit=_cards.SUIT_CLUBS) -> _cards.Card:
     return _cards.Card(rank=rank, suit=suit)
 
 
@@ -70,7 +70,7 @@ def hand(*ranks: int, total: int, up: int = 9, soft=False, can_double=False, rou
         cards=[card(r) for r in ranks],
         total=total,
         soft=soft,
-        dealer_up=card(up, _cards.DIAMONDS),
+        dealer_up=card(up, _cards.SUIT_DIAMONDS),
         can_double=can_double,
         stack=480,
         wager=20,

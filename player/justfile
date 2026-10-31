@@ -11,10 +11,10 @@ TOP := justfile_directory()
 # The angzarr CLI whose Python scaffold wrote this project, built from
 # angzarr-cli at this revision into .tools/ (`just cli`). ANGZARR_CLI points
 # at another binary instead.
-CLI_REV := "444448d4657573f62fa054c69428c1cf086dccd2"
+CLI_REV := "1460489002fad87c76a6a20f744f8b1fa32dd650"
 CLI := env_var_or_default("ANGZARR_CLI", TOP / ".tools" / "bin" / "angzarr")
 # The angzarr-project revision whose protos the player is written against.
-SPEC_REV := "74690c7e09b163ca02a607b07eb370cdd70bed76"
+SPEC_REV := "ef975bcf6fd6a0207476667d18ddc7bb29a10ab4"
 SPEC_GIT := "https://github.com/angzarr-io/angzarr-project.git"
 
 default:

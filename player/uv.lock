@@ -5,7 +5,7 @@ requires-python = ">=3.11"
 [[package]]
 name = "angzarr-client"
 version = "0.5.0"
-source = { git = "https://github.com/angzarr-io/angzarr-client-python?rev=95c8c0cafd66984490a075359239dee77f094be0#95c8c0cafd66984490a075359239dee77f094be0" }
+source = { git = "https://github.com/angzarr-io/angzarr-client-python?rev=0fbde0fd6c2057137e41e11779f13997f735c6ab#0fbde0fd6c2057137e41e11779f13997f735c6ab" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
@@ -35,7 +35,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "angzarr-client", git = "https://github.com/angzarr-io/angzarr-client-python?rev=95c8c0cafd66984490a075359239dee77f094be0" },
+    { name = "angzarr-client", git = "https://github.com/angzarr-io/angzarr-client-python?rev=0fbde0fd6c2057137e41e11779f13997f735c6ab" },
     { name = "grpcio", specifier = ">=1.84.1" },
     { name = "grpcio-health-checking", specifier = ">=1.76.0" },
     { name = "protobuf", specifier = ">=7.35.1,<8" },

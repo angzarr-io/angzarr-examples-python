@@ -84,11 +84,11 @@ def test_the_launched_player_decides_a_move(child):
                 round=1,
                 seat=0,
                 cards=[
-                    _cards.Card(rank=10, suit=_cards.CLUBS),
-                    _cards.Card(rank=7, suit=_cards.SPADES),
+                    _cards.Card(rank=10, suit=_cards.SUIT_CLUBS),
+                    _cards.Card(rank=7, suit=_cards.SUIT_SPADES),
                 ],
                 total=17,
-                dealer_up=_cards.Card(rank=9, suit=_cards.DIAMONDS),
+                dealer_up=_cards.Card(rank=9, suit=_cards.SUIT_DIAMONDS),
                 stack=480,
                 wager=20,
             )

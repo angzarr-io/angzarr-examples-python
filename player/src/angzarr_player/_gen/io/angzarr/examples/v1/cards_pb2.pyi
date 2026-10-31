@@ -8,15 +8,15 @@ DESCRIPTOR: _descriptor.FileDescriptor
 class Suit(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     SUIT_UNSPECIFIED: _ClassVar[Suit]
-    CLUBS: _ClassVar[Suit]
-    DIAMONDS: _ClassVar[Suit]
-    HEARTS: _ClassVar[Suit]
-    SPADES: _ClassVar[Suit]
+    SUIT_CLUBS: _ClassVar[Suit]
+    SUIT_DIAMONDS: _ClassVar[Suit]
+    SUIT_HEARTS: _ClassVar[Suit]
+    SUIT_SPADES: _ClassVar[Suit]
 SUIT_UNSPECIFIED: Suit
-CLUBS: Suit
-DIAMONDS: Suit
-HEARTS: Suit
-SPADES: Suit
+SUIT_CLUBS: Suit
+SUIT_DIAMONDS: Suit
+SUIT_HEARTS: Suit
+SUIT_SPADES: Suit
 
 class Card(_message.Message):
     __slots__ = ("rank", "suit")

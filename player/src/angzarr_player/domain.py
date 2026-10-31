@@ -17,8 +17,8 @@ from dataclasses import dataclass
 #   or INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS, OUT_OF_RANGE or
 #   PERMISSION_DENIED; the issuing policy's OnRefused receives it.
 # - Bug(key, **args): a defect, never a business answer; the runtime alerts
-#   it and dead-letters the command (UNHANDLED_HANDLER_ERROR, its key and
-#   args the cause).
+#   it and dead-letters the command (ROUTER_REASON_UNHANDLED_HANDLER_ERROR,
+#   its key and args the cause).
 from angzarr_client.router import Bug as Bug
 from angzarr_client.router import CommandContext as CommandContext
 from angzarr_client.router import Rejection as Rejection
