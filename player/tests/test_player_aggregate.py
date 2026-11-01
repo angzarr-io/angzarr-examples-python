@@ -10,6 +10,7 @@ from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
 
 from angzarr_player._gen.io.angzarr.examples.v1 import cards_pb2 as _cards
 from angzarr_player._gen.io.angzarr.examples.v1 import player_pb2 as _player
+from angzarr_player._version import __version__
 from angzarr_player.main import register
 
 PLAYER = b"\x0a" * 16
@@ -23,7 +24,9 @@ class Player:
     def __init__(self) -> None:
         from angzarr_client import ComponentHost
 
-        self.host = register(ComponentHost(_az.Router(), rules_version="0.0.0+test"))
+        # The version the descriptor names: the host refuses any other
+        # (C-0743).
+        self.host = register(ComponentHost(_az.Router(), rules_version=__version__))
         self.history = _t.EventBook(
             cover=_t.Cover(domain="player", root=_t.UUID(value=PLAYER))
         )
