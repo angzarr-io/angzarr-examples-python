@@ -3,15 +3,26 @@
 #
 # Setup: lefthook install (again after a hook is added or removed here: pre-push was)
 
+# Plant the in-submodule pre-commit guard (angzarr-project/submodule.just's
+# install-submodule-hooks, imported by the justfile) after checkouts and
+# merges. A fresh clone or `git worktree add` runs post-checkout before any
+# submodule is checked out: angzarr-project/submodule.just is not there, so
+# the justfile's `import?` brings no `install-submodule-hooks`, and there is
+# no submodule checkout to guard either. The step says so, and how to
+# install the guard once the submodules are checked out; with
+# submodule.just there, the recipe runs and its failure fails the hook.
 post-checkout:
   commands:
     install-submodule-hooks:
-      run: just install-submodule-hooks
+      run: &install-submodule-hooks >-
+        if [ -f angzarr-project/submodule.just ]; then just install-submodule-hooks;
+        else echo "no submodule guard installed: angzarr-project is not checked out (git submodule update --init, then just install-submodule-hooks)";
+        fi
 
 post-merge:
   commands:
     install-submodule-hooks:
-      run: just install-submodule-hooks
+      run: *install-submodule-hooks
 
 pre-commit:
   parallel: false
@@ -37,13 +48,14 @@ pre-commit:
     player-test:
       run: just --justfile player/justfile test-commit
 
-# A merge commit is tested as a commit is, and red tests fail it.
+# A merge commit is tested as a commit is: one bringing red tests onto the
+# default branch is refused, one onto another branch is warned.
 pre-merge-commit:
   commands:
     test:
-      run: just test-commit merging
+      run: just test-commit
     player-test:
-      run: just --justfile player/justfile test-commit merging
+      run: just --justfile player/justfile test-commit
 
 # No mutation testing in any hook: it runs while tests are written and judged
 # (`just --justfile player/justfile mutation-test <changed paths>`, by hand),

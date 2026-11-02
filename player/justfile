@@ -55,9 +55,9 @@ test:
 # The player's test gate the repository's git hooks run, under the
 # red-on-branches rule: red tests (pytest exit 1) pass off the default branch
 # with a warning that the branch cannot merge until they pass, and fail on the
-# default branch and on a merge commit. Every other failure (no environment,
+# default branch (a merge commit into it too). Every other failure (no environment,
 # collection errors) fails everywhere. Needs `just install` once.
-test-commit merging="":
+test-commit:
     #!/usr/bin/env bash
     set -uo pipefail
     cd {{TOP}}
@@ -69,10 +69,6 @@ test-commit merging="":
     default="${default#origin/}"
     default="${default:-main}"
     branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo HEAD)"
-    if [ -n "{{merging}}" ]; then
-        echo "FAIL player tests: red tests cannot be merged" >&2
-        exit 1
-    fi
     if [ "$branch" = "$default" ] || [ "$branch" = "HEAD" ]; then
         echo "FAIL player tests: red tests cannot be committed on $branch; commit them on a branch" >&2
         exit 1

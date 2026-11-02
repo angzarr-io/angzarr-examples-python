@@ -100,10 +100,10 @@ test-tools:
 # The root's test gate the repository's git hooks run, under the
 # red-on-branches rule: red tests (pytest exit 1) pass off the default branch
 # with a warning that the branch cannot merge until they pass, and fail on the
-# default branch and on a merge commit. Every other failure (no environment,
+# default branch (a merge commit into it too). Every other failure (no environment,
 # collection errors, no dev container) fails everywhere. The player's gate is
 # player/justfile's `test-commit`, the same rule.
-test-commit merging="":
+test-commit:
     #!/usr/bin/env bash
     set -uo pipefail
     just --justfile "{{justfile()}}" test
@@ -114,10 +114,6 @@ test-commit merging="":
     default="${default#origin/}"
     default="${default:-main}"
     branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo HEAD)"
-    if [ -n "{{merging}}" ]; then
-        echo "FAIL root tests: red tests cannot be merged" >&2
-        exit 1
-    fi
     if [ "$branch" = "$default" ] || [ "$branch" = "HEAD" ]; then
         echo "FAIL root tests: red tests cannot be committed on $branch; commit them on a branch" >&2
         exit 1
