@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .domain import DecideMove, MoveAction
+from ._gen.domain import DecideMove, MoveAction
 
 
 class Strategy(Protocol):

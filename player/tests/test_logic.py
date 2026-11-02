@@ -7,7 +7,12 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 
-from angzarr_player.domain import CommandContext, MoveAction, MoveDecided, PlayerState
+from angzarr_player._gen.domain import (
+    CommandContext,
+    MoveAction,
+    MoveDecided,
+    PlayerState,
+)
 from angzarr_player.logic_impl import PlayerLogicImpl
 from angzarr_player.strategy import BasicStrategy
 

@@ -8,15 +8,16 @@ from __future__ import annotations
 
 import dataclasses
 
-from angzarr_player.domain import (
+from angzarr_player.strategy import BasicStrategy, Strategy
+
+from ._gen.domain import (
     CommandContext,
     DecideMove,
     MoveAction,
     MoveDecided,
     PlayerState,
 )
-from angzarr_player.logic import PlayerLogic
-from angzarr_player.strategy import BasicStrategy, Strategy
+from ._gen.logic import PlayerLogic
 
 
 class PlayerLogicImpl(PlayerLogic):

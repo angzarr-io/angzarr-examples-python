@@ -7,10 +7,11 @@ from __future__ import annotations
 import angzarr_client.router as _az
 import pytest
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
+from angzarr_player._gen._version import __version__
 from angzarr_player._gen.io.angzarr.examples.v1 import cards_pb2 as _cards
 from angzarr_player._gen.io.angzarr.examples.v1 import player_pb2 as _player
-from angzarr_player._version import __version__
-from angzarr_player.main import register
+from angzarr_player._gen.main import register
+from angzarr_player.logic_impl import PlayerLogicImpl
 
 PLAYER = b"\x0a" * 16
 TABLE = b"\x01" * 16
@@ -25,7 +26,9 @@ class Player:
 
         # The version the descriptor names: the host refuses any other
         # (C-0743).
-        self.host = register(ComponentHost(_az.Router(), rules_version=__version__))
+        self.host = register(
+            ComponentHost(_az.Router(), rules_version=__version__), PlayerLogicImpl()
+        )
         self.history = _t.EventBook(
             cover=_t.Cover(domain="player", root=_t.UUID(value=PLAYER))
         )
@@ -124,11 +127,11 @@ def test_the_move_decided_carries_the_hand_it_decided_on(player):
 def test_the_player_describes_itself_with_its_generated_descriptor():
     """Decision 14.42: the child answers Describe with the descriptor the CLI
     generated, its rules_version the build's."""
-    from angzarr_player._descriptor import DESCRIPTOR
-    from angzarr_player._version import __version__
-    from angzarr_player.main import host
+    from angzarr_player._gen._descriptor import DESCRIPTOR
+    from angzarr_player._gen._version import __version__
+    from angzarr_player._gen.main import host
 
-    h = host()
+    h = host(PlayerLogicImpl())
     try:
         assert h.descriptor is DESCRIPTOR
     finally:

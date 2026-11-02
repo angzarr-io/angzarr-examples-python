@@ -61,7 +61,7 @@ def test_the_launched_player_describes_itself(child):
         descriptor = component_pb2_grpc.ComponentServiceStub(channel).Describe(
             component_pb2.DescribeRequest(), timeout=10
         )
-    from angzarr_player._descriptor import DESCRIPTOR
+    from angzarr_player._gen._descriptor import DESCRIPTOR
 
     assert descriptor == DESCRIPTOR
     assert descriptor.name == "player"  # its domain (decision 14.50)

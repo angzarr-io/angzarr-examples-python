@@ -1,9 +1,11 @@
 # The player app (angzarr-player): a uv project run on the host (uv provides
 # Python; none is assumed), launched by angzarr-embedded as a child process.
 # `angzarr scaffold python` wrote it, and rewrites its generated files
-# (`just scaffold`): domain.py, the dispatch under _gen, _descriptor.py,
-# main.py, __main__.py, _version.py and buf.gen.yaml. logic.py (written
-# once), logic_impl.py, strategy.py and the tests are the player's own.
+# (`just scaffold`): everything under src/angzarr_player/_gen (the plain
+# types, the logic's interface, the host, the descriptor, the version, the
+# dispatch and the message types) and buf.gen.yaml. __main__.py and
+# logic_impl.py (written once), strategy.py and the tests are the player's
+# own.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -11,10 +13,10 @@ TOP := justfile_directory()
 # The angzarr CLI whose Python scaffold wrote this project, built from
 # angzarr-cli at this revision into .tools/ (`just cli`). ANGZARR_CLI points
 # at another binary instead.
-CLI_REV := "f966f89cec4a1031972a87dd1e1172b2239164d7"
+CLI_REV := "615229faa440278bb7f7872e318330861c58d076"
 CLI := env_var_or_default("ANGZARR_CLI", TOP / ".tools" / "bin" / "angzarr")
 # The angzarr-project revision whose protos the player is written against.
-SPEC_REV := "eac1617d39d1677a59166d7aa218f56c5c28b8ef"
+SPEC_REV := "f2fbc5c9a2f16d3c49d110789fe2651208a6df68"
 SPEC_GIT := "https://github.com/angzarr-io/angzarr-project.git"
 
 default:

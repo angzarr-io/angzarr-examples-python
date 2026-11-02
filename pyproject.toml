@@ -33,20 +33,15 @@ extend-exclude = '''
 (
     angzarr-project
     | mutants
-    | _gen
-    | player/src/angzarr_player/(domain|main|__main__|_descriptor|_version)\.py
+    | /_gen/
 )
 '''
 
 [tool.ruff]
 extend-exclude = [
+    # The player's generated package, every file of which the angzarr CLI
+    # rewrites on every scaffold run.
     "**/_gen/**",
-    # The player's files the angzarr CLI rewrites on every scaffold run.
-    "player/src/angzarr_player/domain.py",
-    "player/src/angzarr_player/main.py",
-    "player/src/angzarr_player/__main__.py",
-    "player/src/angzarr_player/_descriptor.py",
-    "player/src/angzarr_player/_version.py",
     "angzarr-project",
     "mutants",
 ]

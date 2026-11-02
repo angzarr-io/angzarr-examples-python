@@ -4,7 +4,7 @@ the dealer's up-card, and doubling allowed or not."""
 from __future__ import annotations
 
 import pytest
-from angzarr_player.domain import Card, DecideMove, MoveAction, Suit
+from angzarr_player._gen.domain import Card, DecideMove, MoveAction, Suit
 from angzarr_player.strategy import BasicStrategy
 
 ACE, JACK, QUEEN, KING = 1, 11, 12, 13
