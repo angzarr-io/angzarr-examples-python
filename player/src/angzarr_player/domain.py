@@ -191,12 +191,6 @@ class SeatNotConfirmable:
 
 
 @dataclass(frozen=True)
-class ReleaseSeat:
-    buy_in_id: bytes = b""
-    reason: str = ""
-
-
-@dataclass(frozen=True)
 class Card:
     rank: int = 0
     suit: Suit = Suit.UNSPECIFIED

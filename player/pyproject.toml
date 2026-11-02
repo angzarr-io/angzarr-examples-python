@@ -24,8 +24,8 @@ dev = ["pytest>=8,<9.2", "pytest-timeout>=2.3", "mutmut>=3.2.0,<3.3"]
 
 [tool.uv.sources]
 # The angzarr Python package at the commit this angzarr CLI was built against
-# (e59b377: a policy's reaction fills its outputs, PolicyReaction.outputs).
-angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "e59b3775d27b15c23ec4f70606380e8394cef6de" }
+# (dbec93f: a process manager's compensation tooling, decision 14.74).
+angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "dbec93ff2036f2fbcb37d1582f08d83977276622" }
 
 [build-system]
 requires = ["hatchling"]

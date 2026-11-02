@@ -267,20 +267,6 @@ def _from_seat_not_confirmable(value: _d.SeatNotConfirmable):
     )
 
 
-def _to_release_seat(pb) -> _d.ReleaseSeat:
-    return _d.ReleaseSeat(
-        buy_in_id=pb.buy_in_id,
-        reason=pb.reason,
-    )
-
-
-def _from_release_seat(value: _d.ReleaseSeat):
-    return _table.ReleaseSeat(
-        buy_in_id=value.buy_in_id,
-        reason=value.reason,
-    )
-
-
 def _to_card(pb) -> _d.Card:
     return _d.Card(
         rank=pb.rank,
@@ -476,17 +462,5 @@ def new_player_aggregate_dispatch(logic: PlayerLogic) -> _az.AggregateDispatch:
     if hasattr(logic, "on_refused_confirm_seat"):
         dispatch.on_refused(
             "io.angzarr.examples.v1.ConfirmSeat", _on_refused_confirm_seat
-        )
-
-    def _on_refused_release_seat(refused, state, cctx):
-        command = _to_release_seat(
-            _decode(_table.ReleaseSeat(), refused.command.page.command.payload)
-        )
-        flags = logic.on_refused_release_seat(command, _to_player_state(state), cctx)
-        return _az.FactRecord(refused, tuple(_wire(flags)))
-
-    if hasattr(logic, "on_refused_release_seat"):
-        dispatch.on_refused(
-            "io.angzarr.examples.v1.ReleaseSeat", _on_refused_release_seat
         )
     return dispatch
