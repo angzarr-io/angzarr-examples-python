@@ -22,8 +22,9 @@ angzarr-player = "angzarr_player.main:main"
 dev = ["pytest>=8,<9.2", "pytest-timeout>=2.3", "mutmut>=3.2.0,<3.3"]
 
 [tool.uv.sources]
-# The angzarr Python package at the commit this angzarr CLI was built against.
-angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "31654339ff88dc6035002f74a33946beae38fd28" }
+# The angzarr Python package at the commit this angzarr CLI was built against
+# (424c24a: the four proto packages, decision 14.64).
+angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "424c24ae3095edcf0b644ae8c84948504840d171" }
 
 [build-system]
 requires = ["hatchling"]

@@ -15,7 +15,7 @@ import angzarr_client.router as _az
 import grpc
 import pytest
 from angzarr_client.child import SOCKET_ENV, parse_handshake
-from angzarr_client.proto.io.angzarr.v1 import (
+from angzarr_client.proto.io.angzarr.component.v1 import (
     command_handler_pb2_grpc,
     component_pb2,
     component_pb2_grpc,
