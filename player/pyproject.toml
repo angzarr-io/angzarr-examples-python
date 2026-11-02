@@ -40,16 +40,17 @@ addopts = "-q"
 timeout = 60
 
 [tool.mutmut]
-# The player's own code is mutated: its logic and its strategy. The files the
-# angzarr CLI's scaffold writes (domain.py, logic.py, main.py, __main__.py,
-# _descriptor.py, _version.py and the dispatch under _gen) are copied
-# unmutated, as the root app leaves its generated code; they are the CLI's to
-# test. Run from player/ (`just mutation-test`), killed by its pytest suite.
+# The player's own code is mutated: its logic (logic.py, written once by the
+# scaffold and the player's from then on, and logic_impl.py) and its
+# strategy. The files the angzarr CLI's scaffold rewrites (domain.py, main.py,
+# __main__.py, _descriptor.py, _version.py and the dispatch under _gen) are
+# copied unmutated, as the root app leaves its generated code; they are the
+# CLI's to test. Run from player/ (`just mutation-test`), killed by its pytest
+# suite.
 paths_to_mutate = ["src/"]
 do_not_mutate = [
     "src/angzarr_player/_gen/*",
     "src/angzarr_player/domain.py",
-    "src/angzarr_player/logic.py",
     "src/angzarr_player/main.py",
     "src/angzarr_player/__main__.py",
     "src/angzarr_player/_descriptor.py",

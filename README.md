@@ -19,7 +19,8 @@ run on the host: uv provides Python, and installing angzarr-client (pinned to
 a git revision) builds its router library, so `cargo` must be on PATH.
 `angzarr scaffold python` (the Rust angzarr CLI, pinned in `player/justfile`)
 wrote it and rewrites its generated files (`just --justfile player/justfile
-scaffold`); `logic_impl.py`, `strategy.py` and the tests are the player's own.
+scaffold`); `logic.py` (written once), `logic_impl.py`, `strategy.py` and the
+tests are the player's own.
 
 ```bash
 just --justfile player/justfile install         # the locked environment

@@ -2,8 +2,8 @@
 # Python; none is assumed), launched by angzarr-embedded as a child process.
 # `angzarr scaffold python` wrote it, and rewrites its generated files
 # (`just scaffold`): domain.py, the dispatch under _gen, _descriptor.py,
-# main.py, __main__.py, _version.py and buf.gen.yaml. logic_impl.py,
-# strategy.py and the tests are the player's own.
+# main.py, __main__.py, _version.py and buf.gen.yaml. logic.py (written
+# once), logic_impl.py, strategy.py and the tests are the player's own.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
