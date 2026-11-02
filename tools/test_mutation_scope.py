@@ -5,7 +5,6 @@ from __future__ import annotations
 import textwrap
 
 import pytest
-
 from mutation_scope import scope
 
 CONFIG = """
