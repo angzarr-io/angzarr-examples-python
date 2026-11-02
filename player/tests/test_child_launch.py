@@ -21,7 +21,6 @@ from angzarr_client.proto.io.angzarr.component.v1 import (
     component_pb2_grpc,
 )
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
-
 from angzarr_player._gen.io.angzarr.examples.v1 import cards_pb2 as _cards
 from angzarr_player._gen.io.angzarr.examples.v1 import player_pb2 as _player
 

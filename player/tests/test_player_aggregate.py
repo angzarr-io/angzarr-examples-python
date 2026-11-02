@@ -7,7 +7,6 @@ from __future__ import annotations
 import angzarr_client.router as _az
 import pytest
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
-
 from angzarr_player._gen.io.angzarr.examples.v1 import cards_pb2 as _cards
 from angzarr_player._gen.io.angzarr.examples.v1 import player_pb2 as _player
 from angzarr_player._version import __version__
@@ -66,18 +65,18 @@ def card(rank: int, suit=_cards.SUIT_CLUBS) -> _cards.Card:
 
 
 def hand(*ranks: int, total: int, up: int = 9, soft=False, can_double=False, round=1):
-    return dict(
-        table_root=TABLE,
-        round=round,
-        seat=0,
-        cards=[card(r) for r in ranks],
-        total=total,
-        soft=soft,
-        dealer_up=card(up, _cards.SUIT_DIAMONDS),
-        can_double=can_double,
-        stack=480,
-        wager=20,
-    )
+    return {
+        "table_root": TABLE,
+        "round": round,
+        "seat": 0,
+        "cards": [card(r) for r in ranks],
+        "total": total,
+        "soft": soft,
+        "dealer_up": card(up, _cards.SUIT_DIAMONDS),
+        "can_double": can_double,
+        "stack": 480,
+        "wager": 20,
+    }
 
 
 def test_a_first_decision_on_an_empty_stream(player):

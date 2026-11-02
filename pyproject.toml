@@ -13,7 +13,7 @@ dependencies = []
 dev = [
     "pytest>=8.0.0",
     "black>=24.0.0",
-    "ruff>=0.4.0",
+    "ruff==0.17.3",
     # tools/mutation_scope.py counts mutants with mutmut's own mutator.
     "mutmut>=3.2.0,<3.3",
 ]
@@ -33,7 +33,7 @@ extend-exclude = '''
     angzarr-project
     | mutants
     | _gen
-    | player/src/angzarr_player/(domain|logic|main|__main__|_descriptor|_version)\.py
+    | player/src/angzarr_player/(domain|main|__main__|_descriptor|_version)\.py
 )
 '''
 
@@ -42,7 +42,6 @@ extend-exclude = [
     "**/_gen/**",
     # The player's files the angzarr CLI rewrites on every scaffold run.
     "player/src/angzarr_player/domain.py",
-    "player/src/angzarr_player/logic.py",
     "player/src/angzarr_player/main.py",
     "player/src/angzarr_player/__main__.py",
     "player/src/angzarr_player/_descriptor.py",
