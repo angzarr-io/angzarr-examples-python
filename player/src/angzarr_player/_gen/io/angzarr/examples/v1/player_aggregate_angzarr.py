@@ -3,16 +3,14 @@
 """The PlayerAggregate's dispatch for the router binding, the client's public
 ``AggregateDispatch``: each entry decodes the wire payload, converts it to the
 plain types (:mod:`angzarr_player._gen.domain`), calls ``PlayerLogic``, and
-converts what it returns back: a decision's events (one, an iterable, or None)
-into the event book, or its typed refusal into the client's ``Refused``, a
-fact's flags beside it into its record, a fold's next state into the state. A
-hand-written dispatch built on the same public API may be hosted in its place,
-from ``__main__.py``.
+converts what it returns back: a decision's list of events into the event book,
+or its typed refusal into the client's ``Refused``, a fact's list of events
+beside it into its record, a fold's next state into the state. A hand-written
+dispatch built on the same public API may be hosted in its place, from
+``__main__.py``.
 """
 
 from __future__ import annotations
-
-import dataclasses
 
 import angzarr_client.router as _az
 from angzarr_client.proto.io.angzarr.v1 import types_pb2 as _t
@@ -99,6 +97,50 @@ def _from_move_decided(value: _d.MoveDecided):
         total=value.total,
         soft=value.soft,
         dealer_up=None if value.dealer_up is None else _from_card(value.dealer_up),
+    )
+
+
+def _to_decide_move_refused(pb) -> _d.DecideMoveRefused:
+    return _d.DecideMoveRefused(
+        reason=pb.reason,
+    )
+
+
+def _from_decide_move_refused(value: _d.DecideMoveRefused):
+    return _player.DecideMoveRefused(
+        reason=value.reason,
+    )
+
+
+def _to_record_move_refused(pb) -> _d.RecordMoveRefused:
+    return _d.RecordMoveRefused(
+        seat=pb.seat,
+        action=_d.MoveAction(pb.action),
+        reason=pb.reason,
+    )
+
+
+def _from_record_move_refused(value: _d.RecordMoveRefused):
+    return _player.RecordMoveRefused(
+        seat=value.seat,
+        action=int(value.action),
+        reason=value.reason,
+    )
+
+
+def _to_move_refused(pb) -> _d.MoveRefused:
+    return _d.MoveRefused(
+        seat=pb.seat,
+        action=_d.MoveAction(pb.action),
+        reason=pb.reason,
+    )
+
+
+def _from_move_refused(value: _d.MoveRefused):
+    return _player.MoveRefused(
+        seat=value.seat,
+        action=int(value.action),
+        reason=value.reason,
     )
 
 
@@ -285,17 +327,12 @@ def _from_card(value: _d.Card):
 # Each event's plain type, and its converter to the wire.
 _EVENTS = {
     _d.MoveDecided: _from_move_decided,
+    _d.MoveRefused: _from_move_refused,
 }
 
 
 def _wire(result) -> list:
-    if result is None:
-        events = ()
-    elif dataclasses.is_dataclass(result):
-        events = (result,)
-    else:
-        events = result
-    return [_EVENTS[type(event)](event) for event in events]
+    return [_EVENTS[type(event)](event) for event in result or ()]
 
 
 def _book(result) -> _t.EventBook:
@@ -303,6 +340,19 @@ def _book(result) -> _t.EventBook:
     for wire in _wire(result):
         book.pages.add().payload.CopyFrom(_az.pack(wire))
     return book
+
+
+# Each typed refusal's plain type, and its converter to the wire.
+_REFUSALS = {
+    _d.DecideMoveRefused: _from_decide_move_refused,
+}
+
+
+def _decided(result) -> _t.EventBook:
+    to_wire = _REFUSALS.get(type(result))
+    if to_wire is not None:
+        raise _az.Refused(to_wire(result), result.status())
+    return _book(result)
 
 
 # Each typed refusal a refused command may carry, by its full name: its
@@ -336,13 +386,31 @@ def new_player_aggregate_dispatch(logic: PlayerLogic) -> _az.AggregateDispatch:
         "io.angzarr.examples.v1.MoveDecided", _apply_move_decided
     )
 
+    def _apply_move_refused(state, payload, ctx):
+        event = _to_move_refused(_decode(_player.MoveRefused(), payload))
+        folded = logic.apply_move_refused(_to_player_state(state), event)
+        state.CopyFrom(_from_player_state(folded))
+
+    rebuilder.apply_with_context(
+        "io.angzarr.examples.v1.MoveRefused", _apply_move_refused
+    )
+
     dispatch = _az.AggregateDispatch("player", "player", rebuilder)
 
     def _on_decide_move(payload, state, cctx):
         cmd = _to_decide_move(_decode(_player.DecideMove(), payload))
-        return _book(logic.decide_move(cmd, _to_player_state(state), cctx))
+        return _decided(logic.decide_move(cmd, _to_player_state(state), cctx))
 
     dispatch.on_command("io.angzarr.examples.v1.DecideMove", _on_decide_move)
+
+    def _on_record_move_refused(payload, state, cctx):
+        wire = _decode(_player.RecordMoveRefused(), payload)
+        flags = logic.record_move_refused(_to_record_move_refused(wire), _to_player_state(state), cctx)
+        return _az.FactRecord(wire, tuple(_wire(flags)))
+
+    dispatch.on_fact(
+        "io.angzarr.examples.v1.RecordMoveRefused", _on_record_move_refused
+    )
 
     def _on_refused_create_table(refused, state, cctx):
         command = _to_create_table(

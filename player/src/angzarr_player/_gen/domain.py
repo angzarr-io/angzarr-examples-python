@@ -7,6 +7,7 @@ messages to these and back.
 
 from __future__ import annotations
 
+import dataclasses
 import enum
 from dataclasses import dataclass
 
@@ -118,6 +119,55 @@ class MoveDecided:
 
 
 @dataclass(frozen=True)
+class DecideMoveRefused:
+    reason: str = ""
+
+    def key(self) -> str:
+        """Its diagnostic key: its full name and its reason."""
+        return "io-angzarr-examples-v1-decidemoverefused"
+
+    def args(self) -> dict[str, object]:
+        """Its diagnostic args: the fields it sets."""
+        return _args(self)
+
+    def status(self) -> int:
+        """The status it is refused with, a google.rpc.Code: its reason's
+        refusal_status, FAILED_PRECONDITION (9) where unmarked.
+        """
+        return 9
+
+
+@dataclass(frozen=True)
+class RecordMoveRefused:
+    seat: int = 0
+    action: MoveAction = MoveAction.UNSPECIFIED
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class MoveRefused:
+    seat: int = 0
+    action: MoveAction = MoveAction.UNSPECIFIED
+    reason: str = ""
+
+    @classmethod
+    def from_command(
+        cls,
+        cmd: RecordMoveRefused,
+        /,
+    ) -> MoveRefused:
+        """This event from ``cmd``: every field they share copied, the rest given.
+
+        A missing keyword, or one naming a copied field, is a TypeError.
+        """
+        return cls(
+            seat=cmd.seat,
+            action=cmd.action,
+            reason=cmd.reason,
+        )
+
+
+@dataclass(frozen=True)
 class CreateTable:
     name: str = ""
     min_bet: int = 0
@@ -194,3 +244,16 @@ class SeatNotConfirmable:
 class Card:
     rank: int = 0
     suit: Suit = Suit.UNSPECIFIED
+
+
+def _args(refusal) -> dict[str, object]:
+    """A typed refusal's diagnostic args: each field it sets, by name, an enum
+    by its member's name.
+    """
+    args = {}
+    for f in dataclasses.fields(refusal):
+        value = getattr(refusal, f.name)
+        if value is None or value == f.default or value in ((), {}):
+            continue
+        args[f.name] = value.name if isinstance(value, enum.Enum) else value
+    return args

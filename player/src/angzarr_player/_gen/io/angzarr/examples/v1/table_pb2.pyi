@@ -98,6 +98,16 @@ class ReleaseSeat(_message.Message):
     reason: str
     def __init__(self, buy_in_id: _Optional[bytes] = ..., reason: _Optional[str] = ...) -> None: ...
 
+class RecordMoveUndecided(_message.Message):
+    __slots__ = ("round", "seat", "reason")
+    ROUND_FIELD_NUMBER: _ClassVar[int]
+    SEAT_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    round: int
+    seat: int
+    reason: str
+    def __init__(self, round: _Optional[int] = ..., seat: _Optional[int] = ..., reason: _Optional[str] = ...) -> None: ...
+
 class TableRefused(_message.Message):
     __slots__ = ("reason", "name", "rule", "seat", "min_buy_in", "max_buy_in", "min_bet", "max_bet")
     class Reason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
@@ -401,6 +411,16 @@ class RoundSettled(_message.Message):
     house_delta: int
     house_result_after: int
     def __init__(self, round: _Optional[int] = ..., outcomes: _Optional[_Iterable[_Union[SeatOutcome, _Mapping]]] = ..., house_delta: _Optional[int] = ..., house_result_after: _Optional[int] = ...) -> None: ...
+
+class MoveUndecided(_message.Message):
+    __slots__ = ("round", "seat", "reason")
+    ROUND_FIELD_NUMBER: _ClassVar[int]
+    SEAT_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    round: int
+    seat: int
+    reason: str
+    def __init__(self, round: _Optional[int] = ..., seat: _Optional[int] = ..., reason: _Optional[str] = ...) -> None: ...
 
 class TableSeat(_message.Message):
     __slots__ = ("player_root", "stack", "wager", "hand", "finished")

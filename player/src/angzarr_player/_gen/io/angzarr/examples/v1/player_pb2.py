@@ -27,7 +27,7 @@ from . import cards_pb2 as io_dot_angzarr_dot_examples_dot_v1_dot_cards__pb2
 from angzarr_client.proto.io.angzarr.v1 import options_pb2 as io_dot_angzarr_dot_v1_dot_options__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#io/angzarr/examples/v1/player.proto\x12\x16io.angzarr.examples.v1\x1a\"io/angzarr/examples/v1/cards.proto\x1a\x1bio/angzarr/v1/options.proto\"\x87\x03\n\nDecideMove\x12\x1d\n\ntable_root\x18\x01 \x01(\x0cR\ttableRoot\x12\x14\n\x05round\x18\x02 \x01(\rR\x05round\x12\x12\n\x04seat\x18\x03 \x01(\x05R\x04seat\x12\x32\n\x05\x63\x61rds\x18\x04 \x03(\x0b\x32\x1c.io.angzarr.examples.v1.CardR\x05\x63\x61rds\x12\x14\n\x05total\x18\x05 \x01(\rR\x05total\x12\x12\n\x04soft\x18\x06 \x01(\x08R\x04soft\x12\x39\n\tdealer_up\x18\x07 \x01(\x0b\x32\x1c.io.angzarr.examples.v1.CardR\x08\x64\x65\x61lerUp\x12\x1d\n\ncan_double\x18\x08 \x01(\x08R\tcanDouble\x12\x14\n\x05stack\x18\t \x01(\x03R\x05stack\x12\x14\n\x05wager\x18\n \x01(\x03R\x05wager:L\xc2\xbb\x18H\n\"io.angzarr.examples.v1.PlayerState\x12\"io.angzarr.examples.v1.MoveDecided\"\x8b\x03\n\x0bMoveDecided\x12\x1d\n\ntable_root\x18\x01 \x01(\x0cR\ttableRoot\x12\x14\n\x05round\x18\x02 \x01(\rR\x05round\x12\x12\n\x04seat\x18\x03 \x01(\x05R\x04seat\x12:\n\x06\x61\x63tion\x18\x04 \x01(\x0e\x32\".io.angzarr.examples.v1.MoveActionR\x06\x61\x63tion\x12\x32\n\x05\x63\x61rds\x18\x05 \x03(\x0b\x32\x1c.io.angzarr.examples.v1.CardR\x05\x63\x61rds\x12\x14\n\x05total\x18\x06 \x01(\rR\x05total\x12\x12\n\x04soft\x18\x07 \x01(\x08R\x04soft\x12\x39\n\tdealer_up\x18\x08 \x01(\x0b\x32\x1c.io.angzarr.examples.v1.CardR\x08\x64\x65\x61lerUp:^\xca\xbb\x18$\n\"io.angzarr.examples.v1.PlayerState\xca\xbb\x18\x32\n(io.angzarr.examples.v1.PlayerTablePolicy\x12\x06player\"k\n\x0bPlayerState\x12\x1c\n\tdecisions\x18\x01 \x01(\x04R\tdecisions\x12\x1d\n\nhands_seen\x18\x02 \x01(\x04R\thandsSeen:\x1f\xa2\xbb\x18\x1b\x08\x01\"\x0fPlayerAggregate:\x06player*r\n\nMoveAction\x12\x1b\n\x17MOVE_ACTION_UNSPECIFIED\x10\x00\x12\x13\n\x0fMOVE_ACTION_HIT\x10\x01\x12\x15\n\x11MOVE_ACTION_STAND\x10\x02\x12\x1b\n\x17MOVE_ACTION_DOUBLE_DOWN\x10\x03\x42\x93\x01\n\x13io.angzarr.examplesP\x01ZSgithub.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples\xaa\x02\x10\x41ngzarr.Examples\xea\x02\x11\x41ngzarr::Examplesb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#io/angzarr/examples/v1/player.proto\x12\x16io.angzarr.examples.v1\x1a\"io/angzarr/examples/v1/cards.proto\x1a\x1bio/angzarr/v1/options.proto\"\xb1\x03\n\nDecideMove\x12\x1d\n\ntable_root\x18\x01 \x01(\x0cR\ttableRoot\x12\x14\n\x05round\x18\x02 \x01(\rR\x05round\x12\x12\n\x04seat\x18\x03 \x01(\x05R\x04seat\x12\x32\n\x05\x63\x61rds\x18\x04 \x03(\x0b\x32\x1c.io.angzarr.examples.v1.CardR\x05\x63\x61rds\x12\x14\n\x05total\x18\x05 \x01(\rR\x05total\x12\x12\n\x04soft\x18\x06 \x01(\x08R\x04soft\x12\x39\n\tdealer_up\x18\x07 \x01(\x0b\x32\x1c.io.angzarr.examples.v1.CardR\x08\x64\x65\x61lerUp\x12\x1d\n\ncan_double\x18\x08 \x01(\x08R\tcanDouble\x12\x14\n\x05stack\x18\t \x01(\x03R\x05stack\x12\x14\n\x05wager\x18\n \x01(\x03R\x05wager:v\xc2\xbb\x18r\n\"io.angzarr.examples.v1.PlayerState\x12\"io.angzarr.examples.v1.MoveDecided\"(io.angzarr.examples.v1.DecideMoveRefused\"+\n\x11\x44\x65\x63ideMoveRefused\x12\x16\n\x06reason\x18\x01 \x01(\tR\x06reason\"\xcb\x01\n\x11RecordMoveRefused\x12\x12\n\x04seat\x18\x01 \x01(\x05R\x04seat\x12:\n\x06\x61\x63tion\x18\x02 \x01(\x0e\x32\".io.angzarr.examples.v1.MoveActionR\x06\x61\x63tion\x12\x16\n\x06reason\x18\x03 \x01(\tR\x06reason:N\xc2\xbb\x18J\n\"io.angzarr.examples.v1.PlayerState\x12\"io.angzarr.examples.v1.MoveRefused(\x01\"\x8b\x03\n\x0bMoveDecided\x12\x1d\n\ntable_root\x18\x01 \x01(\x0cR\ttableRoot\x12\x14\n\x05round\x18\x02 \x01(\rR\x05round\x12\x12\n\x04seat\x18\x03 \x01(\x05R\x04seat\x12:\n\x06\x61\x63tion\x18\x04 \x01(\x0e\x32\".io.angzarr.examples.v1.MoveActionR\x06\x61\x63tion\x12\x32\n\x05\x63\x61rds\x18\x05 \x03(\x0b\x32\x1c.io.angzarr.examples.v1.CardR\x05\x63\x61rds\x12\x14\n\x05total\x18\x06 \x01(\rR\x05total\x12\x12\n\x04soft\x18\x07 \x01(\x08R\x04soft\x12\x39\n\tdealer_up\x18\x08 \x01(\x0b\x32\x1c.io.angzarr.examples.v1.CardR\x08\x64\x65\x61lerUp:^\xca\xbb\x18$\n\"io.angzarr.examples.v1.PlayerState\xca\xbb\x18\x32\n(io.angzarr.examples.v1.PlayerTablePolicy\x12\x06player\"\x9f\x01\n\x0bMoveRefused\x12\x12\n\x04seat\x18\x01 \x01(\x05R\x04seat\x12:\n\x06\x61\x63tion\x18\x02 \x01(\x0e\x32\".io.angzarr.examples.v1.MoveActionR\x06\x61\x63tion\x12\x16\n\x06reason\x18\x03 \x01(\tR\x06reason:(\xca\xbb\x18$\n\"io.angzarr.examples.v1.PlayerState\"k\n\x0bPlayerState\x12\x1c\n\tdecisions\x18\x01 \x01(\x04R\tdecisions\x12\x1d\n\nhands_seen\x18\x02 \x01(\x04R\thandsSeen:\x1f\xa2\xbb\x18\x1b\x08\x01\"\x0fPlayerAggregate:\x06player*r\n\nMoveAction\x12\x1b\n\x17MOVE_ACTION_UNSPECIFIED\x10\x00\x12\x13\n\x0fMOVE_ACTION_HIT\x10\x01\x12\x15\n\x11MOVE_ACTION_STAND\x10\x02\x12\x1b\n\x17MOVE_ACTION_DOUBLE_DOWN\x10\x03\x42\x93\x01\n\x13io.angzarr.examplesP\x01ZSgithub.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples\xaa\x02\x10\x41ngzarr.Examples\xea\x02\x11\x41ngzarr::Examplesb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -36,17 +36,27 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\023io.angzarr.examplesP\001ZSgithub.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples\252\002\020Angzarr.Examples\352\002\021Angzarr::Examples'
   _globals['_DECIDEMOVE']._loaded_options = None
-  _globals['_DECIDEMOVE']._serialized_options = b'\302\273\030H\n\"io.angzarr.examples.v1.PlayerState\022\"io.angzarr.examples.v1.MoveDecided'
+  _globals['_DECIDEMOVE']._serialized_options = b'\302\273\030r\n\"io.angzarr.examples.v1.PlayerState\022\"io.angzarr.examples.v1.MoveDecided\"(io.angzarr.examples.v1.DecideMoveRefused'
+  _globals['_RECORDMOVEREFUSED']._loaded_options = None
+  _globals['_RECORDMOVEREFUSED']._serialized_options = b'\302\273\030J\n\"io.angzarr.examples.v1.PlayerState\022\"io.angzarr.examples.v1.MoveRefused(\001'
   _globals['_MOVEDECIDED']._loaded_options = None
   _globals['_MOVEDECIDED']._serialized_options = b'\312\273\030$\n\"io.angzarr.examples.v1.PlayerState\312\273\0302\n(io.angzarr.examples.v1.PlayerTablePolicy\022\006player'
+  _globals['_MOVEREFUSED']._loaded_options = None
+  _globals['_MOVEREFUSED']._serialized_options = b'\312\273\030$\n\"io.angzarr.examples.v1.PlayerState'
   _globals['_PLAYERSTATE']._loaded_options = None
   _globals['_PLAYERSTATE']._serialized_options = b'\242\273\030\033\010\001\"\017PlayerAggregate:\006player'
-  _globals['_MOVEACTION']._serialized_start=1029
-  _globals['_MOVEACTION']._serialized_end=1143
+  _globals['_MOVEACTION']._serialized_start=1484
+  _globals['_MOVEACTION']._serialized_end=1598
   _globals['_DECIDEMOVE']._serialized_start=129
-  _globals['_DECIDEMOVE']._serialized_end=520
-  _globals['_MOVEDECIDED']._serialized_start=523
-  _globals['_MOVEDECIDED']._serialized_end=918
-  _globals['_PLAYERSTATE']._serialized_start=920
-  _globals['_PLAYERSTATE']._serialized_end=1027
+  _globals['_DECIDEMOVE']._serialized_end=562
+  _globals['_DECIDEMOVEREFUSED']._serialized_start=564
+  _globals['_DECIDEMOVEREFUSED']._serialized_end=607
+  _globals['_RECORDMOVEREFUSED']._serialized_start=610
+  _globals['_RECORDMOVEREFUSED']._serialized_end=813
+  _globals['_MOVEDECIDED']._serialized_start=816
+  _globals['_MOVEDECIDED']._serialized_end=1211
+  _globals['_MOVEREFUSED']._serialized_start=1214
+  _globals['_MOVEREFUSED']._serialized_end=1373
+  _globals['_PLAYERSTATE']._serialized_start=1375
+  _globals['_PLAYERSTATE']._serialized_end=1482
 # @@protoc_insertion_point(module_scope)

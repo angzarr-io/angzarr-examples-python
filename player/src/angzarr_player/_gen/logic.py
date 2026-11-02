@@ -19,12 +19,15 @@ from .domain import (
     CreateTable,
     DealRound,
     DecideMove,
+    DecideMoveRefused,
     DoubleDown,
     Hit,
     LeaveTable,
     MoveDecided,
+    MoveRefused,
     PlaceBet,
     PlayerState,
+    RecordMoveRefused,
     RequestSeat,
     SeatNotConfirmable,
     Stand,
@@ -40,18 +43,28 @@ class PlayerLogic(ABC):
     @abstractmethod
     def decide_move(
         self, cmd: DecideMove, state: PlayerState, ctx: CommandContext
-    ) -> MoveDecided: ...
+    ) -> list[MoveDecided] | DecideMoveRefused: ...
+
+    @abstractmethod
+    def record_move_refused(
+        self, fact: RecordMoveRefused, state: PlayerState, ctx: CommandContext
+    ) -> list[MoveRefused]: ...
 
     @abstractmethod
     def apply_move_decided(
         self, state: PlayerState, event: MoveDecided
     ) -> PlayerState: ...
 
+    @abstractmethod
+    def apply_move_refused(
+        self, state: PlayerState, event: MoveRefused
+    ) -> PlayerState: ...
+
 
 class PlayerRefusals(Protocol):
-    """The refusal callbacks PlayerLogicImpl may define, each optional: the
-    dispatch registers each one it has, and passes the refusal of any other
-    command through. Never subclassed; a reference.
+    """The refusal handlers PlayerLogicImpl may define, each optional: the
+    dispatch registers each one it has, and declines the refusal of any other
+    command. Never subclassed; a reference.
     """
 
     def on_refused_create_table(
@@ -60,7 +73,7 @@ class PlayerRefusals(Protocol):
         refusal: TableRefused | None,
         state: PlayerState,
         ctx: CommandContext,
-    ) -> list[MoveDecided]: ...
+    ) -> list[MoveDecided | MoveRefused]: ...
 
     def on_refused_request_seat(
         self,
@@ -68,7 +81,7 @@ class PlayerRefusals(Protocol):
         refusal: TableRefused | None,
         state: PlayerState,
         ctx: CommandContext,
-    ) -> list[MoveDecided]: ...
+    ) -> list[MoveDecided | MoveRefused]: ...
 
     def on_refused_leave_table(
         self,
@@ -76,7 +89,7 @@ class PlayerRefusals(Protocol):
         refusal: TableRefused | None,
         state: PlayerState,
         ctx: CommandContext,
-    ) -> list[MoveDecided]: ...
+    ) -> list[MoveDecided | MoveRefused]: ...
 
     def on_refused_place_bet(
         self,
@@ -84,7 +97,7 @@ class PlayerRefusals(Protocol):
         refusal: TableRefused | None,
         state: PlayerState,
         ctx: CommandContext,
-    ) -> list[MoveDecided]: ...
+    ) -> list[MoveDecided | MoveRefused]: ...
 
     def on_refused_deal_round(
         self,
@@ -92,7 +105,7 @@ class PlayerRefusals(Protocol):
         refusal: TableRefused | None,
         state: PlayerState,
         ctx: CommandContext,
-    ) -> list[MoveDecided]: ...
+    ) -> list[MoveDecided | MoveRefused]: ...
 
     def on_refused_hit(
         self,
@@ -100,7 +113,7 @@ class PlayerRefusals(Protocol):
         refusal: TableRefused | None,
         state: PlayerState,
         ctx: CommandContext,
-    ) -> list[MoveDecided]: ...
+    ) -> list[MoveDecided | MoveRefused]: ...
 
     def on_refused_stand(
         self,
@@ -108,7 +121,7 @@ class PlayerRefusals(Protocol):
         refusal: TableRefused | None,
         state: PlayerState,
         ctx: CommandContext,
-    ) -> list[MoveDecided]: ...
+    ) -> list[MoveDecided | MoveRefused]: ...
 
     def on_refused_double_down(
         self,
@@ -116,7 +129,7 @@ class PlayerRefusals(Protocol):
         refusal: TableRefused | None,
         state: PlayerState,
         ctx: CommandContext,
-    ) -> list[MoveDecided]: ...
+    ) -> list[MoveDecided | MoveRefused]: ...
 
     def on_refused_confirm_seat(
         self,
@@ -124,4 +137,4 @@ class PlayerRefusals(Protocol):
         refusal: SeatNotConfirmable | None,
         state: PlayerState,
         ctx: CommandContext,
-    ) -> list[MoveDecided]: ...
+    ) -> list[MoveDecided | MoveRefused]: ...

@@ -45,6 +45,22 @@ class DecideMove(_message.Message):
     wager: int
     def __init__(self, table_root: _Optional[bytes] = ..., round: _Optional[int] = ..., seat: _Optional[int] = ..., cards: _Optional[_Iterable[_Union[_cards_pb2.Card, _Mapping]]] = ..., total: _Optional[int] = ..., soft: _Optional[bool] = ..., dealer_up: _Optional[_Union[_cards_pb2.Card, _Mapping]] = ..., can_double: _Optional[bool] = ..., stack: _Optional[int] = ..., wager: _Optional[int] = ...) -> None: ...
 
+class DecideMoveRefused(_message.Message):
+    __slots__ = ("reason",)
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    reason: str
+    def __init__(self, reason: _Optional[str] = ...) -> None: ...
+
+class RecordMoveRefused(_message.Message):
+    __slots__ = ("seat", "action", "reason")
+    SEAT_FIELD_NUMBER: _ClassVar[int]
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    seat: int
+    action: MoveAction
+    reason: str
+    def __init__(self, seat: _Optional[int] = ..., action: _Optional[_Union[MoveAction, str]] = ..., reason: _Optional[str] = ...) -> None: ...
+
 class MoveDecided(_message.Message):
     __slots__ = ("table_root", "round", "seat", "action", "cards", "total", "soft", "dealer_up")
     TABLE_ROOT_FIELD_NUMBER: _ClassVar[int]
@@ -64,6 +80,16 @@ class MoveDecided(_message.Message):
     soft: bool
     dealer_up: _cards_pb2.Card
     def __init__(self, table_root: _Optional[bytes] = ..., round: _Optional[int] = ..., seat: _Optional[int] = ..., action: _Optional[_Union[MoveAction, str]] = ..., cards: _Optional[_Iterable[_Union[_cards_pb2.Card, _Mapping]]] = ..., total: _Optional[int] = ..., soft: _Optional[bool] = ..., dealer_up: _Optional[_Union[_cards_pb2.Card, _Mapping]] = ...) -> None: ...
+
+class MoveRefused(_message.Message):
+    __slots__ = ("seat", "action", "reason")
+    SEAT_FIELD_NUMBER: _ClassVar[int]
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    seat: int
+    action: MoveAction
+    reason: str
+    def __init__(self, seat: _Optional[int] = ..., action: _Optional[_Union[MoveAction, str]] = ..., reason: _Optional[str] = ...) -> None: ...
 
 class PlayerState(_message.Message):
     __slots__ = ("decisions", "hands_seen")

@@ -11,7 +11,9 @@ from angzarr_player._gen.domain import (
     CommandContext,
     MoveAction,
     MoveDecided,
+    MoveRefused,
     PlayerState,
+    RecordMoveRefused,
 )
 from angzarr_player.logic_impl import PlayerLogicImpl
 from angzarr_player.strategy import BasicStrategy
@@ -32,7 +34,9 @@ class Always:
 
 
 def decide(logic: PlayerLogicImpl, cmd) -> MoveDecided:
-    return logic.decide_move(cmd, PlayerState(), CommandContext())
+    """The one event a decision returns, as a list (angzarr decision 14.75)."""
+    [decided] = logic.decide_move(cmd, PlayerState(), CommandContext())
+    return decided
 
 
 def test_the_player_plays_basic_strategy_by_default():
@@ -79,3 +83,16 @@ def test_the_fold_leaves_the_old_state_alone():
     after = PlayerLogicImpl().apply_move_decided(before, decided(2))
     assert before == PlayerState(decisions=5, hands_seen=2)
     assert after == dataclasses.replace(before, decisions=6, hands_seen=3)
+
+
+def test_a_refused_move_is_recorded_and_counts_nothing():
+    """The table refused a move (decision 14.76): the player records it, and
+    its fold changes nothing it counts."""
+    logic = PlayerLogicImpl()
+    fact = RecordMoveRefused(seat=1, action=MoveAction.HIT, reason="NOT_YOUR_TURN")
+    recorded = logic.record_move_refused(fact, PlayerState(), CommandContext())
+    assert recorded == [
+        MoveRefused(seat=1, action=MoveAction.HIT, reason="NOT_YOUR_TURN")
+    ]
+    before = PlayerState(decisions=5, hands_seen=2)
+    assert logic.apply_move_refused(before, recorded[0]) == before
