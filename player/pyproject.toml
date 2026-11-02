@@ -6,6 +6,7 @@
 name = "angzarr-player"
 version = "0.1.0"
 description = "The player domain, an angzarr-embedded child process"
+license = "Apache-2.0 OR BSD-3-Clause"
 requires-python = ">=3.11"
 dependencies = [
     "angzarr-client",
