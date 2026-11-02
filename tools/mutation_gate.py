@@ -7,6 +7,10 @@ Usage: python tools/mutation_gate.py mutants 90 [<mutant name glob> ...]
 
 Given mutant name globs (a diff-scoped run's, from mutation_scope.py), only
 the mutants they match are judged; the rest were never run.
+
+Every mutant judged must have been checked: mutmut records one it never ran
+as ``None`` ("not checked"), and a run that found mutants and checked fewer
+has not shown the tests catch them, so it fails whatever the rest's rate.
 """
 
 from __future__ import annotations
@@ -30,6 +34,12 @@ def main(mutants_dir: str, threshold: float, only: list[str] | None = None) -> i
     total = sum(outcomes.values())
     if total == 0:
         print("no mutants were generated")
+        return 1
+    unchecked = outcomes["not checked"]
+    if unchecked:
+        print(
+            f"FAIL: {total} mutants found but {total - unchecked} tested; nothing is judged until every one is"
+        )
         return 1
     rate = 100.0 * outcomes["killed"] / total
     print(f"killed {outcomes['killed']}/{total} ({rate:.1f}%): {dict(outcomes)}")
