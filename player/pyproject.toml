@@ -24,8 +24,8 @@ dev = ["pytest>=8,<9.2", "pytest-timeout>=2.3", "mutmut>=3.2.0,<3.3"]
 
 [tool.uv.sources]
 # The angzarr Python package at the commit this angzarr CLI was built against
-# (424c24a: the four proto packages, decision 14.64).
-angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "424c24ae3095edcf0b644ae8c84948504840d171" }
+# (d557dc7: decide-time meta, every key's status, spec f7a203e).
+angzarr-client = { git = "https://github.com/angzarr-io/angzarr-client-python", rev = "d557dc7e928b95a4e344e5e10742a692229086e0" }
 
 [build-system]
 requires = ["hatchling"]

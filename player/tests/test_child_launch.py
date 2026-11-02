@@ -64,7 +64,7 @@ def test_the_launched_player_describes_itself(child):
     from angzarr_player._descriptor import DESCRIPTOR
 
     assert descriptor == DESCRIPTOR
-    assert descriptor.name == "PlayerAggregate"
+    assert descriptor.name == "player"  # its domain (decision 14.50)
     assert descriptor.kind == _t.COMPONENT_KIND_AGGREGATE
 
 

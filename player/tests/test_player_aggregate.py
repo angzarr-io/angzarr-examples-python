@@ -133,6 +133,7 @@ def test_the_player_describes_itself_with_its_generated_descriptor():
         assert h.descriptor is DESCRIPTOR
     finally:
         h.stop()
-    assert DESCRIPTOR.name == "PlayerAggregate"
+    # An aggregate is named by its domain (decision 14.50).
+    assert DESCRIPTOR.name == "player"
     assert DESCRIPTOR.kind == _t.COMPONENT_KIND_AGGREGATE
     assert DESCRIPTOR.rules_version == __version__ != ""
