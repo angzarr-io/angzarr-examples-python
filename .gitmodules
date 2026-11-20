@@ -1,4 +1,4 @@
 [submodule "angzarr-project"]
 	path = angzarr-project
-	url = https://github.com/angzarr-io/angzarr-project.git
+	url = https://github.com/angzarr-io/angzarr-project-legacy.git
 	branch = main
